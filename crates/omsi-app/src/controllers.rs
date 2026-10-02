@@ -1025,7 +1025,7 @@ Controllers { settled: Vec::new(), devices, focused: true, cfg, deadzone: 0.0, p
         // one it had where it stood. Its share of the trembling is therefore eased over
         // half a second and moved in steps, so the rumble swells and fades with the road
         // instead of building an effect on every frame.
-        self.ff_rumble += ((micro * 3.0).clamp(0.0, 1.0) - self.ff_rumble) * (f.dt / 0.5).clamp(0.0, 1.0);
+        self.ff_rumble += (micro.abs().min(1.0) - self.ff_rumble) * (f.dt / 0.5).clamp(0.0, 1.0);
         let tarmac = (self.ff_rumble * 16.0).round() / 16.0;
         self.rumble_feedback(if on { f.vib_amp.max(f.wheel_bump * 0.75) + tarmac } else { 0.0 }, f.vib_period);
     }
