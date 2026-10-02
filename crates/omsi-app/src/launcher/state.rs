@@ -162,7 +162,18 @@ fn choice_path() -> std::path::PathBuf {
 
 impl Choice {
     pub fn load() -> Choice {
-        let mut c: Choice = std::fs::read_to_string(choice_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let c: Choice = std::fs::read_to_string(choice_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        Self::fresh(c)
+    }
+
+    /// A duty read back from the file, as a new launcher starts with it.
+    fn fresh(mut c: Choice) -> Choice {
+        // A server is joined on purpose, in the launcher's own session (Multiplayer page): a
+        // join left in the file made every later start connect to it, with no sign of it on
+        // the Drive page ("Leave Server" is only there for a server joined since the launch).
+        if c.lan_mode == "join" {
+            c.lan_mode = "off".into();
+        }
         if c.version < 2 {
             // the start was always the map's first entry point: now it is automatic
             c.entry = -1;
@@ -1277,6 +1288,15 @@ pub fn crash_of(log: &std::path::Path) -> Option<(String, String)> {
 mod choice_tests {
     /// `launcher-duty.json` from before the number plate field: the missing key falls back to
     /// the default (no plate), and a typed plate survives a round trip.
+    #[test]
+    fn a_remembered_join_is_not_resumed_at_launch() {
+        let saved: super::Choice = serde_json::from_str(r#"{"lan_mode":"join","lan_addr":"main.example.org"}"#).unwrap();
+        assert_eq!(saved.lan_mode, "join");
+        assert_eq!(super::Choice::fresh(saved).lan_mode, "off");
+        let host: super::Choice = serde_json::from_str(r#"{"lan_mode":"host"}"#).unwrap();
+        assert_eq!(super::Choice::fresh(host).lan_mode, "host");
+    }
+
     #[test]
     fn an_old_duty_file_loads_and_a_typed_plate_is_kept() {
         let old: super::Choice = serde_json::from_str(r#"{"bus":"Vehicles/x.bus","map":"maps/x/global.cfg"}"#).unwrap();
