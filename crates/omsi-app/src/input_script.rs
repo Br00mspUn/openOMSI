@@ -829,6 +829,8 @@ impl App {
 
     /// Zoom the view inside the bus by `notches` of the mouse wheel (in: positive).
     pub(crate) fn zoom_by(&mut self, notches: f32) {
+        // a hand on the zoom cancels an eased Space return.
+        self.f1_reset = None;
         let z = self.view_zoom.entry(self.view.clone()).or_insert(1.0);
         *z = (*z * (1.0 - 0.08 * notches.clamp(-5.0, 5.0))).clamp(0.2, 1.6);
     }
@@ -1107,6 +1109,8 @@ impl App {
             return false;
         }
         if let Some((y0, v0)) = self.both_drag {
+            // a hand on the zoom cancels an eased Space return.
+            self.f1_reset = None;
             // (0x82c5f8: outside, the distance at the press times 1 + the way up over 500
             // pixels; in the bus the field of view at the press plus the way up over 500
             // pixels times the camera's own, which is also its widest (+0x31c, 0x7edde4):

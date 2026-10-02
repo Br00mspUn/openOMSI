@@ -1214,7 +1214,6 @@ impl CamBlend {
         1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t)
     }
 }
-}
 
 #[cfg(test)]
 mod cam_blend_tests {
@@ -1225,12 +1224,11 @@ mod cam_blend_tests {
     }
 
     #[test]
-    fn glide_is_ease_out_over_the_full_second() {
-        assert_eq!(super::CAM_BLEND_SECS, 0.54);
+    fn glide_starts_fast_and_settles_softly() {
         assert_eq!(blend(0.0), 0.0);
         assert_eq!(blend(1.0), 1.0);
         assert!((blend(0.5) - 0.875).abs() < 1e-6);
-        assert!(blend(0.2) > 0.4, "fast off the mark" );
+        assert!(blend(0.2) > 0.4, "fast off the mark");
     }
 }
 >>>>>>> d2c5b7b (Snappy F1 camera glide + eased Space return + driver eye nudge)

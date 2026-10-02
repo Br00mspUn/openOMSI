@@ -1013,24 +1013,11 @@ impl ApplicationHandler for App {
                                 t.rot
                             });
                             let fov_setting = self.settings.fov;
-                            let zoom = self.view_zoom.get(&self.view).copied();
-                            let finish = move |c: &mut omsi_render::Camera| {
-                                if let Some(r) = tracked_rot {
-                                    c.yaw += r[0].clamp(-170.0, 170.0);
-                                    c.pitch = (c.pitch + r[1].clamp(-80.0, 80.0)).clamp(-89.0, 89.0);
-                                    c.roll += r[2].clamp(-60.0, 60.0);
-                                }
-                                // Settings → Field of view (0: the bus's own cameras)
-                                if fov_setting >= 20.0 {
-                                    c.fov_deg = fov_setting.min(120.0);
-                                }
-                                if let Some(z) = zoom {
-                                    c.fov_deg = (c.fov_deg * z).clamp(8.0, 120.0);
-                                }
-                            };
                             // Eased Space return (F1): look + zoom glide home on the
                             // same ease-out as the viewpoint switch instead of
-                            // teleporting. Leaving the view drops a return in flight.
+                            // teleporting — ahead of the zoom read below, so the
+                            // frame draws this frame's zoom, not the last one's.
+                            // Leaving the view drops a return in flight.
                             if self.view == "driver" {
                                 if let Some((look_from, zoom_from, t)) = self.f1_reset {
                                     let (look, zoom, done) =
@@ -1048,6 +1035,21 @@ impl ApplicationHandler for App {
                             } else if self.f1_reset.is_some() {
                                 self.f1_reset = None;
                             }
+                            let zoom = self.view_zoom.get(&self.view).copied();
+                            let finish = move |c: &mut omsi_render::Camera| {
+                                if let Some(r) = tracked_rot {
+                                    c.yaw += r[0].clamp(-170.0, 170.0);
+                                    c.pitch = (c.pitch + r[1].clamp(-80.0, 80.0)).clamp(-89.0, 89.0);
+                                    c.roll += r[2].clamp(-60.0, 60.0);
+                                }
+                                // Settings → Field of view (0: the bus's own cameras)
+                                if fov_setting >= 20.0 {
+                                    c.fov_deg = fov_setting.min(120.0);
+                                }
+                                if let Some(z) = zoom {
+                                    c.fov_deg = (c.fov_deg * z).clamp(8.0, 120.0);
+                                }
+                            };
                             let mut cam = p.camera_look(&self.view, &base, self.look, self.orbit);
                             finish(&mut cam);
                             // Smooth cockpit camera switch (arrow keys): the glide mixes the camera left and the one

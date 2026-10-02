@@ -2192,7 +2192,8 @@ pub(crate) fn orbit_pivot(position: DVec3, heading_deg: f64, center: [f32; 3]) -
 }
 
 /// The driver's eye sits a touch forward of the authored seat point (bus frame:
-/// x right, y forward, z up): 0.12 m, so the dash frame matches a seated driver.
+/// x right, y forward, z up): without it, turning the head shows the inside
+/// of the driver's seat mesh (stock and mod buses alike; OMSI 2 never shows it).
 pub(crate) const EYE_NUDGE: Vec3 = Vec3::new(0.0, 0.12, 0.0);
 
 /// Put a vehicle's meshes where its state says (animations, visibility, lights, the
