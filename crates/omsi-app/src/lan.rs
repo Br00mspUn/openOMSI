@@ -470,7 +470,8 @@ impl RemoteVehicle {
 }
 
 // The chat's keys are `chat_toggle` and `chat_open` of keyboard.cfg's [game]
-// (`KeyboardCfg::with_game_defaults`: V and '/'). Not Y for them: the stock file gives that
+// (`KeyboardCfg::with_game_defaults`: V, and '/' or - where the bus's gear down has '/', as in
+// OMSI's own file - the key left of 1). Not Y for them: the stock file gives that
 // scan code (21) to `scendes_set_z` unmodified and to `view_toggle_informationdisplay` with
 // Ctrl, and a German keyboard's Y is `scendes_set_y`; V (47) is bound to nothing there.
 
@@ -1184,6 +1185,7 @@ fn host_weather(args: &Args, weather: &str) -> Result<Option<String>, String> {
     if w.is_empty() {
         return Ok(None);
     }
+    if crate::weather_setup::custom_weather(Some(w)).is_some(){return Ok(Some(w.to_string()));}
     // a METAR report's values: made into a weather here, no file and no sync of our own
     if w.starts_with(crate::weather_setup::REPORT) {
         return if crate::weather_setup::from_report(w).is_some() {
@@ -3214,8 +3216,8 @@ fn debug_log(lan: &LanSession, game: &mut LanGame, dt: f32, frame: &Frame) {
 // ---------------------------------------------------------------------------------------
 // chat
 
-/// A key while LAN play runs: the key bound to `chat_open` ('/' unless the player moved
-/// it) opens the chat line, the one bound to `chat_toggle` (V) hides and shows the chat - `bound` is the `[game]` action of `Inputs/keyboard.cfg` the
+/// A key while LAN play runs: the key bound to `chat_open` ('/' or '`', see
+/// `KeyboardCfg::with_game_defaults`) opens the chat line, the one bound to `chat_toggle` (V) hides and shows the chat - `bound` is the `[game]` action of `Inputs/keyboard.cfg` the
 /// key makes with the modifiers held. While the line is open every key is the chat's
 /// (Enter sends, Escape drops the line, Backspace takes a character back).
 /// Returns whether the key was taken. Text arrives through `chat_type`.

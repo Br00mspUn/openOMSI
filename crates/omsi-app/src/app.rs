@@ -72,6 +72,9 @@ pub(crate) struct App {
     pub(crate) mirror_budget: f32,
     pub(crate) mirrors_seen: usize,
     pub(crate) mirror_turn: usize,
+    /// With no real-time reflections: the bus whose mirrors are frozen (see
+    /// `MIRROR_FREEZE_REDRAW`).
+    pub(crate) frozen_mirrors: Option<FrozenMirrors>,
     /// Cursor and view the hover was last worked out for (see the redraw).
     pub(crate) hover_key: Option<(i32, i32, i32, i32)>,
     pub(crate) view: String,
@@ -125,6 +128,10 @@ pub(crate) struct App {
     pub(crate) pane_scroll: Option<(usize, usize)>,
     /// The digits of a time being typed in the world page of the game menu (None: not typing).
     pub(crate) menu_edit: Option<String>,
+    pub(crate) menu_edit_icao: bool,
+    /// The vehicle being chosen in "Place a vehicle" takes the place of the one driven
+    /// (the game menu's "Swap for another vehicle", #728).
+    pub(crate) swap_pending: bool,
     /// The line of the open list whose slider the mouse button holds (it follows the cursor).
     pub(crate) menu_drag: Option<usize>,
     /// The keyboard chose the line of the menu last (the mouse moved since: false), so the
@@ -273,6 +280,8 @@ pub(crate) struct App {
     pub(crate) weather_cycle: Option<crate::weather_cycle::Cycle>,
     /// The METAR sync's download under way (see `tick_metar`), and the seconds to the next one.
     pub(crate) metar_rx: Option<std::sync::mpsc::Receiver<Option<omsi_content::weather::Weather>>>,
+    /// The current METAR receiver is a single manual fetch rather than the continuous sync.
+    pub(crate) metar_once: bool,
     pub(crate) metar_next: f64,
     /// The mouse cursor currently shows the hand (it is over a switch).
     pub(crate) cursor_kind: u8,
@@ -1030,6 +1039,12 @@ pub(crate) fn blend_local(a: &omsi_vehicle::Camera, b: &omsi_vehicle::Camera, k:
         pitch,
         extra: b.extra,
     }
+}
+
+/// A bus whose mirrors are frozen, and the seconds since they were first drawn.
+pub(crate) struct FrozenMirrors {
+    pub(crate) bus: u64,
+    pub(crate) since: f32,
 }
 
 #[derive(Default)]

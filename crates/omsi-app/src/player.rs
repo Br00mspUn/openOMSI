@@ -17,6 +17,16 @@ fn indicator_toggle_action(state: &mut u8, lever: Option<u8>, want: u8) -> &'sta
     }
 }
 
+/// The indicator lever to put back after a frame of the script (None: leave it): where
+/// the settings keep an indicator on (`cancel` off), the script turning it off by itself
+/// in its frame - a bus whose indicator cancels after a turn, on a phone's wheel after a
+/// second or two (#451) - is undone. The player's own keys and clicks run as triggers
+/// between the frames, so they still turn it off.
+fn kept_indicator(cancel: bool, before: Option<f32>, after: Option<f32>) -> Option<f32> {
+    let (before, after) = (before?.round(), after?.round());
+    (!cancel && (before == 1.0 || before == 2.0) && after == 0.0).then_some(before)
+}
+
 pub(crate) fn steering_view_yaw(current: f32, steering: f32, dt: f32, enabled: bool, angle: f32, response: f32) -> f32 {
     let target = if enabled { steering.clamp(-1.0, 1.0) * angle.clamp(0.0, 60.0) } else { 0.0 };
     current + (target - current) * (1.0 - (-dt.max(0.0) / response.clamp(0.05, 1.0)).exp())
@@ -103,6 +113,12 @@ pub(crate) struct Player {
     pub(crate) toggled_up: hashbrown::HashSet<String>,
     /// H-pattern actions act as momentary gear buttons when this is enabled.
     pub(crate) momentary_gears: bool,
+    /// The settings' automated manual (#713): a gear lever's gates are worked by the
+    /// engine speed (see [`Player::tick_auto_shift`]).
+    pub(crate) auto_shift: bool,
+    /// Seconds until the automated manual may shift again; the engine's idle speed as seen.
+    pub(crate) auto_shift_wait: f32,
+    pub(crate) auto_shift_idle: f32,
     /// L switched the side lights on with the headlights (see
     /// [`Player::headlights_with_side_lights`]).
     pub(crate) side_lights_by_l: bool,
@@ -128,6 +144,9 @@ pub(crate) struct Player {
     /// (real OMSI's Z/X/C and Shift+numpad 4/6/5 are toggles, not one-shot "set" buttons):
     /// 0 = nothing, 1 = left, 2 = right, 3 = hazard.
     pub(crate) blinker_key_state: u8,
+    /// The settings' "Indicators cancel themselves" (`blinker_cancel`): off, the script's
+    /// own cancelling after a turn is undone (#451).
+    pub(crate) blinker_cancel: bool,
 }
 
 // Putting a bus into service (Shift+U, `--autostart`) is `omsi_sim::startup`: it presses
@@ -1250,6 +1269,65 @@ impl Player {
         }
     }
 
+    /// The gear a gear lever's gates have engaged (`kw_s_1`.. buses and cars): the variable
+    /// the gates store (`antrieb_getr_gang` in the stock cars, `antrieb_getr_aktugang` in the
+    /// LiAZ). None without gates.
+    pub(crate) fn gate_gear(&self) -> Option<i32> {
+        let program = &self.vehicle.ty.program;
+        program.trigger("kw_s_1")?;
+        let v = crate::input_script::gate_gear_var(program).and_then(|v| self.vehicle.var(&v));
+        Some(v.unwrap_or(0.0).round() as i32)
+    }
+
+    /// Put a gear lever into gate `to` (-1 R, 0 N): as a driver does it, the clutch down, the
+    /// gear in, the clutch let up over a second and a half as OMSI's clutch key lets it (let
+    /// go at once, a bus pulling away stalled its engine). False when there is no such gate.
+    pub(crate) fn shift_gate_to(&mut self, to: i32) -> bool {
+        let name = match to {
+            0 => "kw_s_N".to_string(),
+            -1 => "kw_s_R".to_string(),
+            n => format!("kw_s_{n}"),
+        };
+        if to < -1 || self.vehicle.ty.program.trigger(&name).is_none() {
+            return false;
+        }
+        self.vehicle.set_var("Clutch", 1.0);
+        self.axes.clutch = 1.0;
+        self.vehicle.trigger(&name);
+        self.vehicle.trigger(&format!("{name}_off"));
+        true
+    }
+
+    /// The automated manual (the settings' `auto_shift`, #713; not an OMSI feature): on a
+    /// manual gearbox worked through gates, first gear goes in when the throttle is pressed
+    /// in neutral at a standstill, the next gear up once the engine turns well above its idle
+    /// (later the more throttle), and the next down when it falls back towards it. The
+    /// clutch is worked as for a shift by key.
+    pub(crate) fn tick_auto_shift(&mut self, dt: f32, throttle: f32, brake: f32) {
+        self.auto_shift_wait = (self.auto_shift_wait - dt).max(0.0);
+        if !self.auto_shift || !self.vehicle.ty.program.manual_gearbox() {
+            return;
+        }
+        let Some(cur) = self.gate_gear() else { return };
+        let Some(n) = ["engine_n", "antrieb_eng_n", "engine_rpm", "motor_n", "motor_rpm"].iter().find_map(|v| self.vehicle.var(v)) else { return };
+        let kmh = self.vehicle.physics.velocity_kmh().abs();
+        // the idle speed, from the engine running free at a standstill
+        if n > 300.0 && kmh < 1.0 && throttle < 0.02 && (cur == 0 || self.axes.clutch > 0.9) {
+            self.auto_shift_idle = if self.auto_shift_idle > 0.0 { self.auto_shift_idle + (n - self.auto_shift_idle) * (dt / 2.0).min(1.0) } else { n };
+        }
+        // (not while the clutch is still coming up from the last shift - except in neutral,
+        // or rolling to a stop, where the automatic clutch holds it down anyway)
+        if n < 300.0 || self.auto_shift_wait > 0.0 || (self.axes.clutch > 0.5 && cur != 0 && kmh >= 5.0) {
+            return;
+        }
+        let idle = if self.auto_shift_idle > 300.0 { self.auto_shift_idle } else { 700.0 };
+        let top = (1..=12).take_while(|g| self.vehicle.ty.program.trigger(&format!("kw_s_{g}")).is_some()).last().unwrap_or(0);
+        let to = auto_shift_gear(cur, top, n / idle, throttle, brake, kmh);
+        if to != cur && self.shift_gate_to(to) {
+            self.auto_shift_wait = 1.5;
+        }
+    }
+
     pub(crate) fn tick(&mut self, dt: f32, audio: Option<&omsi_audio::AudioEngine>, inside: bool, listener_follows_bus: bool) {
         self.tick_startup(dt);
         self.tick_auto_drag(dt);
@@ -1264,6 +1342,7 @@ impl Player {
             self.axes.brake = 0.0;
         }
         self.auto_clutch_bite(a.throttle.unwrap_or(0.0).max(self.axes.throttle));
+        self.tick_auto_shift(dt, a.throttle.unwrap_or(0.0).max(self.axes.throttle), a.brake.unwrap_or(0.0).max(self.axes.brake));
         self.vehicle.set_controls(omsi_sim::Controls {
             throttle: a.throttle.unwrap_or(self.axes.throttle).max(self.axes.throttle),
             brake: a.brake.unwrap_or(self.axes.brake).max(self.axes.brake),
@@ -1274,7 +1353,11 @@ impl Player {
                 _ => self.axes.steering,
             },
         });
+        let lever = self.vehicle.var("lights_sw_blinker");
         self.vehicle.update(dt);
+        if let Some(keep) = kept_indicator(self.blinker_cancel, lever, self.vehicle.var("lights_sw_blinker")) {
+            self.vehicle.set_var("lights_sw_blinker", keep);
+        }
         // OMSI_SUSP_TRACE_WINDOW=<csv>: each wheel's travel every frame of a window run
         // (the offscreen run has OMSI_SUSP_TRACE)
         if let Some(path) = omsi_cfg::env::var_os("OMSI_SUSP_TRACE_WINDOW") {
@@ -2261,6 +2344,23 @@ pub(crate) fn mouse_pedal(current: f32, target: f32, k: f32) -> f32 {
 }
 
 #[cfg(test)]
+mod kept_indicator_tests {
+    use super::kept_indicator;
+
+    #[test]
+    fn a_kept_indicator_is_put_back_when_the_script_cancels_it() {
+        // the script's own cancelling stands by default
+        assert_eq!(kept_indicator(true, Some(1.0), Some(0.0)), None);
+        // kept: left and right come back, the hazard lever and a change of side stay
+        assert_eq!(kept_indicator(false, Some(1.0), Some(0.0)), Some(1.0));
+        assert_eq!(kept_indicator(false, Some(2.0), Some(0.0)), Some(2.0));
+        assert_eq!(kept_indicator(false, Some(1.0), Some(2.0)), None);
+        assert_eq!(kept_indicator(false, Some(0.0), Some(0.0)), None);
+        assert_eq!(kept_indicator(false, None, Some(0.0)), None);
+    }
+}
+
+#[cfg(test)]
 mod orbit_pivot_tests {
     use super::orbit_pivot;
     use glam::DVec3;
@@ -2418,5 +2518,50 @@ mod steering_view_tests {
         let centered = steering_view_yaw(30.0, 1.0, 0.1, false, 45.0, 0.25);
         assert!(centered > 0.0 && centered < 30.0);
         assert_eq!(steering_view_yaw(30.0, 0.0, 0.0, true, 45.0, 0.25), 30.0);
+    }
+}
+
+/// The automated manual's choice (#713) from gear `cur` (of `top`), the engine speed as a
+/// multiple of its idle, the pedals and the road speed.
+pub(crate) fn auto_shift_gear(cur: i32, top: i32, n_over_idle: f32, throttle: f32, brake: f32, kmh: f32) -> i32 {
+    if cur == 0 {
+        return if throttle > 0.1 && brake < 0.05 && kmh < 3.0 && top >= 1 { 1 } else { 0 };
+    }
+    if cur < 1 {
+        return cur;
+    }
+    // stopping: back to first, ready to pull away
+    if cur > 1 && kmh < 5.0 {
+        return 1;
+    }
+    let up = 2.2 + 1.2 * throttle.clamp(0.0, 1.0);
+    if cur < top && throttle > 0.05 && n_over_idle > up {
+        cur + 1
+    } else if cur > 1 && n_over_idle < 1.35 {
+        cur - 1
+    } else {
+        cur
+    }
+}
+
+#[cfg(test)]
+mod auto_shift_tests {
+    use super::auto_shift_gear as g;
+
+    #[test]
+    fn the_automated_manual_shifts_by_the_engine_speed() {
+        // pulling away: first gear in from neutral, never reverse
+        assert_eq!(g(0, 5, 1.0, 0.5, 0.0, 0.0), 1);
+        assert_eq!(g(0, 5, 1.0, 0.0, 0.0, 0.0), 0);
+        assert_eq!(g(-1, 5, 3.0, 1.0, 0.0, 5.0), -1);
+        // up early with a light foot, late with a heavy one
+        assert_eq!(g(2, 5, 2.8, 0.3, 0.0, 30.0), 3);
+        assert_eq!(g(2, 5, 2.8, 1.0, 0.0, 30.0), 2);
+        assert_eq!(g(2, 5, 3.7, 1.0, 0.0, 30.0), 3);
+        // never past the top gear, down near the idle, not below first
+        assert_eq!(g(5, 5, 4.0, 1.0, 0.0, 90.0), 5);
+        assert_eq!(g(3, 5, 1.2, 0.0, 0.5, 20.0), 2);
+        assert_eq!(g(1, 5, 1.0, 0.0, 1.0, 2.0), 1);
+        assert_eq!(g(4, 5, 1.0, 0.0, 1.0, 3.0), 1);
     }
 }

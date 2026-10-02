@@ -14,6 +14,11 @@ use omsi_vehicle::Vehicle;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// Scripts often test a stopped bus with `!Velocity_Ground`, so do not expose tiny solver drift.
+fn script_speed(speed_kmh: f32) -> f32 {
+    if speed_kmh.abs() < 0.01 { 0.0 } else { speed_kmh }
+}
+
 /// Built-in variables every road vehicle has (`program/varlist_roadvehicle.txt` + generated).
 pub fn builtin_vars(root: &Path) -> Vec<String> {
     let mut v: Vec<String> =
@@ -813,6 +818,8 @@ pub struct AiFrame {
 }
 
 pub struct VehicleInstance {
+    /// `A_Trans_*` taken over OMSI's frames (see [`OmsiFrames`]).
+    a_trans: OmsiFrames,
     pub ty: Arc<VehicleType>,
     pub state: State,
     pub vm: Vm,
@@ -1111,6 +1118,7 @@ impl VehicleInstance {
             offs.iter().sum::<f32>() / offs.len().max(1) as f32
         };
         VehicleInstance {
+            a_trans: OmsiFrames::default(),
             particles: ParticleSet::new(ty.model.particle_systems(), std::ptr::addr_of!(host) as u64 ^ 0x9e37_79b9),
             light_fade: Vec::new(),
             v_springfactor,
@@ -1457,7 +1465,7 @@ impl VehicleInstance {
                 w.suspension += (target - w.suspension) * k;
             }
         }
-        let v = self.physics.velocity_kmh();
+        let v = script_speed(self.physics.velocity_kmh());
         self.put(self.v_velocity, v);
         self.put(self.v_velocity_ground, v);
         let n_wheel = self
@@ -1470,6 +1478,7 @@ impl VehicleInstance {
             .unwrap_or(0.0);
         self.put(self.v_n_wheel, n_wheel);
         let a = self.physics.accel;
+        self.physics.a_trans = a;
         self.put(self.v_accel[0], a.x);
         self.put(self.v_accel[1], a.y);
         self.put(self.v_accel[2], a.z);
@@ -1684,7 +1693,7 @@ impl VehicleInstance {
         self.physics.speed = speed;
         self.physics.steer_deg = rb.steer_deg;
         self.physics.accel = rb.accel_body;
-        let v = speed * 3.6;
+        let v = script_speed(speed * 3.6);
         self.put(self.v_velocity, v);
         self.put(self.v_velocity_ground, v);
         let n_wheel = rb
@@ -1700,7 +1709,9 @@ impl VehicleInstance {
         // accelerometer reads, so 0 standing or cruising. `accel_body` carries gravity's
         // 9.81 m/s² (the wheels' springs need it), which as `A_Trans_Z` kept checks such
         // as the NEOMAN ECAS's "|A_Trans_Z| < 3 while driving" from ever passing.
-        let a = scripts_acceleration(rb.accel_body, rb.orientation);
+        // (over OMSI's frames: the rattle scripts take its change from one frame to the next)
+        let a = self.a_trans.push(scripts_acceleration(rb.accel_body, rb.orientation), dt);
+        self.physics.a_trans = a;
         self.put(self.v_accel[0], a.x);
         self.put(self.v_accel[1], a.y);
         self.put(self.v_accel[2], a.z);
@@ -1823,19 +1834,13 @@ impl VehicleInstance {
         // spray off a wet road, dust off a dry one
         self.set_engine_var("DirtRate", speed * (1.5e-4 + 6.0e-3 * rain));
         // rain soaks the glass in a few seconds; without it the film dries in about a minute.
-        // Snow does not run down a pane and the cab is warm: the flakes that land on the
-        // glass melt and leave a light haze, nothing like the film a shower leaves, so the
-        // rate is steered towards that haze instead of driving the layer to full strength
-        // (`rain.osc` only ever adds `PrecipRate * Timegap` and clamps at 1 - it never asks
-        // what is falling, which is why the original shows raindrops in a snowstorm).
-        let rate = if self.host.precip_type as i32 == 2 {
-            let film = self.var("Rain_Window_Norm_Wetness").unwrap_or(0.0);
-            (SNOW_ON_GLASS * rain - film) * 0.5
-        } else if rain > 0.0 {
-            rain * 0.25
-        } else {
-            -0.02
-        };
+        // Snow builds the film up the same way: `rain.osc` only ever adds `PrecipRate *
+        // Timegap` and clamps at 1 - it never asks what is falling - so in the original the
+        // glass gets as covered in a snowfall as in a shower and the wipers clear it. (The
+        // film wears snow crystals then, see `rain::snow_on_glass`.) Held to a fifth for a
+        // "haze", the panes stayed clear in the thickest snowfall and the wipers had
+        // nothing to do (#883).
+        let rate = if rain > 0.0 { rain * 0.25 } else { -0.02 };
         self.set_engine_var("PrecipRate", rate);
         // the state of the road, for the tyre sounds and the wheel spray
         self.set_engine_var("StreetCond", self.host.street_cond);
@@ -2152,6 +2157,7 @@ impl VehicleInstance {
             .unwrap_or(0.0);
         self.put(self.v_n_wheel, n_wheel);
         let a = self.physics.accel;
+        self.physics.a_trans = a;
         self.put(self.v_accel[0], a.x);
         self.put(self.v_accel[1], a.y);
         self.put(self.v_accel[2], a.z);
@@ -2905,10 +2911,6 @@ const SHADOW_STEP_UP: f64 = 0.6;
 /// a road under a bridge - and not the face this wheel stands on.
 const SHADOW_STEP_DOWN: f64 = 3.0;
 
-/// How strong the film on the glass gets in the thickest snowfall (`Rain_Window_*_Wetness`,
-/// 0 … 1): a haze of crystals, not a windscreen running with water.
-const SNOW_ON_GLASS: f32 = 0.22;
-
 fn is_shadow_mesh(ty: &VehicleType, i: usize) -> bool {
     ty.meshes
         .get(i)
@@ -3034,6 +3036,43 @@ pub struct TrailerPart {
     /// variables (`[scriptshare]`: the rear section of an articulated bus shows the
     /// number and the destination the front's scripts set).
     pub text_textures: Vec<crate::texttex::TextTextureState>,
+}
+
+/// OMSI's frames, a thirtieth of a second (`[maxFPS]` 30 in its options.cfg and every option
+/// preset but one): `A_Trans_*` is the body's velocity change over one of them (0x7d5124),
+/// and the stock rattle scripts (`klappern.osc`: `Klappern_Vol` follows how much |A_Trans|
+/// changes from one frame to the next) were tuned on that. Taken over this game's frames -
+/// 60 to 150 a second - the change from frame to frame was a half to a fifth of OMSI's for
+/// the same jolt, and the buses kept quiet on rough roads (#772, #886). The value is the
+/// mean over each thirtieth, held until the next one is complete.
+#[derive(Debug, Clone, Copy, Default)]
+struct OmsiFrames {
+    sum: Vec3,
+    t: f32,
+    out: Vec3,
+}
+
+impl OmsiFrames {
+    const FRAME: f32 = 1.0 / 30.0;
+
+    fn push(&mut self, a: Vec3, dt: f32) -> Vec3 {
+        if !(dt > 0.0) || !a.is_finite() {
+            return self.out;
+        }
+        // (a frame as long as OMSI's or longer is one of OMSI's)
+        if dt >= Self::FRAME * 0.99 {
+            *self = OmsiFrames { out: a, ..Default::default() };
+            return a;
+        }
+        self.sum += a * dt;
+        self.t += dt;
+        if self.t >= Self::FRAME * 0.99 {
+            self.out = self.sum / self.t;
+            self.sum = Vec3::ZERO;
+            self.t = 0.0;
+        }
+        self.out
+    }
 }
 
 /// The body-frame acceleration the scripts see as `A_Trans_*` (Omsi.exe 0x7d5124: the
@@ -3768,6 +3807,13 @@ pub fn skin_vertices(
 mod tests {
     use super::*;
 
+    #[test]
+    fn script_speed_reports_tiny_resting_motion_as_stopped() {
+        assert_eq!(script_speed(0.000251), 0.0);
+        assert_eq!(script_speed(-0.000251), 0.0);
+        assert_eq!(script_speed(0.02), 0.02);
+    }
+
     /// A shadow blob at the model's z = 0 is laid onto the plane through the wheels: 15 cm
     /// up with the body sagging, and following a pitch; one axle gives a level plane.
     #[test]
@@ -4087,6 +4133,30 @@ mod tests {
             let alpha = v.var("articulation_0_alpha").unwrap();
             assert!((alpha.abs() - 52.5).abs() < 1e-3, "alpha {alpha} at heading {h}");
         }
+    }
+
+    /// The stock rattle (`klappern.osc`) as loud at 144 frames a second as at OMSI's 30.
+    #[test]
+    fn a_jolt_rattles_alike_at_any_frame_rate() {
+        fn rattle(fps: f32) -> f32 {
+            let dt = 1.0 / fps;
+            let (mut frames, mut last, mut vol, mut peak) = (super::OmsiFrames::default(), 0.0f32, 0.0f32, 0.0f32);
+            for i in 0..(fps as usize) {
+                let t = i as f32 * dt;
+                // a 6 Hz pitching after a bump, 0.5 m/s² along the bus
+                let a = Vec3::new(0.0, 0.5 * (t * 6.0 * std::f32::consts::TAU).sin() * (-t * 3.0).exp(), 0.0);
+                let a = frames.push(a, dt);
+                let m = (a.x * a.x + a.y * a.y + 0.01 * a.z * a.z).sqrt();
+                vol = ((m - last) * 1.0).max(vol * (-dt).exp()).min(1.0);
+                last = m;
+                peak = peak.max(vol);
+            }
+            peak
+        }
+        let (omsi, fast) = (rattle(30.0), rattle(144.0));
+        // (taken frame by frame, 144 a second rattled at 0.3 of OMSI's)
+        assert!(omsi > 0.2 && omsi < 0.9, "{omsi}");
+        assert!(fast > 0.6 * omsi && fast < 1.4 * omsi, "30 fps {omsi}, 144 fps {fast}");
     }
 
     /// `A_Trans_*` are the body's acceleration without gravity, as in Omsi.exe: 0 for a bus

@@ -378,7 +378,8 @@ struct MaterialUniform {
     /// x: a screen (`MaterialExtra::screen`); y: 1 `[matl_texadress_border]`, 2
     /// `[matl_texadress_mirroronce]`; z the border colour's rgb packed as r * 65536 + g * 256 + b (bytes), w its alpha.
     flags: [f32; 4],
-    /// rgb: the D3D material's ambient colour, which takes the ambient light (C)
+    /// rgb: the D3D material's ambient colour, which takes the ambient light (C); w: 1 for
+    /// a texture that is a season's snow picture (no snow laid over it), 2 the map's water
     ambient: [f32; 4],
 }
 
@@ -794,6 +795,9 @@ pub struct MaterialExtra {
     /// The film of water on a window (`[alphascale] Rain_Window_…`): drawn as drops that sit,
     /// gather and run down the glass instead of the texture sliding down as a whole.
     pub rain_film: bool,
+    /// The map's water (`texture/water.tga`): Enhanced draws it as water - a smooth surface
+    /// mirroring the sky more the flatter it is seen, rippled by small waves.
+    pub water: bool,
     /// `[nomaplighting]`: the map's lamps (`[maplight]`) do not light it - a street lamp
     /// is not lit by its own light.
     pub no_map_lights: bool,
@@ -1059,6 +1063,20 @@ pub struct Scene {
     bind_groups: HashMap<BindKey, (wgpu::BindGroup, wgpu::Buffer)>,
     /// The PBR maps of a diffuse texture (register them before making its materials).
     pub pbr_maps: HashMap<TextureId, PbrMaps>,
+    /// Textures that are a season's snow pictures (`WinterSnow` folders): a material drawn
+    /// with one shows its snow as the map made it, as OMSI 2 shows snow, and gets no snow
+    /// laid over it (register them before making their materials).
+    pub snow_textures: std::collections::HashSet<TextureId>,
+}
+
+/// `MaterialUniform::ambient`'s w: 1 for a material whose texture is a season's snow
+/// picture (`Scene::snow_textures`).
+fn snow_texture_flag(scene: &Scene, texture: Option<TextureId>) -> f32 {
+    if texture.is_some_and(|t| scene.snow_textures.contains(&t)) {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 impl Scene {
@@ -1142,6 +1160,41 @@ pub static ADAPTER_TEXTURE_MB: std::sync::atomic::AtomicU64 = std::sync::atomic:
 
 /// The device runs on OpenGL (set in `Renderer::new`).
 static GL_BACKEND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the device draws on OpenGL (known once a renderer is made).
+pub fn gl_backend() -> bool {
+    GL_BACKEND.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Wait until the GPU has done `submission` (None: everything submitted so far).
+///
+/// On OpenGL wgpu holds the one GL context for the whole of a wait, and every other thread
+/// that wants it meanwhile (a worker making a bus's textures, the poll thread) gives up after
+/// a second with a panic - "Could not lock adapter context. This is most-likely a deadlock."
+/// (wgpu-hal's WGL lock; #843: a slow chip took longer than that for a frame). There the
+/// wait is made of short ones, and the context is free between them.
+pub fn wait_gpu(device: &wgpu::Device, submission: Option<wgpu::SubmissionIndex>) -> Result<(), wgpu::PollError> {
+    if !gl_backend() {
+        return device.poll(wgpu::PollType::Wait { submission_index: submission, timeout: None }).map(|_| ());
+    }
+    loop {
+        match device.poll(wgpu::PollType::Wait { submission_index: submission.clone(), timeout: Some(GL_WAIT_SLICE) }) {
+            Err(wgpu::PollError::Timeout) => std::thread::yield_now(),
+            r => return r.map(|_| ()),
+        }
+    }
+}
+
+/// The longest a single wait for the GPU holds the GL context (see [`wait_gpu`]).
+const GL_WAIT_SLICE: std::time::Duration = std::time::Duration::from_millis(20);
+
+/// On OpenGL, the GPU work of worker threads (textures and meshes of a bus made while the
+/// world loads) goes one thread at a time: a dozen of them queueing for the GL context left
+/// the last one waiting past wgpu's one second (#843). Elsewhere the device takes them all.
+fn gl_worker_turn() -> Option<std::sync::MutexGuard<'static, ()>> {
+    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    gl_backend().then(|| TURN.lock().unwrap_or_else(|e| e.into_inner()))
+}
 
 /// The card's own memory in MB where the system tells it: Windows, through DXGI, for
 /// whichever backend draws (wgpu does not say).
@@ -4047,6 +4100,7 @@ impl Renderer {
             last_lights: Vec::new(),
             bind_groups: HashMap::new(),
             pbr_maps: HashMap::new(),
+            snow_textures: Default::default(),
         }
     }
 
@@ -4713,6 +4767,9 @@ impl Renderer {
             .and_then(|id| scene.pbr_maps.get(&id))
             .map(|maps| maps.flags)
             .unwrap_or([0.0; 4]);
+        if uniform.ambient[3] < 1.5 {
+            uniform.ambient[3] = snow_texture_flag(scene, texture);
+        }
         let slot = |t: Option<TextureId>| {
             t.and_then(|t| scene.textures.get(t).map(|g| (t, g.gen)))
                 .unwrap_or((usize::MAX, 0))
@@ -5012,7 +5069,7 @@ impl Renderer {
             },
             ambient: {
                 let a = extra.ambient.unwrap_or([color[0], color[1], color[2]]);
-                [a[0], a[1], a[2], 0.0]
+                [a[0], a[1], a[2], if extra.water { 2.0 } else { snow_texture_flag(scene, texture) }]
             },
         };
         let slot = |t: Option<TextureId>| {
@@ -9320,12 +9377,7 @@ impl Renderer {
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
         });
-        self.device
-            .poll(wgpu::PollType::Wait {
-                submission_index: Some(idx),
-                timeout: None,
-            })
-            .map_err(|e| anyhow!("poll: {e:?}"))?;
+        wait_gpu(&self.device, Some(idx)).map_err(|e| anyhow!("poll: {e:?}"))?;
         rx.recv()
             .context("map")?
             .map_err(|e| anyhow!("map: {e:?}"))?;
@@ -9413,6 +9465,7 @@ pub struct PreparedMesh(GpuMesh);
 
 /// Make a mesh's GPU buffers on any thread (the device takes calls from all of them).
 pub fn prepare_mesh(device: &wgpu::Device, queue: &wgpu::Queue, data: &MeshData) -> PreparedMesh {
+    let _turn = gl_worker_turn();
     PreparedMesh(make_mesh(device, queue, data))
 }
 
@@ -9437,6 +9490,7 @@ pub fn prepare_texture(
     if let Some(small) = fit_texture(data, device.limits().max_texture_dimension_2d) {
         return prepare_texture(device, queue, &small);
     }
+    let _turn = gl_worker_turn();
     use omsi_texture::PixelFormat;
     let format = match data.format {
         PixelFormat::Rgba8 => wgpu::TextureFormat::Rgba8UnormSrgb,
@@ -10302,9 +10356,12 @@ impl DevicePoller {
         let thread = std::thread::Builder::new()
             .name("omsi-gpu-poll".into())
             .spawn(move || {
+                // (on OpenGL every poll takes the GL context from the thread drawing, see
+                // `wait_gpu`: a few times a frame is plenty there)
+                let pause = std::time::Duration::from_millis(if gl_backend() { 5 } else { 1 });
                 while !flag.load(std::sync::atomic::Ordering::Relaxed) {
                     let _ = device.poll(wgpu::PollType::Poll);
-                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    std::thread::sleep(pause);
                 }
             })
             .ok()?;
@@ -10630,6 +10687,7 @@ impl Renderer {
 
     /// Release a texture (a material still using it keeps it alive until it is freed too).
     pub fn free_texture(&self, scene: &mut Scene, id: TextureId) {
+        scene.snow_textures.remove(&id);
         // (its PBR maps go with it: the slot is taken by another texture next)
         if let Some(m) = scene.pbr_maps.remove(&id) {
             for t in [m.normal, m.orm].into_iter().flatten() {

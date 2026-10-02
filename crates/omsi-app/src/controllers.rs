@@ -26,6 +26,10 @@ pub(crate) enum Func {
     Brake,
     Clutch,
     ThrottleBrake,
+    /// The driver's head turned left and right, up and down (#454; openOMSI's own: OMSI's
+    /// file has the five above, numbered 0 to 4).
+    LookX,
+    LookY,
 }
 
 impl Func {
@@ -38,6 +42,8 @@ impl Func {
             Some(Func::Brake) => 2,
             Some(Func::Clutch) => 3,
             Some(Func::ThrottleBrake) => 4,
+            Some(Func::LookX) => 5,
+            Some(Func::LookY) => 6,
         }
     }
 
@@ -48,12 +54,14 @@ impl Func {
             2 => Some(Func::Brake),
             3 => Some(Func::Clutch),
             4 => Some(Func::ThrottleBrake),
+            5 => Some(Func::LookX),
+            6 => Some(Func::LookY),
             _ => None,
         }
     }
 
     /// As the options dialog lists them.
-    pub(crate) const LABELS: [&'static str; 6] = ["<none>", "Steering", "Throttle", "Brake", "Clutch", "Throttle/Brake"];
+    pub(crate) const LABELS: [&'static str; 8] = ["<none>", "Steering", "Throttle", "Brake", "Clutch", "Throttle/Brake", "Look left / right", "Look up / down"];
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -182,6 +190,15 @@ pub struct Analog {
     pub throttle: Option<f32>,
     pub brake: Option<f32>,
     pub clutch: Option<f32>,
+    /// How far the head is to turn this moment, right and down (-1 .. 1 each): a set-up
+    /// axis that looks round, or a gamepad's right stick (#454).
+    pub look: [f32; 2],
+}
+
+/// An axis that turns the head: nothing round its centre, then the rest of the way.
+pub(crate) fn look_axis(v: f32) -> f32 {
+    const DEAD: f32 = 0.12;
+    if v.abs() <= DEAD { 0.0 } else { v.signum() * (v.abs() - DEAD) / (1.0 - DEAD) }
 }
 
 /// Where a gamepad's stick turns the wheel to (#200): a stick is no steering wheel - taken
@@ -824,6 +841,13 @@ Controllers { settled: Vec::new(), devices, focused: true, cfg, deadzone: 0.0, p
                             continue;
                         }
                         let v = if inverted { -v } else { v };
+                        if let Func::LookX | Func::LookY = f {
+                            let i = (f == Func::LookY) as usize;
+                            if out.look[i] == 0.0 {
+                                out.look[i] = look_axis(v);
+                            }
+                            continue;
+                        }
                         // the characteristic set up for the axis (gamectrler.cfg flags)
                         let v = axis_shape((v + 1.0) * 0.5, d.axis_flags[k]) * 2.0 - 1.0;
                         // the dead zone: round the wheel's centre, or at a pedal's rest
@@ -834,7 +858,7 @@ Controllers { settled: Vec::new(), devices, focused: true, cfg, deadzone: 0.0, p
                         // a pedal travels the whole range, -1 up to 1 down
                         let pedal = crate::settings::pedal_ends(((v + 1.0) * 0.5).clamp(0.0, 1.0));
                         match f {
-                            Func::Steering => unreachable!("steering handled before pedal mapping"),
+                            Func::Steering | Func::LookX | Func::LookY => unreachable!("steering and looking handled before pedal mapping"),
                             Func::Throttle => set(&mut out.throttle, crate::settings::pedal_curve(pedal, self.pedal_throttle)),
                             Func::Brake => set(&mut out.brake, crate::settings::pedal_curve(pedal, self.pedal_brake)),
                             Func::Clutch => set(&mut out.clutch, pedal),
@@ -858,7 +882,11 @@ Controllers { settled: Vec::new(), devices, focused: true, cfg, deadzone: 0.0, p
                         self.notice = Some(format!("{} is not set up: it steers; set up its pedals and buttons in the launcher (Controls → Game controllers)", c.name));
                     }
                     if let Some((_, v)) = c.axes.iter().find(|(k, _)| *k == 0) {
-                        let (steering, position) = wheel_steering(*v, false, 0, dz.max(0.02), self.steer_gain);
+                        // (a joystick's centre is slack, so it gets a little dead zone; a
+                        // force-feedback wheel's is not: 2 % of it held a 1080° wheel's
+                        // picture 11° behind the rim, #866)
+                        let dz_free = if c.ff_capable { dz } else { dz.max(0.02) };
+                        let (steering, position) = wheel_steering(*v, false, 0, dz_free, self.steer_gain);
                         out.steering.get_or_insert(steering);
                         if steer.is_none() {
                             steer = Some((c.name.clone(), position, c.ff));
@@ -903,6 +931,10 @@ Controllers { settled: Vec::new(), devices, focused: true, cfg, deadzone: 0.0, p
                 }
                 out.throttle.get_or_insert(crate::settings::pedal_curve(rt, self.pedal_throttle));
                 out.brake.get_or_insert(crate::settings::pedal_curve(lt, self.pedal_brake));
+                // the right stick looks round, as the truck games have it (#454)
+                if out.look == [0.0, 0.0] {
+                    out.look = [look_axis(pad.value(Axis::RightStickX)), look_axis(-pad.value(Axis::RightStickY))];
+                }
             }
         }
         let before = self.steer.as_ref().filter(|s| steer.as_ref().is_some_and(|n| n.0 == s.0)).map(|s| s.1);
@@ -1422,6 +1454,19 @@ mod axis_shape_tests {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn look_axes_are_kept_in_the_file_and_rest_at_the_centre() {
+        // (openOMSI's own numbers after OMSI's five, written back as read)
+        for f in [super::Func::LookX, super::Func::LookY] {
+            assert_eq!(super::Func::from_code(super::Func::code(Some(f))), Some(f));
+        }
+        assert_eq!(super::Func::LABELS.len() as i32, super::Func::code(Some(super::Func::LookY)) + 2);
+        assert_eq!(super::look_axis(0.1), 0.0);
+        assert_eq!(super::look_axis(1.0), 1.0);
+        assert_eq!(super::look_axis(-1.0), -1.0);
+        assert!(super::look_axis(0.5) > 0.4 && super::look_axis(0.5) < 0.5);
+    }
     #[test]
     fn names() {
         assert!(super::names_match("Logitech G25 Racing Wheel USB", "Logitech G25 Racing Wheel"));

@@ -1515,6 +1515,15 @@ pub struct Humans {
     claimed: HashMap<u32, f64>,
     /// The host's people waiting at a stop (client): (stop, waiting place).
     mirror_wait: HashMap<u32, (i64, usize)>,
+    /// How the player's bus is driven, for its riders' complaints.
+    comfort: RideComfort,
+    /// LAN play (host): the waiting people handed over to another player's bus, by stop and
+    /// that bus. They count among the people of the stop while the bus stands there, as
+    /// the people who board a bus of ours keep their stop until it has left: without them
+    /// the stop filled up again at once - one more person a frame once its 10..15 s were
+    /// up - and the client's bus took them all, one stream of passengers that never ended
+    /// (#842, #840, #830).
+    handed: Vec<(i64, u64)>,
 }
 
 /// Resolve each map entry directly, including human packs with nested folders.
@@ -1705,6 +1714,8 @@ impl Humans {
             claims_out: Vec::new(),
             claimed: HashMap::new(),
             mirror_wait: HashMap::new(),
+            comfort: RideComfort::default(),
+            handed: Vec::new(),
         }
     }
 
@@ -2355,6 +2366,15 @@ impl Humans {
         let mut ids: Vec<i64> = self.stops.keys().copied().collect();
         ids.sort_unstable();
         let forced = omsi_cfg::env::var("OMSI_PAX_WAITING").ok().and_then(|v| v.parse::<usize>().ok());
+        // the people handed over to another player's bus stop counting once it has left
+        // their stop (or the session)
+        if !self.handed.is_empty() {
+            let (stops, remote) = (&self.stops, &self.remote_now);
+            self.handed.retain(|(stop, bus)| {
+                let Some(s) = stops.get(stop) else { return false };
+                remote.iter().any(|b| b.id == BusId::Ai(*bus) && (b.pos - s.pos).length() < 60.0)
+            });
+        }
         for id in ids {
             let center = self.center;
             let near = {
@@ -2397,7 +2417,7 @@ impl Humans {
                 };
                 s.factor = (r * 2.0 - 1.0) * k + 1.0;
             }
-            let count = self.people.iter().filter(|p| matches!(&p.state, State::Pax(x) if x.stop == Some(id))).count();
+            let count = self.people.iter().filter(|p| matches!(&p.state, State::Pax(x) if x.stop == Some(id))).count() + self.handed.iter().filter(|h| h.0 == id).count();
             let want = {
                 let s = &self.stops[&id];
                 let mean = (s.enter_max + s.enter_min) / 2.0;
@@ -3592,6 +3612,7 @@ impl Humans {
         // the stops: which buses stand at them (sub_61f93c), who waits there (sub_61bf94)
         let at_stops = self.register_buses(&buses, dt);
         self.claim_waiting();
+        self.ride_comfort(dt, bus, &buses, &bus_ix, world);
         if !self.avatar_only {
             self.stops_tick(dt, world, renderer, scene);
         }
@@ -4998,7 +5019,7 @@ impl Humans {
     /// A client's bus takes these waiting people (host): those still waiting leave our
     /// world (they are the client's now); returns them. Somebody who has meanwhile walked
     /// up to another bus stays ours.
-    pub fn hand_over(&mut self, ids: &[u32]) -> Vec<u32> {
+    pub fn hand_over(&mut self, player: u32, ids: &[u32]) -> Vec<u32> {
         let mut out = Vec::new();
         for id in ids {
             let Some(i) = self.people.iter().position(|p| p.id == *id) else {
@@ -5006,6 +5027,11 @@ impl Humans {
             };
             if !matches!(&self.people[i].state, State::Pax(x) if x.task == Task::WaitingForBus) || self.people[i].remote {
                 continue;
+            }
+            // (still counted at their stop while that bus stands there, as the people
+            // boarding a bus of ours are: see `handed`)
+            if let Some(stop) = self.pax(i).and_then(|x| x.stop) {
+                self.handed.push((stop, remote_bus_id(player)));
             }
             self.release(i);
             let p = self.people.swap_remove(i);
