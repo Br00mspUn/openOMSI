@@ -520,6 +520,16 @@ const OMSI_SURFACE_LIFT: f32 = 0.08;
 fn scenery_draw_position(authored: DVec3, surface: bool) -> DVec3 {
     authored + if surface { DVec3::Z * OMSI_SURFACE_LIFT as f64 } else { DVec3::ZERO }
 }
+
+/// Whether a scenery object is drawn with the roads' `OMSI_SURFACE_LIFT`: a `[surface]`
+/// object, and whatever is drawn in the surfaces' phases on them - a `[rendertype] surface`
+/// plate and an `on_surface` marking. A road arrow or a zebra laid a few centimetres over
+/// the authored road went under the road drawn 8 cm higher (every turn arrow of Spandau's
+/// Falkenseer Chaussee, the zebra crossings of many maps, #871).
+fn drawn_on_surfaces(sco: &SceneryObject) -> bool {
+    use omsi_scenery::sco::RenderType;
+    sco.surface || matches!(sco.render_type, RenderType::Surface | RenderType::OnSurface)
+}
 /// A spline whose profiles all hang this far (m) over its line - wires, catenaries, a
 /// canopy - is no ground surface: it neither cuts the terrain nor carries anything.
 const SPLINE_OVERHEAD: f32 = 2.0;
@@ -1858,9 +1868,9 @@ pub struct World {
     /// overlaps one, and sends the workshop's team out when the bus stands in none.
     pub petrol_stations: Mutex<Vec<omsi_sim::collision::Obb>>,
     /// Parked cars standing in the loaded tiles, and the options' `[AIMaxCountParked]`
-    /// (0 = every space the map fills): past it the spaces stay empty.
+    /// (0 = every space the map fills, -1 = none): past it the spaces stay empty.
     pub parked_live: std::sync::atomic::AtomicUsize,
-    pub parked_max: usize,
+    pub parked_max: i64,
     /// Places that echo (`[triggerbox_new]` + `[triggerbox_setreverb]`: the railway bridges'
     /// underpasses): the box, the reverberation time (s) and the distance (m) over which it
     /// fades in at the box's sides.
@@ -2655,7 +2665,7 @@ impl World {
             light_maps_generation: std::sync::atomic::AtomicU64::new(0),
             light_map_atlas: Mutex::new(None),
             parked_live: std::sync::atomic::AtomicUsize::new(0),
-            parked_max: crate::settings::Settings::load().ai_max_parked as usize,
+            parked_max: crate::settings::Settings::load().ai_max_parked as i64,
             signal_routes,
             particle_objects: Mutex::new(HashMap::new()),
             fonts: Arc::new(Mutex::new(omsi_sim::texttex::FontLibrary::new(root))),
@@ -3913,7 +3923,7 @@ impl World {
         let h = (key as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 33;
         // leave some spaces empty like the original, and all once the options' count of
         // parked cars stands
-        let full = self.parked_max > 0 && self.parked_live.load(std::sync::atomic::Ordering::Relaxed) >= self.parked_max;
+        let full = self.parked_max < 0 || (self.parked_max > 0 && self.parked_live.load(std::sync::atomic::Ordering::Relaxed) as i64 >= self.parked_max);
         if h % 4 == 0 || full {
             stats.lock().empty_spaces += 1;
             return None;
@@ -4221,21 +4231,10 @@ impl World {
         out
     }
 
-    /// The ground of tile `key` as the roads and crossings around it leave it.
-    ///
-    /// `[spline_terrain_align]` in a tile file says the mapper ran "align the terrain to this
-    /// spline"; OMSI redoes it on every load, so a road in a cutting or on a low embankment
-    /// meets the ground. Without it the untouched terrain stands over the carriageway -- on
-    /// Berlin-Spandau that buried a twelfth of the road network under a band of grass, which
-    /// is what "there is no road here" looks like from the cab.
-    ///
-    /// Then the crossings press the terrain into their `[crossing_heightdeformation]` mesh: a
-    /// junction plate is placed at an absolute height and is flat, the ground around it is
-    /// not, and OMSI deforms the terrain to the plate's base mesh so that the plate and the
-    /// roads that run into it meet (without it a strip of grass shows across the road).
-    ///
-    /// Both happen before any object stands on the ground: a sign placed on the ground as
-    /// the file has it stood up to 1.9 m in the ground (or in the air) next to such a road.
+    /// The ground of tile `key`: the tile's `.terrain` as Omsi.exe loads it, which the objects
+    /// stand on. The editor's "align the terrain to this spline" (`[spline_terrain_align]`)
+    /// and a crossing's `[crossing_heightdeformation]` were applied when the map was made;
+    /// `OMSI_TERRAIN_ALIGN=1` and `OMSI_CROSSING_DEFORM=1` apply them again (A/B runs).
     /// Returns the ground, the ground points aligned, the biggest move (with where it was)
     /// and whether a crossing deformed it.
     fn final_ground(
@@ -4339,8 +4338,15 @@ impl World {
                 t.heights = out;
             }
         }
+        // (Nor does it press the ground into a crossing's `[crossing_heightdeformation]` mesh:
+        // Omsi.exe reads that mesh only to warp the plate and to give its paths their heights
+        // (0x7ba818, "Path deform"); the editor's terrain tools left the ground as the
+        // `.terrain` has it. Pressed in here, the ground stood up to 2.3 m over a Spandau
+        // pavement in front of the houses beside a junction, and everything standing on the
+        // ground - every pole, sign and tree there - floated over the pavement with it (#860).
+        // `OMSI_CROSSING_DEFORM=1` still does it.)
         let mut deformed = false;
-        if omsi_cfg::env::var_os("OMSI_NO_CROSSING_DEFORM").is_none() {
+        if omsi_cfg::env::var_os("OMSI_CROSSING_DEFORM").is_some() {
             let mut ds = TileSurface::new(SURFACE_RASTER);
             let mut any = false;
             for q in &order {
@@ -5567,7 +5573,7 @@ impl World {
                     )
                 })
                 .map(|i| renderer.add_texture(scene, &i, true));
-            renderer.add_material_all(
+            renderer.add_material_extra(
                 scene,
                 Some(tex),
                 AlphaMode::Blend,
@@ -5578,6 +5584,7 @@ impl World {
                 None,
                 env.map(|e| (e, 0.45)),
                 [0.0; 3],
+                omsi_render::MaterialExtra { water: true, ..Default::default() },
             )
         };
         let tree_mesh = renderer.add_mesh(scene, &tree_quad_mesh());
@@ -6556,7 +6563,7 @@ impl World {
                         !matches!(ot.sco.render_type, omsi_scenery::sco::RenderType::Normal)
                             || ot.sco.surface;
                     let render_phase = scenery_render_phase(ot.sco.render_type);
-                    let draw_pos = scenery_draw_position(pos, ot.sco.surface);
+                    let draw_pos = scenery_draw_position(pos, drawn_on_surfaces(&ot.sco));
                     let has_lower = !type_lods.is_empty();
                     let mut lamp_instances = Vec::new();
                     let mut lamp_slots = Vec::new();
@@ -8961,7 +8968,7 @@ impl World {
             for ((inst, xf), &visible) in o.instances.iter().zip(&o.inst.mesh_transforms).zip(&o.inst.mesh_visible) {
                 // Scripted tram switches keep the same world-space lift as on upload.
                 // `o.pos` is the authored pose used by scripts/physics, not the draw pose.
-                renderer.set_transform(scene, *inst, scenery_draw_position(o.pos, o.ty.sco.surface), o.xf * *xf);
+                renderer.set_transform(scene, *inst, scenery_draw_position(o.pos, drawn_on_surfaces(&o.ty.sco)), o.xf * *xf);
                 let p = &mut scene.instances[*inst];
                 if p.visible != visible {
                     renderer.set_params(scene, *inst, &[], visible, &[]);
@@ -9662,6 +9669,7 @@ fn material_extra(
         glass: false,
         night_switched: false,
         rain_film: false,
+        water: false,
         display: false,
         screen: false,
         led: false,
@@ -9699,9 +9707,20 @@ fn bump_key(path: &Path) -> PathBuf {
     PathBuf::from(format!("{}#bump", path.display()))
 }
 
+/// Whether a texture file is a season's snow picture: it lies in a `WinterSnow` folder
+/// (`Texture\WinterSnow\gras.bmp`, any case), where the snow weather finds the map's
+/// snowy textures.
+fn is_snow_picture(path: &Path) -> bool {
+    path.components().any(|c| c.as_os_str().to_str().is_some_and(|s| s.eq_ignore_ascii_case("WinterSnow")))
+}
+
 /// A PBR set beside the diffuse texture `path` (`foo_n.png` and the rest, see
 /// `omsi_texture::pbr`), put up and tied to texture `id` for the materials made with it.
 pub(crate) fn attach_pbr(renderer: &Renderer, scene: &mut Scene, path: &Path, id: TextureId) {
+    // (and a season's snow picture is known as one: it gets no snow laid over it, #879)
+    if is_snow_picture(path) {
+        scene.snow_textures.insert(id);
+    }
     if omsi_cfg::env::var_os("OMSI_NO_PBR").is_some() {
         return;
     }
@@ -12298,6 +12317,15 @@ mod tests {
         assert_eq!(plain.values(&|_| Some(0.0)).1, vec![1.0]);
     }
 
+    /// A season's snow textures are told by their folder, whatever its case (#879).
+    #[test]
+    fn snow_pictures_are_the_winter_snow_folders() {
+        assert!(is_snow_picture(Path::new("/omsi/Texture/WinterSnow/gras.bmp")));
+        assert!(is_snow_picture(Path::new("/omsi/Sceneryobjects/Buildings_RW1HH/texture/Wintersnow/wall.jpg")));
+        assert!(!is_snow_picture(Path::new("/omsi/Texture/Winter/gras.bmp")));
+        assert!(!is_snow_picture(Path::new("/omsi/Texture/WinterSnow_gras.bmp")));
+    }
+
     #[test]
     fn only_a_white_light_map_makes_an_led_panel() {
         assert!(is_white_lightmap(&[255, 255, 255, 255]));
@@ -12511,6 +12539,17 @@ mod tests {
         let authored = DVec3::new(12.0, 18.0, 3.5);
         let contact = scenery_draw_position(authored, true);
         assert!((contact.z - authored.z - OMSI_SURFACE_LIFT as f64).abs() < 1e-8);
+    }
+
+    #[test]
+    fn road_markings_are_lifted_with_the_road_they_lie_on() {
+        let sco = |text: &str| SceneryObject::parse(&omsi_cfg::CfgFile::from_str("x.sco", text));
+        // Spandau's VZ_surfmark_arrow_L: a terrain-relative object drawn on the surfaces
+        assert!(drawn_on_surfaces(&sco("[rendertype]\non_surface\n[mesh]\narrow.o3d\n")));
+        assert!(drawn_on_surfaces(&sco("[rendertype]\nsurface\n[mesh]\nplate.o3d\n")));
+        assert!(drawn_on_surfaces(&sco("[surface]\n[mesh]\nplate.o3d\n")));
+        assert!(!drawn_on_surfaces(&sco("[mesh]\nhouse.o3d\n")));
+        assert!(!drawn_on_surfaces(&sco("[rendertype]\npresurface\n[mesh]\nground.o3d\n")));
     }
 
     #[test]

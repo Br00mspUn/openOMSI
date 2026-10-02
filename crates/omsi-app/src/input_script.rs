@@ -115,7 +115,7 @@ impl App {
         }
         if let PhysicalKey::Code(code) = event_key {
             let pressed = pressed;
-            // LAN chat: its keys (`chat_open`, '/', and `chat_toggle`, V, in keyboard.cfg's
+            // LAN chat: its keys (`chat_open`, '/' or '`', and `chat_toggle`, V, in keyboard.cfg's
             // [game]: the player can move them, #130) open the line and show or hide the
             // chat, and while the line is open the keys are its own
             if let Some(l) = self.lan.as_mut() {
@@ -1039,7 +1039,7 @@ impl App {
         if self.cursor_looks() {
             let scale = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0).max(0.1);
             let fov = self.camera.as_ref().map(|c| c.fov_deg).unwrap_or(60.0);
-            let k = look_deg_per_px(fov);
+            let k = look_deg_per_px(fov) * self.settings.look_sens;
             self.look_by((x - last.0) / scale * k, (y - last.1) / scale * k);
         }
         // Dragging a switch reads the movement in screen pixels - take it from the
@@ -1641,6 +1641,34 @@ impl App {
         self.refresh_list();
     }
 
+    /// A key while a route number is typed in the destination list (#836): letters and
+    /// digits ("5E", "N41"), Backspace, Enter sets it, Escape drops it.
+    fn route_edit_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Escape => self.menu_edit = None,
+            KeyCode::Backspace | KeyCode::Delete => {
+                if let Some(t) = self.menu_edit.as_mut() {
+                    t.pop();
+                }
+            }
+            KeyCode::Enter | KeyCode::NumpadEnter => {
+                if let Some(t) = self.menu_edit.take() {
+                    crate::game_lists::set_route_by_hand(self, &t);
+                    self.close_game_menu();
+                }
+                return;
+            }
+            _ => {
+                if let (Some(c), Some(t)) = (route_char(code), self.menu_edit.as_mut()) {
+                    if t.chars().count() < 8 {
+                        t.push(c);
+                    }
+                }
+            }
+        }
+        self.refresh_list();
+    }
+
     /// Set the clock to the time typed (digits: hh, hhmm or hhmmss; what is missing is 0).
     pub(crate) fn apply_time_edit(&mut self) {
         let Some(d) = self.menu_edit.take() else { return };
@@ -1817,7 +1845,13 @@ impl App {
             return;
         }
         if self.menu_edit.is_some() {
-            if self.menu_edit_icao { self.icao_edit_key(code); } else { self.time_edit_key(code); }
+            if self.menu_edit_icao {
+                self.icao_edit_key(code);
+            } else if matches!(self.list_kind, Some(crate::game_lists::ListKind::RouteNumbers)) {
+                self.route_edit_key(code);
+            } else {
+                self.time_edit_key(code);
+            }
             return;
         }
         let n = self.admin_list.as_ref().unwrap_or(&self.vehicle_list).len().max(1);
@@ -2002,11 +2036,63 @@ impl App {
 
     /// Put the vehicle file `bus` down beside the camera or the bus driven, in `paint` (a
     /// scheme's name; None: at random) with the depot file `hof` (None: the map's).
+    /// The driven vehicle read again from its files and put where it stands (#728).
+    pub(crate) fn reload_driven_vehicle(&mut self) {
+        let Some(p) = self.player.as_ref() else {
+            self.service_msg = Some(("There is no vehicle to reload: you are on foot".into(), 3.0));
+            return;
+        };
+        // (the file under its content root, as the vehicle lists name it: a whole path was
+        // taken for one under the game's folder)
+        let file = &p.vehicle.ty.def.path;
+        let bus = omsi_cfg::content_roots().iter().chain(std::iter::once(&self.args.root)).find_map(|r| file.strip_prefix(r).ok()).unwrap_or(file).to_string_lossy().replace('\\', "/");
+        let paint = p.vehicle.host.paint_scheme.flatten().and_then(|i| p.vehicle.ty.paint_schemes.get(i)).map(|s| s.name.clone());
+        // (the depot file by its file name, as `find_hof` looks for it)
+        let hof = p.vehicle.host.hof.as_ref().and_then(|h| h.path.file_stem().map(|s| s.to_string_lossy().to_string()).or_else(|| Some(h.name.clone())));
+        let before = p.uid;
+        self.swap_pending = true;
+        self.place_vehicle(&bus, paint, hof);
+        if let Some(p) = self.player.as_ref().filter(|p| p.uid != before) {
+            let name = format!("{} {}", p.vehicle.ty.def.manufacturer, p.vehicle.ty.def.type_name);
+            self.service_msg = Some((format!("Reloaded from its files: {}", name.trim()), 4.0));
+        }
+    }
+
+    /// `q` (just spawned where the driven vehicle stands) becomes the one driven, and the
+    /// one driven until now goes, with whoever rode in it (#728).
+    fn replace_driven_vehicle(&mut self, q: Player) {
+        let uid = q.uid;
+        self.placed.insert(0, q);
+        self.switch_vehicle();
+        if !self.player.as_ref().is_some_and(|p| p.uid == uid) {
+            return;
+        }
+        let Some(mut old) = self.placed.pop() else { return };
+        if let (Some(a), Some(mut ss)) = (self.audio.as_ref(), old.sounds.take()) {
+            ss.stop_all(a);
+        }
+        if let (Some(w), Some(r), Some(scene)) = (self.world.clone(), self.renderer.as_ref(), self.scene.as_mut()) {
+            if let Some(h) = self.humans.as_mut() {
+                h.evict(crate::humans::BusId::Ai(crate::humans::placed_bus_id(old.uid)), &w);
+            }
+            if let Some(mut d) = old.driver.take() {
+                d.hide(r, scene);
+            }
+            w.release_vehicle(r, scene, old.render);
+            for t in old.trailer_renders {
+                w.release_vehicle(r, scene, t);
+            }
+        }
+    }
+
     pub(crate) fn place_vehicle(&mut self, bus: &str, paint: Option<String>, hof: Option<String>) {
+        // (in the driven vehicle's place, see `swap_pending`)
+        let swap = std::mem::take(&mut self.swap_pending) && self.player.is_some();
         let name = self.vehicle_list.iter().find(|v| v.1 == bus).map(|v| v.0.clone()).unwrap_or_else(|| bus.to_string());
         let bus = bus.to_string();
         let (Some(w), Some(r), Some(scene), Some(cam)) = (self.world.clone(), self.renderer.as_ref(), self.scene.as_mut(), self.camera.as_ref()) else { return };
         let (x, y, heading) = match (self.view.as_str(), self.player.as_ref()) {
+            (_, Some(p)) if swap => (p.vehicle.position.x, p.vehicle.position.y, p.vehicle.heading),
             ("free", _) | (_, None) => {
                 let f = cam.forward();
                 let flat = glam::DVec2::new(f.x as f64, f.y as f64).normalize_or_zero();
@@ -2035,6 +2121,10 @@ impl App {
             ..self.args.clone()
         };
         match spawn_player(&one, &w, r, scene) {
+            Ok(Some(q)) if swap => {
+                log::info!("{bus} takes the driven vehicle's place at ({x:.1}, {y:.1})");
+                self.replace_driven_vehicle(q);
+            }
             Ok(Some(q)) => {
                 log::info!("placed {bus} at ({x:.1}, {y:.1})");
                 let uid = q.uid;
@@ -2450,7 +2540,9 @@ impl App {
     /// script ask of the menu by name). False when `id` is none of them.
     pub(crate) fn page_action(&mut self, id: &str) -> bool {
         match id {
-            "place" => {
+            "swap" | "place" => {
+                // (a plain "Place a vehicle" puts one beside; "Swap" in the driven one's place)
+                self.swap_pending = id == "swap" && self.player.is_some();
                 if self.vehicle_list.is_empty() {
                     let menu = crate::menu::Menu::new(&self.args.root, &self.args.map);
                     self.vehicle_meta = menu.vehicles.iter().zip(menu.vehicle_meta).map(|(v, meta)| (v.1.clone(), meta)).collect();
@@ -2481,6 +2573,10 @@ impl App {
             "remove" => {
                 self.close_game_menu();
                 self.remove_driven_vehicle();
+            }
+            "reload" => {
+                self.close_game_menu();
+                self.reload_driven_vehicle();
             }
             "clearplaced" => {
                 self.close_game_menu();
@@ -3137,23 +3233,11 @@ impl App {
         // LiAZ MKPP - its `kw_s_plus` never fires, the script's condition is broken): the
         // next gate from the gear engaged, with the clutch down as the gates want it
         if p.vehicle.ty.program.trigger("kw_s_1").is_some() {
-            let cur = p.vehicle.var("antrieb_getr_aktugang").unwrap_or(0.0).round() as i32;
+            let Some(cur) = p.gate_gear() else { return false };
             let to = if up { cur + 1 } else { cur - 1 };
-            let name = match to {
-                0 => "kw_s_N".to_string(),
-                -1 => "kw_s_R".to_string(),
-                n => format!("kw_s_{n}"),
-            };
-            if to < -1 || p.vehicle.ty.program.trigger(&name).is_none() {
+            if !p.shift_gate_to(to) {
                 return false;
             }
-            // (as a driver does it: the clutch down, the gear in, the clutch let up over a
-            // second and a half as OMSI's clutch key lets it - let go at once, a bus pulling
-            // away stalled its engine)
-            p.vehicle.set_var("Clutch", 1.0);
-            p.axes.clutch = 1.0;
-            p.vehicle.trigger(&name);
-            p.vehicle.trigger(&format!("{name}_off"));
             self.service_msg = Some((format!("Gear {}", match to { 0 => "N".to_string(), -1 => "R".to_string(), n => n.to_string() }), 1.5));
             return true;
         }
@@ -3541,6 +3625,38 @@ impl App {
     }
 }
 
+/// The character a key types into a route number (digits and capital letters), if any.
+fn route_char(code: KeyCode) -> Option<char> {
+    let name = format!("{code:?}");
+    let c = name.strip_prefix("Digit").or_else(|| name.strip_prefix("Numpad")).or_else(|| name.strip_prefix("Key"))?;
+    let mut chars = c.chars();
+    let ch = chars.next()?;
+    (chars.next().is_none() && ch.is_ascii_alphanumeric()).then(|| ch.to_ascii_uppercase())
+}
+
+/// The variable a gear lever's gate triggers keep the gear in: `antrieb_getr_aktugang` (the
+/// LiAZ, whose gates only move the lever and leave the gear to its frame), else
+/// `antrieb_getr_gang` (the stock cars' antrieb.osc), else one named for the gear that both
+/// `kw_s_1` and `kw_s_2` set.
+pub(crate) fn gate_gear_var(program: &omsi_script::Program) -> Option<String> {
+    for known in ["antrieb_getr_aktugang", "antrieb_getr_gang"] {
+        if program.var(known).is_some() {
+            return Some(known.to_string());
+        }
+    }
+    let mut names: Vec<String> = program
+        .var_names()
+        .into_iter()
+        .filter(|n| n.contains("gang") || n.contains("gear"))
+        .filter(|n| {
+            let by = program.triggers_setting(n);
+            by.iter().any(|t| t == "kw_s_1") && by.iter().any(|t| t == "kw_s_2")
+        })
+        .collect();
+    names.sort_by_key(|n| (n.len(), n.clone()));
+    names.into_iter().next()
+}
+
 /// Degrees the view turns per (logical) pixel of the cursor's way while looking round:
 /// Omsi.exe's fov / 78.75 (TForm_main.Panel1MouseMove 0x82c5f8).
 fn look_deg_per_px(fov_deg: f32) -> f32 {
@@ -3560,6 +3676,29 @@ pub(crate) fn chase_orbit_step(yaw: f32, pitch: f32, dx_px: f32, dy_px: f32) -> 
 }
 
 #[cfg(test)]
+mod gear_lever_tests {
+    /// The stock cars' gates keep the gear in `antrieb_getr_gang` (#866).
+    #[test]
+    fn the_gear_is_read_where_the_gates_store_it() {
+        let program = |vars: &str, osc: &str| {
+            let dir = std::env::temp_dir().join(format!("omsi_gates_{}_{}", std::process::id(), vars.len()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let (vl, sc) = (dir.join("varlist.txt"), dir.join("antrieb.osc"));
+            std::fs::write(&vl, vars).unwrap();
+            std::fs::write(&sc, osc).unwrap();
+            let p = omsi_script::compile(&omsi_script::CompileInput { varlists: vec![vl], scripts: vec![sc], ..Default::default() });
+            let _ = std::fs::remove_dir_all(&dir);
+            p
+        };
+        let stock = program("antrieb_getr_gang\n", "{trigger:kw_s_1_fest}\n{trigger:kw_s_1}\n1 (S.L.antrieb_getr_gang)\n{end}\n{end}\n{trigger:kw_s_2}\n2 (S.L.antrieb_getr_gang)\n{end}\n");
+        assert_eq!(super::gate_gear_var(&stock).as_deref(), Some("antrieb_getr_gang"));
+        // a lever moved by every gate is not the gear
+        let own = program("lever_moved\nmy_gear\n", "{trigger:kw_s_1}\n1 (S.L.lever_moved)\n1 (S.L.my_gear)\n{end}\n{trigger:kw_s_2}\n1 (S.L.lever_moved)\n2 (S.L.my_gear)\n{end}\n");
+        assert_eq!(super::gate_gear_var(&own).as_deref(), Some("my_gear"));
+    }
+}
+
+#[cfg(test)]
 mod look_tests {
     /// F1 given to a door and the driver's view moved to 1 (#701): F1 is not the view any more.
     #[test]
@@ -3572,6 +3711,16 @@ mod look_tests {
         assert!(!super::key_left_free(Some(59), "view_set_driver", &own, &[]));
         assert!(!super::key_left_free(Some(59), "view_set_driver", &none, &[kb("view_set_driver", 2)]));
         assert!(super::key_left_free(Some(59), "view_set_driver", &none, &[kb("view_set_passenger", 60)]));
+    }
+
+    #[test]
+    fn a_route_number_takes_digits_and_letters() {
+        use winit::keyboard::KeyCode;
+        assert_eq!(super::route_char(KeyCode::Digit5), Some('5'));
+        assert_eq!(super::route_char(KeyCode::Numpad0), Some('0'));
+        assert_eq!(super::route_char(KeyCode::KeyE), Some('E'));
+        assert_eq!(super::route_char(KeyCode::NumpadAdd), None);
+        assert_eq!(super::route_char(KeyCode::Space), None);
     }
 
     #[test]

@@ -746,6 +746,7 @@ pub(crate) fn run_offscreen(
                         controls.brake = ((speed - kmh - 3.0) / 10.0).clamp(0.0, 1.0);
                     }
                 }
+                player.tick_auto_shift(dt, controls.throttle, controls.brake);
                 player.auto_clutch_bite(controls.throttle);
                 controls.clutch = controls.clutch.max(player.axes.clutch);
                 player.vehicle.set_controls(controls);
@@ -2729,10 +2730,7 @@ pub(crate) fn run_offscreen(
             renderer.render(&mut scene, &view, w, h, &camera, &lighting);
             let drawn = t.elapsed().as_secs_f64();
             let t = Instant::now();
-            let _ = renderer.device.poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: None,
-            });
+            let _ = omsi_render::wait_gpu(&renderer.device, None);
             cpu.push(drawn * 1000.0);
             gpu.push(t.elapsed().as_secs_f64() * 1000.0);
             if omsi_cfg::env::var_os("OMSI_BENCH_FRAMES").is_some() {

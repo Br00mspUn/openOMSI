@@ -71,6 +71,25 @@ fn route_numbers(app: &App) -> Vec<String> {
     out
 }
 
+/// The route number on the bus's IBIS and display, as picked or typed in the destination
+/// list (the destination stays: the one on the display now, else the first).
+pub(crate) fn set_route_by_hand(app: &mut App, line: &str) {
+    let line = line.trim();
+    if line.is_empty() {
+        return;
+    }
+    if let Some(p) = app.player.as_mut() {
+        let hof = p.vehicle.host.hof.clone();
+        let code = p.vehicle.var("IBIS_TerminusCode").unwrap_or(-1.0) as i32;
+        let named = |t: &&omsi_vehicle::hof::Terminus| t.strings.first().is_some_and(|s| !s.trim().is_empty());
+        let term = hof.as_ref().and_then(|h| h.termini.iter().filter(named).find(|t| t.code == code).or_else(|| h.termini.iter().find(named)));
+        let name = term.and_then(|t| t.strings.first().cloned()).unwrap_or_default();
+        crate::schedule::set_player_destination_directly(&mut p.vehicle, hof.as_deref(), line, &name, &[]);
+        log::info!("route number set by hand: {line} (IBIS_LinieKurs {:?})", p.vehicle.var("IBIS_LinieKurs"));
+        app.service_msg = Some((format!("Route {line}"), 3.0));
+    }
+}
+
 /// Names in older packs often use underscores as spaces.
 fn bus_label(name: &str) -> String {
     name.replace('_', " ").split_whitespace().collect::<Vec<_>>().join(" ")
@@ -220,10 +239,16 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Vec<(String, String)> {
             }
         }
         ListKind::RouteNumbers => {
+            // any route number, typed as on OMSI's own field (#836): the scripts that read
+            // it (a bus that switches its functions by route number) take what is typed
+            match app.menu_edit.as_ref() {
+                Some(t) => out.push((format!("{}: {t}_  ({})", tr("Route number"), tr("Enter sets it, Esc cancels")), "route_type".into())),
+                None => out.push((format!("{}...", tr("Type a route number")), "route_type".into())),
+            }
             for l in route_numbers(app) {
                 out.push((format!("{} {l}", tr("Route")), format!("route {l}")));
             }
-            if out.is_empty() {
+            if out.len() == 1 {
                 out.push((tr("No route numbers in the depot file or the timetable"), "back".into()));
             }
         }
@@ -605,19 +630,21 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
             None
         }
         ListKind::Destinations if verb == "routes" => Some(ListKind::RouteNumbers),
-        ListKind::RouteNumbers => {
-            if let Some(p) = app.player.as_mut() {
-                let hof = p.vehicle.host.hof.clone();
-                let line = arg.trim();
-                // (the destination stays: the one on the display now, else the first)
-                let code = p.vehicle.var("IBIS_TerminusCode").unwrap_or(-1.0) as i32;
-                let named = |t: &&omsi_vehicle::hof::Terminus| t.strings.first().is_some_and(|s| !s.trim().is_empty());
-                let term = hof.as_ref().and_then(|h| h.termini.iter().filter(named).find(|t| t.code == code).or_else(|| h.termini.iter().find(named)));
-                let name = term.and_then(|t| t.strings.first().cloned()).unwrap_or_default();
-                crate::schedule::set_player_destination_directly(&mut p.vehicle, hof.as_deref(), line, &name, &[]);
-                log::info!("route number set by hand: {line} (IBIS_LinieKurs {:?})", p.vehicle.var("IBIS_LinieKurs"));
-                app.service_msg = Some((format!("Route {line}"), 3.0));
+        ListKind::RouteNumbers if verb == "route_type" => {
+            // the first press starts typing, the next one (Enter) sets what is typed
+            match app.menu_edit.take() {
+                Some(t) => {
+                    set_route_by_hand(app, &t);
+                    None
+                }
+                None => {
+                    app.menu_edit = Some(String::new());
+                    Some(ListKind::RouteNumbers)
+                }
             }
+        }
+        ListKind::RouteNumbers => {
+            set_route_by_hand(app, arg);
             None
         }
         ListKind::Destinations => {
@@ -727,6 +754,7 @@ fn steps_of(verb: &str) -> Option<Vec<f32>> {
         "steer_look_response" => (1..=20).map(|v| v as f32 * 0.05).collect(),
         "pedal_t" | "pedal_b" => PEDAL.to_vec(),
         "mouse_sens" => (10..=300).map(|v| v as f32 / 100.0).collect(),
+        "look_sens" => (2..=40).map(|v| v as f32 * 0.05).collect(),
         "seat" => (-50..=50).map(|v| v as f32 / 100.0).collect(),
         "hour" => (0..24).map(|v| v as f32).collect(),
         "minute" => (0..60).map(|v| v as f32).collect(),
@@ -834,6 +862,7 @@ fn option_now(app: &App, verb: &str, arg: &str) -> Option<f32> {
         "pedal_t" => s.pedal_throttle,
         "pedal_b" => s.pedal_brake,
         "mouse_sens" => s.mouse_sens,
+        "look_sens" => s.look_sens,
         "ui_scale" => s.ui_scale,
         "ui_opacity" => s.ui_opacity,
         "vol_ai" => s.vol_ai,
@@ -902,6 +931,10 @@ fn option_set(app: &mut App, verb: &str, arg: &str, v: f32) -> Option<(&'static 
         "pedal_b" => {
             app.settings.pedal_brake = v;
             Some(("pedal_brake", v.to_string()))
+        }
+        "look_sens" => {
+            app.settings.look_sens = (v * 100.0).round() / 100.0;
+            Some(("look_sens", app.settings.look_sens.to_string()))
         }
         "mouse_sens" => {
             app.settings.mouse_sens = (v * 100.0).round() / 100.0;
@@ -1012,6 +1045,8 @@ fn toggle_now(app: &App, id: &str) -> Option<bool> {
         "coll_objects" => s.collision_objects,
         "coll_vehicles" => s.collision_vehicles,
         "mouse" => app.mouse_drive,
+        "mouse_right" => s.mouse_right_off,
+        "blinker_cancel" => s.blinker_cancel,
         "fps" => s.show_fps,
         "get_up" => s.get_up,
         "time_sync" => s.time_sync,
@@ -1046,6 +1081,7 @@ fn toggle_now(app: &App, id: &str) -> Option<bool> {
         "old_steering" => s.old_steering,
         "red_steer_spd" => s.red_steer_spd,
         "momentary_gears" => s.momentary_gears,
+        "auto_shift" => s.auto_shift,
         "ff_invert" => s.ff_invert,
         "machine_translation" => s.machine_translation,
         "ui_scale_window" => s.ui_scale_window,
@@ -1116,6 +1152,17 @@ fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String
             app.mouse_steer = (app.player.as_ref().map(|p| p.vehicle.physics.controls.steering).unwrap_or(0.0), 1.0);
             app.mouse_pedals = app.player.as_ref().map(|p| (p.vehicle.physics.controls.throttle, p.vehicle.physics.controls.brake)).unwrap_or((0.0, 0.0));
             None
+        }
+        "blinker_cancel" => {
+            app.settings.blinker_cancel = on;
+            if let Some(p) = app.player.as_mut() {
+                p.blinker_cancel = on;
+            }
+            Some(("blinker_cancel", bit))
+        }
+        "mouse_right" => {
+            app.settings.mouse_right_off = on;
+            Some(("mouse_right_off", bit))
         }
         "get_up" => {
             app.settings.get_up = on;
@@ -1267,6 +1314,13 @@ fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String
         "momentary_gears" => {
             app.settings.momentary_gears = on;
             Some(("momentary_gears", bit))
+        }
+        "auto_shift" => {
+            app.settings.auto_shift = on;
+            if let Some(p) = app.player.as_mut() {
+                p.auto_shift = on;
+            }
+            Some(("auto_shift", bit))
         }
         "ff_invert" => {
             app.settings.ff_invert = on;
@@ -1584,7 +1638,7 @@ fn select_options(key: &str) -> Vec<(&'static str, &'static str)> {
         "maintenance" => vec![("0", "Infinite (no wear)"), ("1", "Very bad"), ("2", "Bad"), ("3", "Normal"), ("4", "Good")],
         "ai_unsched_factor" => vec![("25", "25%"), ("50", "50%"), ("75", "75%"), ("100", "100%"), ("150", "150%"), ("200", "200%")],
         "ai_max_scheduled" => vec![("0", "All"), ("10", "At most 10"), ("25", "At most 25"), ("50", "At most 50")],
-        "ai_max_parked" => vec![("0", "Every space"), ("35", "At most 35"), ("100", "At most 100"), ("250", "At most 250")],
+        "ai_max_parked" => vec![("-1", "None"), ("0", "Every space"), ("35", "At most 35"), ("100", "At most 100"), ("250", "At most 250")],
         "language" => omsi_launcher_lib::LANGUAGES.iter().map(|l| (l.0, l.1)).collect(),
         "vr_scale" => vec![("0.5", "50%"), ("0.65", "65%"), ("0.8", "80%"), ("1", "100%")],
         "vr_head_smoothing_ms" => vec![("0", "Off"), ("5", "5 ms"), ("10", "10 ms"), ("20", "20 ms"), ("30", "30 ms")],
@@ -1749,6 +1803,7 @@ fn options_pages(app: &App) -> Vec<Page> {
         switch_row(app, "hands_in_cab", "Driver's hands in the cab view", "Shows the driver's hand on the steering wheel (Cockpit only)"),
         switch_row(app, "driver", "Driver at the wheel (outside views)", "Shows the driver in the outside views and in the mirrors"),
         switch_row(app, "headtrack", "Head tracking", &format!("Head tracking with opentrack (UDP port {})", s.head_tracking_port)),
+        slider_row(app, "look_sens", "Mouse look sensitivity", "How fast the view turns when looking round with the mouse (100% is OMSI's)", &pct),
         switch_row(app, "alt_view", "Right mouse button turns the view", "Shift+right zooms; off: right zooms as in OMSI, the wheel button turns"),
         slider_row(app, "fov", "Field of view", "The view angle of the views from the vehicle", &|v| if v < 20.0 { "Default".to_string() } else { format!("{v:.0}°") }),
         slider_row(app, "seat 1", "Seat forward and back", "Adjust the driver's seat position forward or backward", &cm),
@@ -1775,6 +1830,7 @@ fn options_pages(app: &App) -> Vec<Page> {
     let controls: Vec<(String, String)> = vec![
         pick("drive_keys", "Driving keys", "Which keys drive the vehicle"),
         switch_row(app, "mouse", "Steering with the mouse", "Steer and control the pedals using the mouse"),
+        switch_row(app, "mouse_right", "A right click ends the mouse steering", "As in OMSI; off: the right button only looks round"),
         slider_row(app, "mouse_sens", "Mouse steering sensitivity", "Adjust how much the steering wheel turns based on mouse movement", &pct),
         switch_row(app, "steering_linear", "Steering linearity (keys at OMSI's steady pace)", "Keyboard steering at OMSI's steady pace"),
         switch_row(app, "old_steering", "Old Steering (the wheel stays, turn it back yourself)", "The wheel stays where the keys left it"),
@@ -1785,9 +1841,11 @@ fn options_pages(app: &App) -> Vec<Page> {
         slider_row(app, "wheel_lock", "Full lock at", "How far the wheel turns for the vehicle's full lock", &|v| if v < 45.0 { "OMSI".to_string() } else { format!("{v:.0}°") }),
         slider_row(app, "pedal_t", "Throttle pedal strength", "Adjust how strongly pedal input affects the throttle", &|v| format!("x{v}")),
         slider_row(app, "pedal_b", "Brake pedal strength", "Adjust how strongly pedal input affects the brake", &|v| format!("x{v}")),
+        switch_row(app, "blinker_cancel", "Indicators cancel themselves", "The bus's script turns the indicator off after a turn; off: it stays on until you turn it off"),
         switch_row(app, "brake_hold", "Keyboard brake stays on", "Keep the brake applied until the throttle is pressed"),
         switch_row(app, "auto_clutch", "Automatic clutch", "Automatically operate the clutch for you"),
         switch_row(app, "momentary_gears", "Hold manual gear buttons (release returns to neutral)", later),
+        switch_row(app, "auto_shift", "Automated manual gearbox", "Shift a manual gearbox's gears for you by the engine speed"),
     ]
         .into_iter()
         .flatten()
@@ -1851,6 +1909,10 @@ fn vehicle_pages(app: &App) -> Vec<Page> {
             fleet.push(button("Get up and out", "Get out", "Step out of your car and explore the world", "getout"));
         }
         fleet.push(button("Remove this vehicle", "Remove", "Removes the current vehicle", "remove"));
+        // (#728: another bus in this one's place, or this one again with its files read
+        // anew - a script or a .bus changed - without starting the game again)
+        fleet.push(button("Swap for another vehicle", "Swap", "Put another vehicle in this one's place and drive it", "swap"));
+        fleet.push(button("Reload this vehicle", "Reload", "Read the vehicle's files again (.bus, model and sound configuration, scripts) and drive it from here", "reload"));
     }
     if !app.placed.is_empty() {
         fleet.push(button("Remove the placed vehicles", "Remove", "Removes all vehicles you've placed from the world", "clearplaced"));

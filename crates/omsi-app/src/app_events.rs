@@ -47,6 +47,9 @@ fn render_scale_step(fps: f32, slow_frame_wait_share: f32) -> f32 {
 
 use super::*;
 
+/// How fast a stick turns the head, fully pushed (degrees a second, see `Analog::look`).
+const LOOK_STICK_DEG_S: f32 = 120.0;
+
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.resumed_impl(event_loop);
@@ -709,6 +712,12 @@ impl ApplicationHandler for App {
                 // goes. For a second after mouse steering is switched on the wheel eases
                 // towards the cursor (a half-life of the time that is left), then follows it.
                 let mut analog = analog;
+                // the head turned by a stick or an axis set up for it (#454), at up to
+                // 120 degrees a second, in the views of the bus, on foot and flying
+                if analog.look != [0.0, 0.0] && self.game_menu.is_none() && self.chooser.is_none() && !self.paused {
+                    let k = LOOK_STICK_DEG_S * dt * self.settings.look_sens;
+                    self.look_by(analog.look[0] * k, analog.look[1] * k);
+                }
                 // a gamepad's stick: a target the wheel turns towards at a hand's pace (the
                 // whole lock in 1.2 s), not the wheel's place itself (#200)
                 if analog.stick {
@@ -1118,6 +1127,15 @@ impl ApplicationHandler for App {
                             reverb_time,
                             reverb_mix,
                         });
+                    }
+                }
+                // on foot (or the free camera) without a bus of one's own: the field of view
+                // setting and the wheel's zoom, as with one - only the player's frame applied
+                // them, so after removing the bus the wheel zoomed nothing (#837)
+                if self.player.is_none() && matches!(self.view.as_str(), "free" | "foot") {
+                    if let Some(cam) = self.camera.as_mut() {
+                        let base = if self.settings.fov >= 20.0 { self.settings.fov.min(120.0) } else { 60.0 };
+                        cam.fov_deg = (base * self.view_zoom.get(&self.view).copied().unwrap_or(1.0)).clamp(8.0, 120.0);
                     }
                 }
                 // on foot without a bus of one's own: the vehicles one placed still stand, run
@@ -2302,7 +2320,6 @@ impl ApplicationHandler for App {
                             } else {
                                 Some((*cam, s.config.width as f32 / s.config.height.max(1) as f32))
                             };
-                            self.mirror_budget = (self.mirror_budget + raw_dt.min(0.1) * rate).min(2.5);
                             // (in the cab, and from outside too while the bus is near: its
                             // mirrors are seen from the pavement and stood frozen)
                             let near = self.player.as_ref().zip(self.camera.as_ref()).is_some_and(|(p, c)| (p.vehicle.position - c.position).length() < 12.0);
@@ -2399,10 +2416,7 @@ impl ApplicationHandler for App {
                         if omsi_cfg::env::var_os("OMSI_PROFILE_GPU").is_some() {
                             // wait for the GPU here, so that its time shows as a stage of its own
                             let __t = Instant::now();
-                            let _ = r.device.poll(wgpu::PollType::Wait {
-                                submission_index: None,
-                                timeout: None,
-                            });
+                            let _ = omsi_render::wait_gpu(&r.device, None);
                             *self.profile.entry("gpu").or_default() += __t.elapsed().as_secs_f64();
                         }
                         let __t = Instant::now();
@@ -2415,10 +2429,7 @@ impl ApplicationHandler for App {
                                 frame.present();
                             }
                             None => {
-                                let _ = r.device.poll(wgpu::PollType::Wait {
-                                    submission_index: None,
-                                    timeout: None,
-                                });
+                                let _ = omsi_render::wait_gpu(&r.device, None);
                             }
                         }
                         *self.profile.entry("present").or_default() += __t.elapsed().as_secs_f64();
@@ -2605,7 +2616,8 @@ impl ApplicationHandler for App {
                         self.look.0 = y;
                         self.look.1 = p;
                     } else {
-                        self.look_by(delta.0 as f32 * 0.15, delta.1 as f32 * 0.15);
+                        let k = 0.15 * self.settings.look_sens;
+                        self.look_by(delta.0 as f32 * k, delta.1 as f32 * k);
                     }
                 }
             } else if self.mouse_drive && self.game_menu.is_none() {
