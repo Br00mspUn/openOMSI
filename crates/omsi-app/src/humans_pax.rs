@@ -1476,7 +1476,7 @@ impl Humans {
         };
         let list = bn.cabin.entry_points();
         let flags = bn.cabin.entry_flags();
-        let open: Vec<bool> = (0..list.len()).map(|k| bn.entry_open.get(k.min(7)).copied().unwrap_or(false)).collect();
+        let open: Vec<bool> = (0..list.len()).map(|k| bn.entry_open.get(k).copied().unwrap_or(false)).collect();
         let pt = bn.cabin.omsi_nearest(here, &list, p.ticket == TICKET_BUY, false, Some(&flags), Some(&open));
         let p = self.pax_mut(i).unwrap();
         if let Some(q) = pt.and_then(|k| bn.cabin.graph.points.get(k)) {
@@ -1652,7 +1652,7 @@ impl Humans {
             return;
         };
         let door_x = p.door.and_then(|d| bn.cabin.entries.get(d)).map(|e| e.inside.x).unwrap_or(0.0);
-        let open = p.door.map(|d| bn.entry_open.get(d.min(7)).copied().unwrap_or(false)).unwrap_or(false);
+        let open = p.door.map(|d| bn.entry_open.get(d).copied().unwrap_or(false)).unwrap_or(false);
         {
             let pp = self.pax_mut(i).unwrap();
             pp.clamp = true;
@@ -1681,7 +1681,7 @@ impl Humans {
         if ok {
             if p.st != 3 {
                 self.choose_entry(i, buses, bus_ix);
-                let open = self.pax(i).unwrap().door.map(|d| bn.entry_open.get(d.min(7)).copied().unwrap_or(false)).unwrap_or(false);
+                let open = self.pax(i).unwrap().door.map(|d| bn.entry_open.get(d).copied().unwrap_or(false)).unwrap_or(false);
                 let pp = self.pax_mut(i).unwrap();
                 pp.short = !open;
                 pp.st = 1;
@@ -1784,7 +1784,7 @@ impl Humans {
         if bn.speed.abs() >= 1.0 {
             self.pax_mut(i).unwrap().timer = 1.0;
         }
-        let door_open = p.door.map(|d| bn.exit_open.get(d.min(7)).copied().unwrap_or(false)).unwrap_or(false);
+        let door_open = p.door.map(|d| bn.exit_open.get(d).copied().unwrap_or(false)).unwrap_or(false);
         let may_leave = door_open && (reg.next.is_some() || p.complaint == 3);
         self.pax_mut(i).unwrap().short = !may_leave;
         let out = p.st == 7 && bn.speed.abs() < 1.0 && may_leave;
@@ -1806,7 +1806,7 @@ impl Humans {
                 self.pax_mut(i).unwrap().timer = 1.0;
                 let exits = bn.cabin.exit_points();
                 let all = bn.cabin.all_points();
-                let open: Vec<bool> = (0..exits.len()).map(|k| bn.exit_open.get(k.min(7)).copied().unwrap_or(false)).collect();
+                let open: Vec<bool> = (0..exits.len()).map(|k| bn.exit_open.get(k).copied().unwrap_or(false)).collect();
                 let pp = self.pax_mut(i).unwrap();
                 let here = pp.pos.as_vec3();
                 let target = bn.cabin.omsi_nearest(here, &exits, false, false, None, Some(&open));

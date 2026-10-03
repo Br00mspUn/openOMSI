@@ -6797,14 +6797,7 @@ impl Traffic {
     /// request, which comes from the exit requests.
     pub fn set_pax_requests(&mut self, id: u64, entry: &[bool], exit: &[bool]) {
         if let Some(c) = self.cars.iter_mut().find(|c| c.id == id) {
-            for (i, r) in entry.iter().enumerate() {
-                c.vehicle
-                    .set_var(&format!("PAX_Entry{i}_Req"), *r as i32 as f32);
-            }
-            for (i, r) in exit.iter().enumerate() {
-                c.vehicle
-                    .set_var(&format!("PAX_Exit{i}_Req"), *r as i32 as f32);
-            }
+            crate::humans::Humans::write_door_requests(&mut c.vehicle, entry, exit);
         }
     }
 

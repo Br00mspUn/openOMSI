@@ -67,6 +67,13 @@ impl WindingVotes {
     }
 }
 
+/// Entries and exits of a vehicle with variables of their own (`PAX_Entry<n>_Open` …
+/// `PAX_Exit<n>_Req`): Omsi.exe's eight, and eight more for buses with more doors than
+/// that (#719). A cabin's entries and exits past the eighth that the scripts give no
+/// variables of their own open with the eighth, as in Omsi.exe, and ask through the eighth's
+/// `_Req` (openOMSI's choice: Omsi.exe's request arrays have eight slots and lose them).
+pub const PAX_DOORS: usize = 16;
+
 /// Built-in variables every road vehicle has (`program/varlist_roadvehicle.txt` + generated).
 pub fn builtin_vars(root: &Path) -> Vec<String> {
     let mut v: Vec<String> =
@@ -105,6 +112,13 @@ pub fn builtin_vars(root: &Path) -> Vec<String> {
         for n in ["alpha", "beta", "gamma"] {
             v.push(format!("articulation_{i}_{n}"));
         }
+    }
+    // the doors past Omsi.exe's eight (#719), after all of its own variables
+    for a in 8..PAX_DOORS {
+        v.push(format!("PAX_Entry{a}_Open"));
+        v.push(format!("PAX_Entry{a}_Req"));
+        v.push(format!("PAX_Exit{a}_Open"));
+        v.push(format!("PAX_Exit{a}_Req"));
     }
     v
 }
@@ -1006,8 +1020,8 @@ pub struct VehicleInstance {
     /// wheels besides each wheel's own `Axle_Brakeforce_*`.
     v_brakeforce: Option<omsi_script::VarId>,
     v_clutch: Option<omsi_script::VarId>,
-    /// `PAX_Entry0..7_Req` and `PAX_Exit0..7_Req`: set by the passengers every frame and
-    /// cleared after the scripts' frame (see `clear_pax_requests`).
+    /// `PAX_Entry<n>_Req` and `PAX_Exit<n>_Req` ([`PAX_DOORS`]): set by the passengers every
+    /// frame and cleared after the scripts' frame (see `clear_pax_requests`).
     v_pax_req: Vec<omsi_script::VarId>,
     v_accel: [Option<omsi_script::VarId>; 3],
     v_wheels: Vec<[[Option<omsi_script::VarId>; 5]; 2]>,
@@ -1221,7 +1235,7 @@ impl VehicleInstance {
             v_brake: v("Brake").or_else(|| v("brake_pedal")),
             v_brakeforce: v("Brakeforce"),
             v_clutch: v("Clutch").or_else(|| v("clutch_pedal")),
-            v_pax_req: (0..8).flat_map(|i| [format!("PAX_Entry{i}_Req"), format!("PAX_Exit{i}_Req")]).filter_map(|n| v(&n)).collect(),
+            v_pax_req: (0..PAX_DOORS).flat_map(|i| [format!("PAX_Entry{i}_Req"), format!("PAX_Exit{i}_Req")]).filter_map(|n| v(&n)).collect(),
             v_accel: [v("A_Trans_X"), v("A_Trans_Y"), v("A_Trans_Z")],
             v_wheels,
             ty,
@@ -2258,9 +2272,9 @@ impl VehicleInstance {
     }
 
     /// The passengers' door requests are pulses: Omsi.exe clears all eight of each kind
-    /// after the vehicle's scripts ran (0x7d6214) and the passengers set them again every
-    /// frame. Kept, a timetable bus that drove out of the passengers' reach kept its last
-    /// request, and its automatic door never shut.
+    /// (here all [`PAX_DOORS`]) after the vehicle's scripts ran (0x7d6214) and the
+    /// passengers set them again every frame. Kept, a timetable bus that drove out of the
+    /// passengers' reach kept its last request, and its automatic door never shut.
     fn clear_pax_requests(&mut self) {
         for &id in &self.v_pax_req {
             self.state.vars[id as usize] = 0.0;

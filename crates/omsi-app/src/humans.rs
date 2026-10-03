@@ -63,6 +63,8 @@ pub(crate) static LEFT_HAND: std::sync::atomic::AtomicBool = std::sync::atomic::
 
 /// How far outside the bus side somebody stands at a door (m).
 const DOOR_OUT: f32 = 0.5;
+/// Entries and exits with door variables of their own in Omsi.exe (`PAX_Entry0..7` ...).
+const OMSI_PAX_DOORS: usize = 8;
 /// Body radius for the crowd outside (m): shoulders and swinging arms. With the cabin's
 /// radius people on the pavement came within 0.46 m, and two walking past each other or a
 /// group crossing the road merged into one another in the picture.
@@ -2727,9 +2729,37 @@ impl Humans {
         v.has_script_var(name) || v.ty.program.var(name).is_some_and(|id| v.ty.program.stores(id))
     }
 
+    /// Whether entry or exit `i` (`kind` "Entry" or "Exit") has variables of its own: one of
+    /// Omsi.exe's eight, or one past them whose `PAX_<kind><i>_Open` the script reports (#719).
+    /// The others open with the eighth, as in Omsi.exe (0x62d31e reads the open state of door
+    /// min(i, 7)), and ask through its `_Req` ([`Humans::write_door_requests`]).
+    fn own_pax_door(v: &VehicleInstance, kind: &str, i: usize) -> bool {
+        i < OMSI_PAX_DOORS || (i < omsi_sim::vehicle::PAX_DOORS && Self::script_reports(v, &format!("PAX_{kind}{i}_Open")))
+    }
+
+    /// The passengers' requests into the bus's `PAX_Entry<n>_Req` / `PAX_Exit<n>_Req`: an
+    /// entry or exit without variables of its own asks through the eighth's
+    /// ([`Humans::own_pax_door`]), where Omsi.exe drops them (its request arrays have eight
+    /// slots). Past the eighth they were written to no variable at all.
+    pub(crate) fn write_door_requests(v: &mut VehicleInstance, entry: &[bool], exit: &[bool]) {
+        for (kind, reqs) in [("Entry", entry), ("Exit", exit)] {
+            let mut slots = vec![false; reqs.len().min(omsi_sim::vehicle::PAX_DOORS)];
+            for (i, r) in reqs.iter().enumerate() {
+                let slot = if Self::own_pax_door(v, kind, i) { i } else { OMSI_PAX_DOORS - 1 };
+                if let Some(s) = slots.get_mut(slot) {
+                    *s |= *r;
+                }
+            }
+            for (i, r) in slots.iter().enumerate() {
+                v.set_var(&format!("PAX_{kind}{i}_Req"), if *r { 1.0 } else { 0.0 });
+            }
+        }
+    }
+
     /// `PAX_Entry<i>_Open` / `PAX_Exit<i>_Open` as the bus script reports them. A bus whose
     /// script never sets them (or only sets some of them) falls back to its physical `door_<i>`
-    /// or `door<i>` animations.
+    /// or `door<i>` animations; an entry or exit past the eighth without variables of its own
+    /// is open with the eighth ([`Humans::own_pax_door`]).
     fn doors_open(v: &VehicleInstance, n_entry: usize, n_exit: usize) -> (Vec<bool>, Vec<bool>) {
         let door_val = |k: usize| -> bool {
             v.var(&format!("door_{k}"))
@@ -2742,26 +2772,23 @@ impl Humans {
         // n_entry, because buses with all doors configured as entries (e.g. 3-door buses with 6 entries)
         // still place middle-door exits at door_2/3 and rear-door exits at door_4/5.
         let exit_door_base = if n_entry <= 1 { 1 } else { 2 };
-        let entry: Vec<bool> = (0..n_entry)
-            .map(|i| {
-                let name = format!("PAX_Entry{i}_Open");
-                if Self::script_reports(v, &name) {
+        let states = |kind: &str, n: usize, door: &dyn Fn(usize) -> bool| -> Vec<bool> {
+            let mut out: Vec<bool> = Vec::with_capacity(n);
+            for i in 0..n {
+                let name = format!("PAX_{kind}{i}_Open");
+                let open = if !Self::own_pax_door(v, kind, i) {
+                    out[OMSI_PAX_DOORS - 1]
+                } else if Self::script_reports(v, &name) {
                     v.var(&name).unwrap_or(0.0) > 0.5
                 } else {
-                    door_val(i.min(7))
-                }
-            })
-            .collect();
-        let exit: Vec<bool> = (0..n_exit)
-            .map(|i| {
-                let name = format!("PAX_Exit{i}_Open");
-                if Self::script_reports(v, &name) {
-                    v.var(&name).unwrap_or(0.0) > 0.5
-                } else {
-                    door_val((exit_door_base + i).min(7))
-                }
-            })
-            .collect();
+                    door(i)
+                };
+                out.push(open);
+            }
+            out
+        };
+        let entry = states("Entry", n_entry, &door_val);
+        let exit = states("Exit", n_exit, &|i| door_val((exit_door_base + i).min(7)));
         (entry, exit)
     }
 
@@ -3431,12 +3458,7 @@ impl Humans {
 
     /// Report the waiting and alighting passengers to the bus script, the way OMSI does.
     pub fn write_pax_vars(&self, b: &mut VehicleInstance) {
-        for (i, r) in self.entry_req.iter().enumerate() {
-            b.set_var(&format!("PAX_Entry{i}_Req"), if *r { 1.0 } else { 0.0 });
-        }
-        for (i, r) in self.exit_req.iter().enumerate() {
-            b.set_var(&format!("PAX_Exit{i}_Req"), if *r { 1.0 } else { 0.0 });
-        }
+        Self::write_door_requests(b, &self.entry_req, &self.exit_req);
     }
 
     /// Who wants a timetable bus to stop, as Omsi.exe asks before it lets one pull in
@@ -5902,6 +5924,45 @@ mod tests {
         assert_eq!(x, vec![true, true, true, true]);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// #719: a five-door bus with two paths a door has ten entries. Past Omsi.exe's eight,
+    /// an entry whose `PAX_Entry<n>_Open` the script gives is a door of its own, and its
+    /// people ask through its `PAX_Entry<n>_Req`; one the script does not know opens with
+    /// the eighth, as in Omsi.exe, and asks through it (Omsi.exe drops that request).
+    #[test]
+    fn doors_past_the_eighth_have_variables_of_their_own_or_go_with_the_eighth() {
+        let bus = |name: &str, vars: &str| {
+            let dir = std::env::temp_dir().join(format!("omsi-doors-past-eight-{name}-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("test.bus"), "[model]\nmodel.cfg\n[varnamelist]\n1\nvars.txt\n[script]\n1\nmain.osc\n").unwrap();
+            std::fs::write(dir.join("model.cfg"), "").unwrap();
+            std::fs::write(dir.join("vars.txt"), vars).unwrap();
+            std::fs::write(dir.join("main.osc"), "{init}\n{end}\n").unwrap();
+            let ty = std::sync::Arc::new(omsi_sim::VehicleType::load(&dir, &dir.join("test.bus")).unwrap());
+            std::fs::remove_dir_all(&dir).ok();
+            VehicleInstance::new(ty, omsi_sim::VehicleHost::new(Default::default()))
+        };
+        let mut req = vec![false; 10];
+        req[9] = true;
+
+        // the script has the ten doors' variables
+        let all: String = (0..10).map(|i| format!("PAX_Entry{i}_Open\n")).collect();
+        let mut v = bus("own", &all);
+        v.set_var("PAX_Entry9_Open", 1.0);
+        let (e, _) = Humans::doors_open(&v, 10, 0);
+        assert_eq!(e, [false, false, false, false, false, false, false, false, false, true]);
+        Humans::write_door_requests(&mut v, &req, &[]);
+        assert_eq!((v.var("PAX_Entry9_Req"), v.var("PAX_Entry7_Req")), (Some(1.0), Some(0.0)));
+
+        // an older bus knows eight: the ninth and tenth go with the eighth
+        let eight: String = (0..8).map(|i| format!("PAX_Entry{i}_Open\n")).collect();
+        let mut v = bus("eight", &eight);
+        v.set_var("PAX_Entry7_Open", 1.0);
+        let (e, _) = Humans::doors_open(&v, 10, 0);
+        assert_eq!(e, [false, false, false, false, false, false, false, true, true, true]);
+        Humans::write_door_requests(&mut v, &req, &[]);
+        assert_eq!((v.var("PAX_Entry9_Req"), v.var("PAX_Entry7_Req")), (Some(0.0), Some(1.0)));
     }
 }
 

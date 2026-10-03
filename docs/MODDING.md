@@ -62,6 +62,17 @@ Normal, roughness, metalness and occlusion maps beside a texture, up to 4096 × 
 - There is no limit on the number of meshes, materials, `[matl_change]` items, `[CTC]`
   entries, cameras, doors, passenger places, wheels or axles.
 
+## Passenger doors: sixteen entries and sixteen exits
+
+OMSI 2 has the door variables of eight `[entry]` and eight `[exit]` paths a vehicle
+(`PAX_Entry0_Open` to `PAX_Entry7_Open`, the same with `_Req` and for `PAX_Exit`). openOMSI
+has them for sixteen of each: `PAX_Entry8_Open` ... `PAX_Entry15_Open`, `PAX_Entry8_Req` ...
+and the same for the exits. An entry or exit past the eighth is a door of its own once the
+script sets its `_Open` variable (or lists it in a varlist); then its passengers wait for that
+variable and ask for the door through its own `_Req`. Without it, it opens with the eighth, as
+in OMSI 2. Its passengers' requests then go through the eighth's `_Req` in openOMSI, while
+OMSI 2 loses them (its request arrays have eight slots).
+
 ## Scripts and plugins
 
 - Script variables and string variables have no count limit.
