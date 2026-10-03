@@ -581,6 +581,48 @@ fn fade_gain(t: f32, fade: f32) -> f32 {
     k * k * (3.0 - 2.0 * k)
 }
 
+/// A script's shaking (`FF_Vib_Amp` and `FF_Vib_Period`) and the little state its fade
+/// needs. The scripts write both afresh every frame, so once they stop there is nothing
+/// left to ease away unless the last of what they asked for is kept here.
+#[derive(Debug, Clone, Copy, Default)]
+struct ScriptVib {
+    /// The last amplitude the scripts reached the wheel with.
+    amp: f32,
+    /// The period that came with it: the scripts stop writing that too, and a rattle eased
+    /// away at the wrong period would not be the one that stopped.
+    period: f32,
+    /// How long ago (s) they last reached the wheel.
+    t: f32,
+}
+
+impl ScriptVib {
+    /// What the wheel is told this frame: the retained amplitude eased on the settings'
+    /// fade since the scripts went quiet, and the period to shake it at.
+    ///
+    /// The fade cannot be a gain applied to the incoming amplitude, because that amplitude
+    /// is already zero on the frame the scripts stop and any gain leaves zero at zero - the
+    /// wheel then drops the shake in a single step, which is the jolt the fade is here to
+    /// avoid. It shows on the DirectInput path, where a zero amplitude stops the periodic
+    /// effect outright, and on the fallback, whose shake is worked out of the same
+    /// amplitude. The fade at zero stops the shake where it stands, as it always did.
+    fn step(&mut self, on: bool, incoming: f32, period: f32, fade: f32, dt: f32) -> (f32, f32) {
+        let incoming = if on { incoming.clamp(0.0, 1.0) } else { 0.0 };
+        if incoming > 0.004 {
+            self.amp = incoming;
+            if period > 0.0 {
+                self.period = period;
+            }
+            self.t = 0.0;
+        } else if on && fade > 0.01 {
+            self.t += dt.max(0.0);
+        } else {
+            self.amp = 0.0;
+            self.t = 0.0;
+        }
+        (self.amp * fade_gain(self.t, fade), self.period)
+    }
+}
+
 /// The trembling that never stops while the bus runs: the grain of the tarmac under the
 /// wheels, and the engine's own buzz coming up through the frame.
 ///
@@ -750,8 +792,8 @@ pub struct Controllers {
     ff_bump_age: f32,
     /// The trembling of the tarmac and the engine, and the little state it keeps.
     ff_micro: Micro,
-    /// How long ago (s) a jolt or a script's shaking last reached the wheel.
-    ff_fade_t: f32,
+    /// The scripts' shaking and the state its fade keeps.
+    ff_vib: ScriptVib,
     /// A rumble motor's share of the trembling, eased over half a second (see
     /// `rumble_feedback`).
     ff_rumble: f32,
@@ -789,7 +831,7 @@ impl Controllers {
         for c in devices.connected() {
             log::info!("game controller: {} ({})", c.name, if cfg.iter().any(|d| names_match(&d.name, &c.name)) { "set up in gamectrler.cfg" } else if c.gamepad { "as a gamepad" } else { "not set up: its X axis steers" });
         }
-Controllers { settled: Vec::new(), devices, focused: true, cfg, deadzone: 0.0, pedal_throttle: 1.0, pedal_brake: 1.0, disabled: Vec::new(), ff_invert: false, ff_enabled: true, ff_road: 1.0, ff_engine: 1.0, ff_fade: FF_FADE, steer_gain: 1.0, enabled: true, actions: Vec::new(), announced: Vec::new(), notice: None, steer: None, ff_t: 0.0, ff_lateral: 0.0, ff_bump: 0.0, ff_bump_age: 0.0, ff_micro: Micro::default(), ff_fade_t: 0.0, ff_rumble: 0.0, ff_source_logged: None, rumble: None, #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel: None, #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel_tried: None }
+Controllers { settled: Vec::new(), devices, focused: true, cfg, deadzone: 0.0, pedal_throttle: 1.0, pedal_brake: 1.0, disabled: Vec::new(), ff_invert: false, ff_enabled: true, ff_road: 1.0, ff_engine: 1.0, ff_fade: FF_FADE, steer_gain: 1.0, enabled: true, actions: Vec::new(), announced: Vec::new(), notice: None, steer: None, ff_t: 0.0, ff_lateral: 0.0, ff_bump: 0.0, ff_bump_age: 0.0, ff_micro: Micro::default(), ff_vib: ScriptVib::default(), ff_rumble: 0.0, ff_source_logged: None, rumble: None, #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel: None, #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel_tried: None }
     }
 
     /// A wheel or joystick steers the bus (then the arrow keys look around, as in OMSI:
@@ -986,19 +1028,16 @@ Controllers { settled: Vec::new(), devices, focused: true, cfg, deadzone: 0.0, p
         } else {
             0.0
         };
-        // A script's shaking is not an envelope we hold - the scripts write it afresh every
-        // frame - so it is faded where it stops instead. The road and the engine are not
-        // something that begins and ends: they go quiet with the bus and the engine,
-        // smoothly, where they stand.
-        if on && f.vib_amp.clamp(0.0, 1.0) > 0.004 {
-            self.ff_fade_t = 0.0;
-        } else {
-            self.ff_fade_t += f.dt.max(0.0);
-        }
-        let fade = fade_gain(self.ff_fade_t, self.ff_fade);
+        // A script's shaking is not an envelope that can be held in place - the scripts write
+        // it afresh every frame - so `ScriptVib` keeps the last amplitude and period they
+        // asked for and eases those, which is what reaches the wheel. The road and the
+        // engine are not something that begins and ends: they go quiet with the bus and
+        // the engine, smoothly, where they stand.
+        let (vib_amp, vib_period) = self.ff_vib.step(on, f.vib_amp, f.vib_period, self.ff_fade, f.dt);
         f.wheel_bump = self.ff_bump;
         f.wheel_bump_age = self.ff_bump_age;
-        f.vib_amp *= fade;
+        f.vib_amp = vib_amp;
+        f.vib_period = vib_period;
         f.micro = micro;
         if self.ff_source_logged.as_deref() != self.steer.as_ref().map(|s| s.0.as_str()) {
             self.ff_source_logged = self.steer.as_ref().map(|s| s.0.clone());
@@ -2213,5 +2252,46 @@ mod button_tests {
         assert!(fast < slow * 3, "the setting barely changes the jolt: {fast} {slow}");
         assert!(fast >= 2, "the jolt was cut off in a single frame: {fast}");
         assert!(slow <= 120, "a long fade never ends: {slow}");
+    }
+
+    #[test]
+    fn a_scripts_shaking_eases_away_instead_of_stopping_dead() {
+        // The scripts write the amplitude afresh every frame, so on the frame they stop it
+        // is already zero and fading that fades nothing: the wheel drops the shake in a
+        // single step, which is the jolt the fade is here to avoid. What the fade needs is
+        // the last amplitude the scripts reached the wheel with, so this is what says
+        // whether it is still there once they have gone quiet.
+        let dt = 1.0f32 / 60.0;
+        let mut vib = super::ScriptVib::default();
+        let (amp, period) = vib.step(true, 0.8, 12.0, super::FF_FADE, dt);
+        assert_eq!(amp, 0.8, "the shake the scripts asked for never reached the wheel");
+        assert_eq!(period, 12.0, "the period the scripts asked for was not passed on");
+        // the frame the scripts stop: kept, not cut off
+        let (mut amp, period) = vib.step(true, 0.0, 0.0, super::FF_FADE, dt);
+        assert!(amp > 0.5, "the shake stopped dead the frame the scripts did: {amp}");
+        assert_eq!(period, 12.0, "the period went with the amplitude instead of being kept");
+        // and it eases away to nothing rather than to a stop
+        let mut frames = 0;
+        while amp > 0.0 && frames < 600 {
+            amp = vib.step(true, 0.0, 0.0, super::FF_FADE, dt).0;
+            frames += 1;
+        }
+        assert_eq!(amp, 0.0, "the shake never finished fading: {amp}");
+        // the setting is what decides how long that takes
+        let mut fast = super::ScriptVib::default();
+        fast.step(true, 0.8, 12.0, 0.05, dt);
+        let mut quick = 0;
+        while fast.step(true, 0.0, 0.0, 0.05, dt).0 > 0.0 && quick < 600 {
+            quick += 1;
+        }
+        assert!(quick < frames, "the setting barely changes the shake: {quick} {frames}");
+        // with the fade at zero it stops where it stands, as it always did
+        let mut none = super::ScriptVib::default();
+        none.step(true, 0.8, 12.0, 0.0, dt);
+        assert_eq!(none.step(true, 0.0, 0.0, 0.0, dt).0, 0.0, "the fade at zero still hangs on");
+        // and a bus whose force feedback is off is not shaking at all
+        let mut off = super::ScriptVib::default();
+        off.step(true, 0.8, 12.0, super::FF_FADE, dt);
+        assert_eq!(off.step(false, 0.0, 0.0, super::FF_FADE, dt).0, 0.0);
     }
 }
