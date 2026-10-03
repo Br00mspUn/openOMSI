@@ -4516,15 +4516,12 @@ impl World {
         }
         for (oi, Pose { pos, rot: _ }, base) in plates {
             let ot = &st.objects[oi].ot;
-            // A plate the map leaves far from the ground is a dead record (Spandau has one
-            // junction stored at height zero in a field 31 m up). Warping it onto the terrain
-            // would hoist a white slab into the meadow; left where the map puts it, it stays
-            // buried and out of sight, as in the original.
-            if let Some(t) = Self::base_ground(src, pos.x, pos.y) {
-                if (pos.z - t).abs() > 12.0 {
-                    continue;
-                }
-            }
+            // Wherever the map puts the plate - a bridge deck twenty metres over the river
+            // under it, a dead junction record buried in a field - it is draped by its own
+            // field: Omsi.exe lays the meshes onto it in the object's frame as it loads the
+            // type (0x7c5934), and the ground under a placement plays no part (nor is it
+            // pressed onto the field, see `final_ground`). Left flat more than 12 m from the
+            // ground, London Bridge's deck met neither of its roads (#961).
             // the base mesh in object space, as a height lookup
             let height_of = |x: f32, y: f32| -> Option<f32> {
                 let mut best: Option<f32> = None;
@@ -13349,6 +13346,65 @@ mod tests {
         assert!(coronas[1].halo);
         // switched off: nothing
         assert!(model_lights_faded(&model, &|_| Mat4::IDENTITY, DVec3::ZERO, &|_| 0.0, &[]).is_empty());
+    }
+
+    /// A bridge deck high over the ground under it (London Bridge over the Thames) is
+    /// draped by its `[crossing_heightdeformation]` as one lying on the ground is: Omsi.exe
+    /// does it in the object's own frame, wherever the map puts the object (#961).
+    #[test]
+    fn a_crossing_far_over_the_ground_is_draped_by_its_height_field() {
+        let dir = std::env::temp_dir().join(format!("openomsi-deck-warp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("global.cfg"), "[name]\nDeck\n").unwrap();
+        std::fs::write(dir.join("deck.sco"), "[surface]\n[mesh]\ndeck.x\n[crossing_heightdeformation]\ndeck_def.x\n").unwrap();
+        // a 10 m square deck at 0, and its field 1 m higher at the far end (y up in a .x)
+        let quad = |name: &str, far: f32| {
+            format!("xof 0303txt 0032\nMesh {name} {{\n 4;\n 0;0;0;,\n 10;0;0;,\n 10;{far};10;,\n 0;{far};10;;\n 2;\n 3;0,2,1;,\n 3;0,3,2;;\n}}\n")
+        };
+        std::fs::write(dir.join("deck.x"), quad("deck", 0.0)).unwrap();
+        std::fs::write(dir.join("deck_def.x"), quad("field", 1.0)).unwrap();
+        let world = World::open(&dir, &dir.join("global.cfg"), 20261001).unwrap();
+        let ot = world.object_type("deck.sco").expect("the deck loads");
+        assert!(ot.deform.is_some());
+        let staged = |z: f64| StagedTile {
+            tx: 0,
+            ty: 0,
+            origin: DVec3::ZERO,
+            path: dir.join("tile_0_0.map"),
+            base_terrain: Terrain::flat(),
+            align: Vec::new(),
+            hole_outlines: Vec::new(),
+            water: None,
+            splines: Vec::new(),
+            meshes: Mutex::new(Some(Vec::new())),
+            drive: Vec::new(),
+            lanes: Mutex::new(Vec::new()),
+            street_points: Vec::new(),
+            objects: vec![StagedObject {
+                ot: ot.clone(),
+                id: 1,
+                place: Placement::Ground { x: 100.0, y: 100.0, z, rot: [0.0; 3] },
+                rules: Vec::new(),
+                extra: Vec::new(),
+                lamp_parent: None,
+                parked: false,
+                map_object: true,
+                instance: 0,
+                key: 1,
+            }],
+            anchors: Vec::new(),
+            counts: LoadStats::default(),
+            resolved: std::sync::OnceLock::new(),
+        };
+        // on the ground and 20 m over it, alike
+        for z in [0.0, 20.0] {
+            let src: HashMap<(i32, i32), Arc<StagedTile>> = [((0, 0), Arc::new(staged(z)))].into_iter().collect();
+            let warped = world.warp_crossings(&src[&(0, 0)], &src);
+            let deck = warped.get(&0).unwrap_or_else(|| panic!("the deck {z} m over the ground is draped"));
+            let top = deck[0].positions.iter().map(|p| p.z).fold(f32::MIN, f32::max);
+            assert!((top - 1.0).abs() < 1e-3, "its far end is raised by the field: {top}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
