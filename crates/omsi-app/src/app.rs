@@ -279,9 +279,11 @@ pub(crate) struct App {
     /// The zoom of the views inside the bus (driver, passenger): their field of view is
     /// the camera's times this (the mouse wheel, + and -, a pinch), per view.
     pub(crate) view_zoom: std::collections::HashMap<String, f32>,
-    /// Eased Space return in flight (F1 only): ((look from), (zoom from), seconds in).
-    /// A hand on the view cancels it; other views reset instantly.
-    pub(crate) f1_reset: Option<((f32, f32), f32, f32)>,
+    /// Eased Space return in flight (F1 only): ((look from), (zoom from), seconds in,
+    /// look key it started from). A hand on the view cancels it; other views reset
+    /// instantly. If the camera changes mid-glide, the originating camera is
+    /// finalized straight ahead instead of keeping a partial angle.
+    pub(crate) f1_reset: Option<((f32, f32), f32, f32, String)>,
     pub(crate) orbit: f32,
     pub(crate) frames: u32,
     pub(crate) fps_t: Instant,

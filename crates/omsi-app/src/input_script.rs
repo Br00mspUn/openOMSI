@@ -3468,7 +3468,8 @@ impl App {
                     && (self.look != (0.0, 0.0) || self.view_zoom.contains_key(&self.view))
                 {
                     let zoom = self.view_zoom.get(&self.view).copied().unwrap_or(1.0);
-                    self.f1_reset = Some((self.look, zoom, 0.0));
+                    let key = self.look_key();
+                    self.f1_reset = Some((self.look, zoom, 0.0, key));
                 } else {
                     self.f1_reset = None;
                     self.look = (0.0, 0.0);
@@ -3482,24 +3483,26 @@ impl App {
             "view_reset_all_directions" => {
                 // F1 eases home (look + zoom glide) from the values in place:
                 // zeroing them first would flash a frame of the destination.
-                // Everything else snaps.
-                if self.view == "driver"
+                // Everything else snaps. The glide belongs to the standard
+                // camera (cam reset first), so a mid-glide switch finalizes it.
+                let zoom = self.view_zoom.get(&self.view).copied().unwrap_or(1.0);
+                let eyed = self.view == "driver"
                     && self.settings.driverview_smooth
-                    && (self.look != (0.0, 0.0) || self.view_zoom.contains_key(&self.view))
-                {
-                    let zoom = self.view_zoom.get(&self.view).copied().unwrap_or(1.0);
-                    self.f1_reset = Some((self.look, zoom, 0.0));
+                    && (self.look != (0.0, 0.0) || self.view_zoom.contains_key(&self.view));
+                if let Some(p) = self.player.as_mut() {
+                    p.cam_choice = (0, 0);
+                }
+                self.orbit = ORBIT_DEFAULT;
+                if eyed {
                     self.view_looks.clear();
                     self.view_zoom.retain(|k, _| k == "driver");
+                    let key = self.look_key();
+                    self.f1_reset = Some((self.look, zoom, 0.0, key));
                 } else {
                     self.f1_reset = None;
                     self.look = (0.0, 0.0);
                     self.view_looks.clear();
                     self.view_zoom.clear();
-                }
-                self.orbit = ORBIT_DEFAULT;
-                if let Some(p) = self.player.as_mut() {
-                    p.cam_choice = (0, 0);
                 }
             }
             // the next (or the previous) view mode, driver - passenger - outside - map and
