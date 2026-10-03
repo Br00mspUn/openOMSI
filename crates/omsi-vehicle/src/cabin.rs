@@ -65,24 +65,27 @@ impl PassengerCabin {
         // the seat written last (driver's or not, and which): Omsi.exe keeps both kinds in
         // one list, in the order of the file
         let mut last: Option<(bool, usize)> = None;
-        while let Some(k) = r.next_keyword() {
-            match k.as_str() {
-                "entry" => {
-                    let mut e = Entry { path_point: r.i32(), ..Default::default() };
-                    loop {
-                        let save = r.pos();
-                        let w = r.word().to_ascii_lowercase();
-                        match w.as_str() {
-                            "{noticketsale}" => e.no_ticket_sale = true,
-                            "{withbutton}" => e.with_button = true,
-                            _ => {
-                                r.seek(save);
-                                break;
-                            }
+        while let Some(e) = r.next_entry(&["{noticketsale}", "{withbutton}"]) {
+            let k = match e {
+                // a line of its own anywhere between the blocks, as Omsi.exe reads them
+                // (0x5ce952 - 0x5ce9bc): it marks the entry read last. Every stock cabin has
+                // a blank line between the second entry's path point and its
+                // `{noticketsale}`, and read only straight after the path point, the flag
+                // was lost there - and so was a `{withbutton}` written the same way (#1156)
+                omsi_cfg::Entry::Token(t) => {
+                    if let Some(e) = c.entries.last_mut() {
+                        if t == "{noticketsale}" {
+                            e.no_ticket_sale = true;
+                        } else {
+                            e.with_button = true;
                         }
                     }
-                    c.entries.push(e);
+                    continue;
                 }
+                omsi_cfg::Entry::Keyword(k) => k,
+            };
+            match k.as_str() {
+                "entry" => c.entries.push(Entry { path_point: r.i32(), ..Default::default() }),
                 "exit" => c.exits.push(r.i32()),
                 "linktonextveh" => c.link_to_next_veh = Some(r.i32()),
                 "linktoprevveh" => c.link_to_prev_veh = Some(r.i32()),
@@ -153,6 +156,24 @@ mod tests {
         assert_eq!(c.pass_positions[2].illumination, [6, 7, 8, 9]);
         let c = PassengerCabin::parse(&CfgFile::from_str("passengercabin.cfg", "[passpos]\n0\n0\n1\n0.5\n0\n"));
         assert_eq!(c.pass_positions[0].illumination, [0, 1, 2, 3]);
+    }
+
+    /// #1156: `{noticketsale}` and `{withbutton}` are lines of their own that mark the entry
+    /// read last, wherever they stand before the next one - the stock cabins write a blank
+    /// line before them.
+    #[test]
+    fn entry_flags_mark_the_entry_read_last() {
+        let text = "[entry]\r\n0\r\n\r\n[entry]\r\n4\r\n\r\n{noticketsale}\r\n\r\n[exit]\r\n7\r\n\r\n\
+                    [entry]\r\n9\r\n{withbutton}\r\n{noticketsale}\r\n\r\n[entry]\r\n11\r\n\r\n[exit]\r\n12\r\n\r\n{withbutton}\r\n";
+        let c = PassengerCabin::parse(&CfgFile::from_str("passengercabin.cfg", text));
+        let flags: Vec<(i32, bool, bool)> = c.entries.iter().map(|e| (e.path_point, e.no_ticket_sale, e.with_button)).collect();
+        assert_eq!(flags, [(0, false, false), (4, true, false), (9, true, true), (11, false, true)]);
+        assert_eq!(c.exits, [7, 12]);
+        // the stock SD200: its second entry (path point 4) sells no tickets
+        let root = std::path::PathBuf::from("../../../OMSI 2 Original");
+        if let Ok(c) = PassengerCabin::load(&root.join("Vehicles/MAN_SD200/Model/passengercabin.cfg")) {
+            assert_eq!(c.entries.iter().map(|e| (e.path_point, e.no_ticket_sale)).collect::<Vec<_>>(), [(0, false), (4, true)]);
+        }
     }
 
     #[test]

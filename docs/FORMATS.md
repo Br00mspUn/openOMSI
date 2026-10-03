@@ -848,7 +848,9 @@ The `[passengercabin]` file gives `[passpos] x y z seat-height rot` seats - x, y
 **hip** ("Attachpunkt Arsch") when the seat height above the floor is greater than zero and
 the **foot** when it is zero, which marks a standing place - plus `[entry]`/`[exit]`
 path points, `[ticket_sale]`, `[stamper]`. `[entry]` may carry `{noticketsale}`: passengers
-who use that door walk straight to a seat instead of past the cash desk.
+who use that door walk straight to a seat instead of past the cash desk. It and `{withbutton}`
+are lines of their own that mark the entry read last, wherever they stand between the blocks
+(the stock cabins write a blank line before them), as Omsi.exe reads them.
 
 The entries and exits are numbered in file order, and that number is how the engine and the
 bus script talk about the doors. The engine writes `PAX_Entry<i>_Req` while somebody at the
