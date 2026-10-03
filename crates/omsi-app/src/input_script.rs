@@ -3498,6 +3498,10 @@ impl App {
                     self.view_zoom.retain(|k, _| k == "driver");
                     let key = self.look_key();
                     self.f1_reset = Some((self.look, zoom, 0.0, key));
+                    // the bookkeeping follows the camera change at once: left
+                    // stale, the next swap would write the old look straight
+                    // back into the previous camera's slot.
+                    self.look_view = self.look_key();
                 } else {
                     self.f1_reset = None;
                     self.look = (0.0, 0.0);
