@@ -1555,12 +1555,7 @@ pub fn name_tags(
 fn content_relative(path: &Path, root: &Path) -> String {
     let mut roots = omsi_cfg::content_roots();
     roots.push(root.to_path_buf());
-    for r in roots {
-        if let Ok(rel) = path.strip_prefix(&r) {
-            return rel.to_string_lossy().replace('\\', "/");
-        }
-    }
-    String::new()
+    crate::lan_world::relative_to_roots(path, &roots).unwrap_or_default()
 }
 
 /// The paint scheme `--paint` picked, by name.
