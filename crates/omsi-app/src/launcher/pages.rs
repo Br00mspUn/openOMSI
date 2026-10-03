@@ -1048,6 +1048,12 @@ fn mb(v: i64) -> String {
 
 // --- controls ---------------------------------------------------------------------------------
 
+/// The game's own actions a controller's button can be given, besides the bus's: the doors
+/// and gears of any bus, looking round while held, the cameras and the views - both of
+/// OMSI's view resets, the one view's (C) and every view's (Space), which a controller
+/// could not bring back to the first camera (#1167).
+const PAD_GAME_ACTIONS: [&str; 25] = ["doors_all", "door_4", "door_3", "door_2", "door_1", "gear_up", "gear_down", "view_look_left", "view_look_right", "view_look_up", "view_look_down", "view_reset_direction", "view_reset_all_directions", "view_interiorcam_plus", "view_interiorcam_minus", "view_toggle_viewpoint", "view_toggle_interior", "view_set_driver", "view_set_passenger", "view_set_outside", "sim_pause", "screenshot", "quicksave", "toggel_mouse_ctrl", "toggel_ctrler"];
+
 fn action_text(names: &crate::describe::ControlNames, a: &str) -> String {
     known_action(a).unwrap_or_else(|| names.control(a))
 }
@@ -1465,7 +1471,7 @@ fn game_controllers(l: &mut Launcher, body: Rect) {
         }
     }
     // the game's own view actions (looking around while held, the cameras, the views)
-    for a in ["doors_all", "door_4", "door_3", "door_2", "door_1", "gear_up", "gear_down", "view_look_left", "view_look_right", "view_look_up", "view_look_down", "view_reset_direction", "view_interiorcam_plus", "view_interiorcam_minus", "view_toggle_viewpoint", "view_toggle_interior", "view_set_driver", "view_set_passenger", "view_set_outside", "sim_pause", "screenshot", "quicksave", "toggel_mouse_ctrl", "toggel_ctrler"] {
+    for a in PAD_GAME_ACTIONS {
         if !actions.iter().any(|x| x == a) {
             actions.insert(1, a.to_string());
         }
@@ -2572,5 +2578,21 @@ mod settings_tests {
         let out = click(5, "s-reset", &mut s);
         assert!(out.reset);
         assert_eq!(s, before);
+    }
+}
+
+#[cfg(test)]
+mod pad_action_tests {
+    /// Every game action a button can be given is one the game carries out from a
+    /// controller (app_events: `view_look_*` and the gears by name, the rest through
+    /// `is_game_action`, the doors through `Player::action`) - Space's reset of every view
+    /// among them (#1167).
+    #[test]
+    fn a_button_can_reset_every_view() {
+        assert!(super::PAD_GAME_ACTIONS.contains(&"view_reset_all_directions"));
+        for a in super::PAD_GAME_ACTIONS {
+            let handled = crate::input_script::is_game_action(a) || a.starts_with("gear_") || crate::player::door_action(a).is_some();
+            assert!(handled, "{a}");
+        }
     }
 }
