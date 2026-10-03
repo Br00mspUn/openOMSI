@@ -2503,6 +2503,21 @@ pub(crate) fn mouse_steering(cursor_x: f32, width: f32, kmh: f32) -> f32 {
     x / (kmh / 10.0).max(1.0)
 }
 
+/// How much of the way to the cursor the mouse's wheel and pedals leave behind this frame:
+/// for `fade` seconds after the mouse steering was switched on they ease towards it (half
+/// the way every `fade`), then within ~60 ms - the cursor comes in bursts, and taken as it
+/// came the wheel moved in steps. Without `smooth` (#1092) they are where the cursor says at
+/// once, as Omsi.exe sets the curvature and the pedals from it every frame.
+pub(crate) fn mouse_follow(fade: f32, dt: f32, smooth: bool) -> f32 {
+    if fade > 0.0 {
+        (-std::f32::consts::LN_2 / fade * dt).exp()
+    } else if smooth {
+        (-dt / 0.06).exp()
+    } else {
+        0.0
+    }
+}
+
 /// A mouse pedal following the cursor, `k` of the way left behind each frame. The last bit
 /// is snapped: in f32 the easing stops one step short of the target (1 - 6e-8 at 60 fps), and
 /// the stock gearbox scripts kick down only at a throttle of exactly 1 - the cursor at the top
@@ -2550,7 +2565,25 @@ mod orbit_pivot_tests {
 
 #[cfg(test)]
 mod mouse_tests {
-    use super::{mouse_pedal, mouse_steering};
+    use super::{mouse_follow, mouse_pedal, mouse_steering};
+
+    /// The mouse's wheel eases after the cursor by default; with the smoothing off it is where
+    /// the cursor says the same frame, as in OMSI (#1092) - only the first second after
+    /// switching the mouse steering on still eases, whichever it is.
+    #[test]
+    fn the_wheel_follows_the_cursor_at_once_without_smoothing() {
+        let dt = 1.0 / 60.0;
+        let k = mouse_follow(0.0, dt, true);
+        assert!(k > 0.7 && k < 0.8, "{k}");
+        assert_eq!(mouse_follow(0.0, dt, false), 0.0);
+        assert_eq!(mouse_pedal(0.3, 0.9, mouse_follow(0.0, dt, false)), 0.9);
+        let steer = 0.9 + (0.3 - 0.9) * mouse_follow(0.0, dt, false);
+        assert_eq!(steer, 0.9);
+        for smooth in [true, false] {
+            let k = mouse_follow(1.0, dt, smooth);
+            assert!((k - 0.5f32.powf(dt)).abs() < 1e-6, "{smooth}: {k}");
+        }
+    }
 
     #[test]
     fn the_mouse_pedal_reaches_the_floor() {

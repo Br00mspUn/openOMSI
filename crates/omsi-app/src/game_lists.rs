@@ -1167,6 +1167,7 @@ fn toggle_now(app: &App, id: &str) -> Option<bool> {
         "coll_vehicles" => s.collision_vehicles,
         "mouse" => app.mouse_drive,
         "mouse_right" => s.mouse_right_off,
+        "mouse_smooth" => s.mouse_smooth,
         "blinker_cancel" => s.blinker_cancel,
         "fps" => s.show_fps,
         "get_up" => s.get_up,
@@ -1280,6 +1281,10 @@ fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String
         "mouse_right" => {
             app.settings.mouse_right_off = on;
             Some(("mouse_right_off", bit))
+        }
+        "mouse_smooth" => {
+            app.settings.mouse_smooth = on;
+            Some(("mouse_smooth", bit))
         }
         "get_up" => {
             app.settings.get_up = on;
@@ -2036,6 +2041,7 @@ fn options_pages(app: &App) -> Vec<Page> {
         switch_row(app, "mouse", "Steering with the mouse", "Steer and control the pedals using the mouse"),
         switch_row(app, "mouse_right", "A right click ends the mouse steering", "As in OMSI; off: the right button only looks round"),
         slider_row(app, "mouse_sens", "Mouse steering sensitivity", "Adjust how much the steering wheel turns based on mouse movement", &pct),
+        switch_row(app, "mouse_smooth", "Smooth mouse steering", "The wheel eases after the cursor; off: it follows at once, as in OMSI"),
         switch_row(app, "steering_linear", "Steering linearity (keys at OMSI's steady pace)", "Keyboard steering at OMSI's steady pace"),
         switch_row(app, "old_steering", "Old Steering (the wheel stays, turn it back yourself)", "The wheel stays where the keys left it"),
         switch_row(app, "red_steer_spd", "Dynamic steering (slower keys at speed, OMSI's redSteerSpd)", "The steering keys act slower at speed"),

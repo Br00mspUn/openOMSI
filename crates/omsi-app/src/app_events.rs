@@ -781,9 +781,9 @@ impl ApplicationHandler for App {
                     let y = (2.0 * self.cursor.1 / h.max(1.0) - 1.0).clamp(-1.0, 1.0);
                     let (pedal_t, pedal_b) = ((-y).max(0.0), y.max(0.0));
                     let (steer, fade) = &mut self.mouse_steer;
-                    // (after the first second the wheel follows the cursor within ~60 ms: the
-                    // cursor comes in bursts, and taken as it came the wheel moved in steps)
-                    let k = if *fade > 0.0 { (-std::f32::consts::LN_2 / *fade * dt).exp() } else { (-dt / 0.06).exp() };
+                    // (after the first second the wheel follows the cursor within ~60 ms, or at
+                    // once with Smooth mouse steering off, #1092)
+                    let k = crate::player::mouse_follow(*fade, dt, self.settings.mouse_smooth);
                     *steer = target + (*steer - target) * k;
                     let (mt, mb) = &mut self.mouse_pedals;
                     *mt = crate::player::mouse_pedal(*mt, pedal_t, k);

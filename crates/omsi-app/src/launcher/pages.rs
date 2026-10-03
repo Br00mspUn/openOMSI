@@ -628,6 +628,7 @@ fn driving_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
         s["mouse_sens"] = json!((ms * 100.0).round() / 100.0);
         *dirty = 0.3;
     }
+    toggle_setting(ui, s, dirty, c.row(), "Smooth mouse steering (off: the wheel follows the cursor at once, as in OMSI)", "mouse_smooth");
     toggle_setting(ui, s, dirty, c.row(), "A right click ends the mouse steering (as in OMSI)", "mouse_right_off");
     toggle_setting(ui, s, dirty, c.row(), "Indicators cancel themselves (as the bus's script does)", "blinker_cancel");
     toggle_setting(ui, s, dirty, c.row(), "The keyboard brake stays on until the throttle (as in OMSI)", "brake_hold");
@@ -2493,7 +2494,7 @@ mod settings_tests {
             graphics.push("s-api");
         }
         let driving = vec![
-            "s-keys", "set-steering_linear", "set-old_steering", "set-red_steer_spd", "s-mouse", "set-mouse_right_off", "set-blinker_cancel", "set-brake_hold", "set-auto_clutch", "set-momentary_gears", "s-go-keys",
+            "s-keys", "set-steering_linear", "set-old_steering", "set-red_steer_spd", "s-mouse", "set-mouse_smooth", "set-mouse_right_off", "set-blinker_cancel", "set-brake_hold", "set-auto_clutch", "set-momentary_gears", "s-go-keys",
             "s-wrange", "s-wlock", "s-pedt", "s-pedb", "set-ff_enabled", "set-ff_invert", "s-wreset", "s-go-pads",
         ];
         let mut camera = vec![
@@ -2599,6 +2600,20 @@ mod settings_tests {
         let mut s = all_rows();
         assert_eq!(click(1, "s-go-keys", &mut s).controls, Some(0));
         assert_eq!(click(1, "s-go-pads", &mut s).controls, Some(1));
+    }
+
+    /// The mouse steering's smoothing is on unless switched off, and the switch is kept (#1092).
+    #[test]
+    fn smooth_mouse_steering_switches_off_and_is_saved() {
+        let mut s = all_rows();
+        assert_eq!(s["mouse_smooth"], json!(true));
+        click(1, "set-mouse_smooth", &mut s);
+        assert_eq!(s["mouse_smooth"], json!(false));
+        let saved = core::settings_to_text(&s, None);
+        assert!(saved.contains("mouse_smooth=0\n"), "{saved}");
+        assert_eq!(core::settings_from_text(Some(&saved))["mouse_smooth"], json!(false));
+        assert!(!crate::settings::Settings::from_text(&saved).mouse_smooth);
+        assert!(crate::settings::Settings::from_text("").mouse_smooth);
     }
 
     #[test]

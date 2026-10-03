@@ -85,7 +85,8 @@ and less (at 50 km/h a fifth as far), so the wheel feels heavier the faster the 
 the first second after switching it on the wheel and the pedals ease towards the cursor.
 Settings → Driving → *Mouse steering sensitivity* makes it more or less sensitive (100 % = OMSI).
 Mouse steering works in the driver's, the passenger and the outside view; the wheel follows
-the cursor smoothly (a short easing, no steps).
+the cursor smoothly (a short easing, no steps). With *Smooth mouse steering* off (Settings →
+Driving) the wheel and the pedals are where the cursor says at once, as in OMSI.
 
 Two switches there change the steering keys (both off by default): *Steering linearity* turns
 the wheel at OMSI's own steady pace (the curvature grows by the same amount every millisecond
@@ -234,7 +235,8 @@ the panel's own light, and the glow draws a halo around them), `led_mips` (0..4,
 this. 0 point-samples them, the sharpest dots and the worst shimmer; 1.3 keeps a matrix's
 dots a couple of pixels across where the full chain has run them together; 4 is near the
 calm of the full chain), `mouse_sens` (mouse steering,
-1 = OMSI's), `ui_scale` (the size of the game's interface over the picture - its texts,
+1 = OMSI's), `mouse_smooth` (0: the mouse's wheel follows the cursor without easing),
+`ui_scale` (the size of the game's interface over the picture - its texts,
 the menu, the timetable, the navigator and the city map - from 0.5 to 2, 1 by default, on
 top of the screen's own scaling; on a window taller than 1080 lines the interface grows with
 it as well, up to twice, unless `ui_scale_window` is off; `notes` off hides the notes in the
