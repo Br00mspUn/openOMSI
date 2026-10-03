@@ -745,8 +745,10 @@ Regional = https://example.org/regional.mp3 | 97.9
 * `envir.cfg`: `[sky_textures]` day/twilight/night, `[twilight_start_end]` sun altitudes,
   `[lightcolor_A/B/C]` = 5 RGB stops (nadir, twilight start, sunrise, twilight end, zenith)
   for direct sun, light from above and ambient.
-* `[light_enh]` (mesh): pos, rgb 0-255, size (m), fading variable (name or constant), 4
-  numbers, optional texture. `[light_enh_2]`: pos, dir, up, omni, rotating, rgb, size, cone
+* `[light_enh]` (mesh): pos, rgb 0-255, size (m), fading variable (name or constant),
+  brightness factor, z offset, effect bits, fade time, optional texture - Omsi.exe reads it
+  into the same lamp as a `[light_enh_2]` (omnidirectional, turned to the viewer) and draws
+  it alike. `[light_enh_2]`: pos, dir, up, omni, rotating, rgb, size, cone
   inner/outer, variable, factor, z-offset, parameters, cone, timeconst, bitmap. The lights
   count whatever detail level their mesh belongs to: 40 stock models (the Spandau neon,
   sodium and gas street lamps, the Sv signals, the ICE and RE160 coaches) declare theirs

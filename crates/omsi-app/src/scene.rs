@@ -2145,6 +2145,41 @@ pub fn model_light_sources(model: &Model) -> Vec<(usize, glam::Vec3, glam::Vec3)
     out
 }
 
+/// The sprites of one lamp, a `[light_enh]` or a `[light_enh_2]` alike (Omsi.exe 0x5a0068):
+/// its `glow`, left out with effect bit 4; with effect bit 1 a star (light_effect1.bmp)
+/// turned to the viewer, 2.5 times the size and growing with the glow's strength
+/// (corona.wgsl, flag bit 8); without bit 2 a halo round it in fog, seen from in front
+/// (sizes and strengths in `lights::collect` and corona.wgsl, like the cone's) - `size` is
+/// the light's size, `halo_cone` its outer and inner half cone angles (radians).
+fn push_lamp_sprites(out: &mut Vec<omsi_render::Corona>, glow: omsi_render::Corona, effect: u8, size: f32, halo_cone: (f32, f32)) {
+    if effect & 4 == 0 {
+        out.push(glow);
+    }
+    if effect & 1 != 0 {
+        out.push(omsi_render::Corona {
+            size: size * 1.25,
+            rotating: 2,
+            flags: 8,
+            texture: crate::lights::star_texture_id(),
+            ..glow
+        });
+    }
+    if effect & 2 == 0 {
+        out.push(omsi_render::Corona {
+            position: glow.position,
+            size,
+            color: glow.color,
+            brightness: glow.brightness,
+            direction: glow.direction,
+            cone_cos: halo_cone.0,
+            inner_cos: halo_cone.1,
+            texture: crate::lights::glow_texture_id(),
+            halo: true,
+            ..Default::default()
+        });
+    }
+}
+
 /// [`model_lights_faded`], each sprite with the light it belongs to (the n-th light of the
 /// model, `[light_enh]` and `[light_enh_2]` in file order - the order `value_of` is asked
 /// in): one light gives several sprites (its glow, star, fog halo and cone).
@@ -2172,23 +2207,36 @@ pub fn model_lights_owned(
         for l in &md.light_enh {
             owners.resize(out.len(), seq.wrapping_sub(1));
             seq += 1;
-            let b = value_of(&l.variable).clamp(0.0, 1.0);
-            if b <= 0.0 {
+            // Omsi.exe reads a `[light_enh]` into the same lamp as a `[light_enh_2]` (0x5f2bb6,
+            // a TLampensetting) and draws it alike (0x5a0068): omnidirectional, turned to the
+            // viewer, its four numbers the brightness factor, the z offset, the effect bits
+            // and the fade time, then its own bitmap. Drawn as a bare licht.bmp glow on the
+            // lamp, the stop request lamp of the MAN NL and SD202 (`D92_Haltewunsch.bmp`,
+            // 5 cm to the front) showed as a ring round its dome (#1159). (Its fade time is
+            // not followed: such a lamp is on or off at once.)
+            let factor = l.values.first().copied().filter(|f| *f > 0.0).unwrap_or(1.0);
+            let b = (value_of(&l.variable) * factor).clamp(0.0, 2.0);
+            if !(b > 0.0) || !b.is_finite() {
                 continue;
             }
             let p = xf.transform_point3(glam::Vec3::from(l.pos)).as_dvec3() + pos;
+            let effect = l.values.get(2).map(|v| *v as i32).unwrap_or(1).clamp(0, 7) as u8;
             // (the glow is as wide as the light's size: OMSI draws its sprite half that
             // either side of the lamp)
-            out.push(omsi_render::Corona {
+            let glow = omsi_render::Corona {
                 position: p,
                 size: (l.size * 0.5).max(0.0),
                 color: [l.color[0] / 255.0, l.color[1] / 255.0, l.color[2] / 255.0],
                 brightness: b,
                 direction: glam::Vec3::ZERO,
                 cone_cos: -1.0,
-                texture: crate::lights::glow_texture_id(),
+                rotating: 2,
+                z_offset: l.values.get(1).copied().unwrap_or(0.1).max(0.0),
+                flags: effect & !1,
+                texture: l.texture.as_deref().map(|b| crate::lights::corona_texture_id(&model_dir, b)).filter(|t| *t != 0).unwrap_or_else(crate::lights::glow_texture_id),
                 ..Default::default()
-            });
+            };
+            push_lamp_sprites(&mut out, glow, effect, l.size, (0.0, 0.0));
         }
         for (k, l) in md.light_enh_2.iter().enumerate() {
             owners.resize(out.len(), seq.wrapping_sub(1));
@@ -2214,10 +2262,8 @@ pub fn model_lights_owned(
             let (outer, inner) = (l.cone_outer.max(l.cone_inner), l.cone_inner.min(l.cone_outer));
             let flags = l.values.first().map(|v| omsi_cfg::parse_f32(v) as i32).unwrap_or(0).clamp(0, 7) as u8;
             let color = [l.color[0] / 255.0, l.color[1] / 255.0, l.color[2] / 255.0];
-            // the original: the glow, the light's own bitmap (else
-            // licht.bmp) as wide as its size, left out with effect bit 4; with effect bit 1 a
-            // star (light_effect1.bmp) turned to the viewer, 2.5 times the size and growing
-            // with the glow's strength (corona.wgsl, flag bit 8)
+            // the original: the glow, the light's own bitmap (else licht.bmp) as wide as its
+            // size, with its star and its halo in fog (`push_lamp_sprites`)
             let glow = omsi_render::Corona {
                 position: p,
                 size: (l.size * 0.5).max(0.0),
@@ -2234,34 +2280,7 @@ pub fn model_lights_owned(
                 texture: l.bitmap.as_deref().map(|b| crate::lights::corona_texture_id(&model_dir, b)).filter(|t| *t != 0).unwrap_or_else(crate::lights::glow_texture_id),
                 ..Default::default()
             };
-            if flags & 4 == 0 {
-                out.push(glow);
-            }
-            if flags & 1 != 0 {
-                out.push(omsi_render::Corona {
-                    size: l.size * 1.25,
-                    rotating: 2,
-                    flags: 8,
-                    texture: crate::lights::star_texture_id(),
-                    ..glow
-                });
-            }
-            // in fog a halo round it, seen from in front (sizes and strengths in
-            // `lights::collect` and corona.wgsl, like the cone's)
-            if flags & 2 == 0 {
-                out.push(omsi_render::Corona {
-                    position: p,
-                    size: l.size,
-                    color,
-                    brightness: b,
-                    direction: dir,
-                    cone_cos: (l.cone_outer.max(l.cone_inner) * 0.5).to_radians(),
-                    inner_cos: (l.cone_inner.min(l.cone_outer).max(0.0) * 0.5).to_radians(),
-                    texture: crate::lights::glow_texture_id(),
-                    halo: true,
-                    ..Default::default()
-                });
-            }
+            push_lamp_sprites(&mut out, glow, flags, l.size, ((outer * 0.5).to_radians(), (inner.max(0.0) * 0.5).to_radians()));
             // the light's cone in fog (the original: built for a directional light
             // with the cone flag whose cone angles make sense; effect bit 2 leaves it out).
             // Its size and strength follow the weather and the viewer (`lights::collect`,
@@ -13230,8 +13249,43 @@ mod tests {
         let text = "[mesh]\ndash.o3d\n[light_enh]\n0\n0\n0\n255\n0\n0\n0.01\nspeedo_warn\n0\n";
         let model = Model::parse(&omsi_cfg::CfgFile::from_str("bus.cfg", text));
         let coronas = model_lights_faded(&model, &|_| Mat4::IDENTITY, DVec3::ZERO, &|_| 1.0, &[]);
-        assert_eq!(coronas.len(), 1);
-        assert!((coronas[0].size - 0.005).abs() < 1e-6);
+        // (effect 0: the glow, and the halo it has in fog)
+        let glows: Vec<_> = coronas.iter().filter(|c| !c.halo).collect();
+        assert_eq!(glows.len(), 1);
+        assert!((glows[0].size - 0.005).abs() < 1e-6);
+    }
+
+    /// The MAN NL's stop request lamp (`model_EN92.cfg`): a `[light_enh]` is drawn as
+    /// Omsi.exe draws a `[light_enh_2]` - its own bitmap, 5 cm towards the viewer, its
+    /// brightness factor and its effect bits (3: a star, no halo in fog) - not as a bare
+    /// glow in its dome (#1159).
+    #[test]
+    fn a_light_enh_has_its_bitmap_z_offset_factor_and_effects() {
+        let dir = std::env::temp_dir().join("openomsi-light-enh-test");
+        std::fs::create_dir_all(dir.join("MAN_NL_NG/model")).unwrap();
+        std::fs::create_dir_all(dir.join("MAN_NL_NG/Texture")).unwrap();
+        std::fs::write(dir.join("MAN_NL_NG/Texture/D92_Haltewunsch.bmp"), b"BM").unwrap();
+        let lamp = |factor: &str, effect: &str| {
+            format!("[mesh]\npanel.o3d\n[light_enh]\n-0.635\n5.435\n1.288\n255\n150\n0\n0.05\nhaltewunschlampe_all\n{factor}\n0.05\n{effect}\n0.05\nD92_Haltewunsch.bmp\n")
+        };
+        let path = dir.join("MAN_NL_NG/model/model_EN92.cfg");
+        let model = Model::parse(&omsi_cfg::CfgFile::from_str(&path, &lamp("1", "3")));
+        let coronas = model_lights_faded(&model, &|_| Mat4::IDENTITY, DVec3::ZERO, &|_| 1.0, &[]);
+        assert_eq!(coronas.len(), 2, "the glow and its star, no fog halo: {coronas:?}");
+        let (glow, star) = (&coronas[0], &coronas[1]);
+        assert_ne!(glow.texture, crate::lights::glow_texture_id(), "the lamp's own picture");
+        assert_eq!(glow.texture, crate::lights::corona_texture_id(&dir.join("MAN_NL_NG/model"), "D92_Haltewunsch.bmp"));
+        assert!((glow.z_offset - 0.05).abs() < 1e-6 && glow.rotating == 2);
+        assert!((glow.size - 0.025).abs() < 1e-6 && (glow.brightness - 1.0).abs() < 1e-6);
+        assert!(star.flags & 8 != 0 && (star.size - 0.0625).abs() < 1e-6);
+        // the factor scales the lamp (OMSI: variable times factor), effect 0 has the halo
+        let model = Model::parse(&omsi_cfg::CfgFile::from_str(&path, &lamp("0.5", "0")));
+        let coronas = model_lights_faded(&model, &|_| Mat4::IDENTITY, DVec3::ZERO, &|_| 1.0, &[]);
+        assert_eq!(coronas.len(), 2);
+        assert!((coronas[0].brightness - 0.5).abs() < 1e-6 && !coronas[0].halo);
+        assert!(coronas[1].halo);
+        // switched off: nothing
+        assert!(model_lights_faded(&model, &|_| Mat4::IDENTITY, DVec3::ZERO, &|_| 0.0, &[]).is_empty());
     }
 
     #[test]
