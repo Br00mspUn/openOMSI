@@ -177,11 +177,15 @@ impl KeyboardAxes {
             self.steer_vel = 0.0;
         } else if self.centering {
             // steering_neutral as in Omsi.exe (sub_7d5124 at 0x7d55d6): the wheel goes back
-            // to the middle at the pace the keys turn it in OMSI - 0.05 of curvature a second -
-            // in a straight line, and stays there until a steering key is pressed; it used to
-            // jump to the middle, a jerk of the whole bus at speed
-            let r = (0.05 / self.lock_curvature.max(0.01)).clamp(0.05, 5.0) * red;
-            let step = r * dt;
+            // to the middle at the pace the keys turn it - in OMSI both are 0.05 of curvature
+            // a second (0x7e6a58, 0x7d8a00) - in a straight line, and stays there until a
+            // steering key is pressed; it used to jump to the middle, a jerk of the whole bus
+            // at speed. Here the keys turn faster than that while rolling, and the wheel comes
+            // back faster on its own: at OMSI's figure alone the centring key brought the
+            // wheel back slower than the key had turned it, and slower than letting go (#851)
+            let omsi = (0.05 / self.lock_curvature.max(0.01)).clamp(0.05, 5.0) * red;
+            let own = if self.old_steering { 0.0 } else { back };
+            let step = omsi.max(rate).max(own) * dt;
             self.steering -= self.steering.clamp(-step, step);
             self.steer_vel = 0.0;
         } else if self.old_steering {
@@ -316,6 +320,54 @@ mod tests {
         a.right_key = false;
         a.update(0.5);
         assert!(a.steering > 0.5, "old steering stays: {}", a.steering);
+    }
+
+    /// The centring key is the quick way back, as in OMSI, where it moves the wheel at the
+    /// keys' own pace: with the keys turning faster at speed than OMSI's figure, it brought
+    /// the wheel back slower than the key had turned it, and slower than letting go (#851).
+    #[test]
+    fn steering_neutral_is_never_slower_than_the_keys_or_letting_go() {
+        let step = 1.0 / 60.0;
+        for v in [0.0, 15.0, 30.0, 50.0, 80.0] {
+            let turned = |neutral: bool| {
+                let mut a = KeyboardAxes { lock_curvature: 0.13, speed_kmh: v, ..Default::default() };
+                a.right_key = true;
+                for _ in 0..60 {
+                    a.update(step);
+                }
+                let from = a.steering;
+                a.right_key = false;
+                a.neutral_key = neutral;
+                a.update(step);
+                a.neutral_key = false;
+                for _ in 0..29 {
+                    a.update(step);
+                }
+                (from, a.steering)
+            };
+            let (from, centred) = turned(true);
+            let (_, let_go) = turned(false);
+            assert!(centred <= let_go + 1e-6, "{v} km/h: the centring key left {centred}, letting go {let_go}");
+            // half a second back at least half of what a second of the key turned
+            assert!(centred <= from * 0.5 + 1e-3, "{v} km/h: {from} turned in a second, {centred} left after half a second back");
+        }
+        // with OMSI's steady keys it stays OMSI's pace
+        let mut a = KeyboardAxes { linear: true, lock_curvature: 0.1, speed_kmh: 50.0, steering: 0.8, ..Default::default() };
+        a.neutral_key = true;
+        a.update(0.1);
+        assert!((a.steering - 0.75).abs() < 1e-4, "{}", a.steering);
+        // with Old Steering the wheel does not come back by itself: the keys' pace, slowed
+        // at speed with Dynamic steering as OMSI's centring is
+        let mut a = KeyboardAxes { old_steering: true, red_steer_spd: true, lock_curvature: 0.13, speed_kmh: 50.0, steering: 0.8, ..Default::default() };
+        a.right_key = true;
+        a.update(0.1);
+        let key_pace = (a.steering - 0.8) / 0.1;
+        a.right_key = false;
+        a.steering = 0.8;
+        a.neutral_key = true;
+        a.update(0.1);
+        let back = (0.8 - a.steering) / 0.1;
+        assert!((back - key_pace).abs() < 1e-3, "{back} against the keys' {key_pace}");
     }
 
     /// Omsi.exe treats the two steering keys symmetrically: either one works alone,

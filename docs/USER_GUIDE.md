@@ -90,7 +90,9 @@ the cursor smoothly (a short easing, no steps).
 Two switches there change the steering keys (both off by default): *Steering linearity* turns
 the wheel at OMSI's own steady pace (the curvature grows by the same amount every millisecond
 the key is held, whatever the bus), and *Old Steering* is OMSI's wheel that stays where you
-leave it - turn it back yourself. The clutch key works as in OMSI: the pedal goes down at once
+leave it - turn it back yourself. **Num 5** (`steering_neutral`) brings the wheel back to the
+middle in a straight line, as in OMSI at the pace the keys turn it (never slower than the
+wheel comes back by itself). The clutch key works as in OMSI: the pedal goes down at once
 and comes up slowly (0.7 per second) when the key is released.
 
 Left-click a cockpit switch to operate it, hold the button and move the mouse to turn a knob,
