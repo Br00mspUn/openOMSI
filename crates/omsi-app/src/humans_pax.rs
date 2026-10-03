@@ -247,8 +247,8 @@ impl Pax {
             if !departing {
                 return false;
             }
-            // Give the driver time to brake; on a short leg ask as soon as it begins.
-            let late = distance.min(100.0);
+            // Keep a nonzero random interval even when the stops are close together.
+            let late = (distance * 0.5).min(100.0);
             let request_m = late + (distance - late) * self.stop_request_random;
             self.stop_request_at = Some((stop.id, request_m));
         }
@@ -1550,23 +1550,33 @@ impl Humans {
                 let Some(b) = p.inside else { return };
                 let reg = at_stops.get(&b).cloned().unwrap_or_default();
                 let km = self.odometer.get(&b).copied().unwrap_or(0.0);
-                if reg.all_exit {
-                    self.set_task(i, Task::InBusToExit, buses, bus_ix, world);
-                    return;
-                }
                 if let Some(bn) = bn {
                     if let Some(stop) = bn.next_stop.as_ref().or(reg.request_next.as_ref()) {
-                        let departing = bn.speed.abs() > 0.1
-                            && !bn.entry_open.iter().chain(&bn.exit_open).any(|open| *open);
-                        if self
-                            .pax_mut(i)
-                            .unwrap()
-                            .wants_stop_at(stop, bn.pos, departing)
-                        {
-                            self.set_task(i, Task::InBusToExit, buses, bus_ix, world);
+                        let force_exit = reg.all_exit
+                            && !bn.terminus.as_ref().is_some_and(|name| stop.is_named(name));
+                        if !force_exit && p.dest.as_ref().is_some_and(|dest| stop.is_named(dest)) {
+                            let departing = bn.speed.abs() > 0.1
+                                && !bn.entry_open.iter().chain(&bn.exit_open).any(|open| *open);
+                            let arrived = reg.next == Some(stop.id)
+                                && bn.speed.abs() < 1.0
+                                && bn.exit_open.iter().any(|open| *open);
+                            if arrived
+                                || self
+                                    .pax_mut(i)
+                                    .unwrap()
+                                    .wants_stop_at(stop, bn.pos, departing)
+                            {
+                                self.set_task(i, Task::InBusToExit, buses, bus_ix, world);
+                            }
+                            // The boarding range must not override a later random point
+                            // on short legs, including those ending at the terminus.
                             return;
                         }
                     }
+                }
+                if reg.all_exit {
+                    self.set_task(i, Task::InBusToExit, buses, bus_ix, world);
+                    return;
                 }
                 if let (Some(next), Some(dest)) = (reg.next, p.dest.as_ref()) {
                     let name = self.stops.get(&next).map(|s| s.name.trim().to_string()).unwrap_or_default();
@@ -2309,12 +2319,27 @@ mod tests {
     }
 
     #[test]
-    fn a_short_leg_gets_a_request_as_soon_as_the_bus_departs() {
+    fn short_legs_keep_random_requests_after_departure() {
         let stop = request_stop();
-        let mut passenger = Pax::new(1.1, 0.0);
-        passenger.dest = Some(stop.name.clone());
-        assert!(!passenger.wants_stop_at(&stop, DVec3::Y * 80.0, false));
-        assert!(passenger.wants_stop_at(&stop, DVec3::Y * 80.0, true));
+        for length in [20.0, 60.0, 80.0, 100.0, 150.0] {
+            let mut early = Pax::new(1.1, 0.8);
+            let mut late = Pax::new(1.1, 0.2);
+            early.dest = Some(stop.name.clone());
+            late.dest = early.dest.clone();
+            assert!(!early.wants_stop_at(&stop, DVec3::Y * length, false));
+            assert!(!early.wants_stop_at(&stop, DVec3::Y * length, true));
+            assert!(!late.wants_stop_at(&stop, DVec3::Y * length, true));
+            let early_point = early.stop_request_at.unwrap().1;
+            let late_point = late.stop_request_at.unwrap().1;
+            assert!(0.0 < late_point && late_point < early_point && early_point < length);
+            let between = (early_point + late_point) / 2.0;
+            for _ in 0..120 {
+                assert!(early.wants_stop_at(&stop, DVec3::Y * between, true));
+                assert!(!late.wants_stop_at(&stop, DVec3::Y * between, true));
+                assert_eq!(late.stop_request_at, Some((stop.id, late_point)));
+            }
+            assert!(late.wants_stop_at(&stop, DVec3::Y * late_point, true));
+        }
     }
 
     #[test]
