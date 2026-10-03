@@ -851,7 +851,7 @@ impl App {
             self.look.0 = (self.look.0 + dx).rem_euclid(360.0);
             self.look.1 = (self.look.1 - dy).clamp(-60.0, 25.0);
         } else {
-            self.look.0 = cab_look_yaw(&self.view, self.look.0 + dx);
+            self.look.0 = cab_look_yaw(self.look.0 + dx);
             self.look.1 = (self.look.1 - dy).clamp(-85.0, 85.0);
         }
     }
@@ -4350,17 +4350,13 @@ pub(crate) fn look_key_of(view: &str, cam: Option<(usize, usize)>) -> String {
     }
 }
 
-/// How far the head turns inside the bus: the driver looks over a shoulder (140 degrees
-/// each way, the cab's window pillars and the seat behind), a passenger turns round on
-/// the spot - capped at 140 too, a quarter of the coach stayed out of sight (#909). The
-/// passenger's turn is kept within -180..180 so that letting go of a glance still swings
-/// the short way back.
-pub(crate) fn cab_look_yaw(view: &str, yaw: f32) -> f32 {
-    if view == "pax" {
-        (yaw + 180.0).rem_euclid(360.0) - 180.0
-    } else {
-        yaw.clamp(-140.0, 140.0)
-    }
+/// How far the head turns inside the bus: all the way round, in the driver's seat as in a
+/// passenger's - Omsi.exe's mouse look (0x82c5f8) adds the cursor's way to the camera's
+/// yaw with no stop. Capped at 140 degrees each way, a quarter of the coach stayed out of
+/// sight (#909). The turn is kept within -180..180 so that letting go of a glance still
+/// swings the short way back.
+pub(crate) fn cab_look_yaw(yaw: f32) -> f32 {
+    (yaw + 180.0).rem_euclid(360.0) - 180.0
 }
 
 pub(crate) fn swap_view_look(look: &mut (f32, f32), looks: &mut std::collections::HashMap<String, (f32, f32)>, look_view: &mut String, view: &str) {
@@ -4406,18 +4402,19 @@ mod reach_tests {
 mod cab_look_tests {
     use super::cab_look_yaw;
 
-    /// A passenger turns all the way round (#909); the driver still stops over a shoulder.
+    /// A passenger and the driver turn all the way round, as in Omsi.exe (#909).
     #[test]
-    fn a_passenger_looks_all_the_way_round() {
+    fn the_head_turns_all_the_way_round() {
         let mut yaw = 0.0;
         for _ in 0..40 {
-            yaw = cab_look_yaw("pax", yaw + 10.0);
+            yaw = cab_look_yaw(yaw + 10.0);
         }
         // 400 degrees turned: 40 past straight ahead, the short way
         assert!((yaw - 40.0).abs() < 1e-3, "{yaw}");
-        assert!((cab_look_yaw("pax", 170.0 + 20.0) + 170.0).abs() < 1e-3);
-        assert_eq!(cab_look_yaw("driver", 200.0), 140.0);
-        assert_eq!(cab_look_yaw("driver", -200.0), -140.0);
+        assert!((cab_look_yaw(170.0 + 20.0) + 170.0).abs() < 1e-3);
+        // (the driver looks back down the saloon: no stop at 140 degrees)
+        assert!((cab_look_yaw(175.0) - 175.0).abs() < 1e-3);
+        assert!((cab_look_yaw(-160.0) + 160.0).abs() < 1e-3);
     }
 }
 

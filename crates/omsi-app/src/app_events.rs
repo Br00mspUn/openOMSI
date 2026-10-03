@@ -1564,12 +1564,14 @@ impl ApplicationHandler for App {
                     self.look.1 = (self.look.1 + step * 0.7 * (self.pad_look[2] as i32 - self.pad_look[3] as i32) as f32).clamp(-85.0, 85.0);
                     // with a wheel steering, the arrow keys look around as in OMSI
                     if !ctrl_alt && self.controllers.as_ref().is_some_and(|c| c.wheel_steering()) && !self.keys.contains(&KeyCode::ControlLeft) && !self.keys.contains(&KeyCode::ControlRight) {
-                        // a glance: held, the head turns (to 140 degrees at most); let go, it
-                        // comes back to the road - held, it went round and round, and the
-                        // other key never brought it back straight
+                        // a glance: held, the head turns (in the driver's seat to 140 degrees
+                        // at most, or no further than the mouse had it); let go, it comes back
+                        // to the road - held, it went round and round, and the other key never
+                        // brought it back straight
                         let (l, r) = (self.keys.contains(&KeyCode::ArrowLeft), self.keys.contains(&KeyCode::ArrowRight));
                         if l || r {
-                            self.look.0 = crate::input_script::cab_look_yaw(&self.view, self.look.0 + step * 1.5 * (r as i32 - l as i32) as f32);
+                            let y = self.look.0 + step * 1.5 * (r as i32 - l as i32) as f32;
+                            self.look.0 = if self.view == "pax" { y } else { y.clamp(self.look.0.min(-140.0), self.look.0.max(140.0)) };
                             self.arrow_glance = true;
                         } else if self.arrow_glance {
                             self.look.0 *= (-6.0 * dt).exp();
@@ -1602,7 +1604,7 @@ impl ApplicationHandler for App {
                         self.look.1 = (self.look.1 - step * 0.7).max(-85.0);
                     }
                     if self.view != "outside" {
-                        self.look.0 = crate::input_script::cab_look_yaw(&self.view, self.look.0);
+                        self.look.0 = crate::input_script::cab_look_yaw(self.look.0);
                     }
                     // Ctrl+Shift+Page Up / Page Down held: the clock runs forwards / backwards,
                     // a quarter of an hour per second at first, faster the longer it is held
