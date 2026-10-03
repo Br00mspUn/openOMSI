@@ -30,7 +30,8 @@ IBIS, the ticket printer, the light switches), a finger dragged from a switch tu
 the ignition key, the sun blind), a drag elsewhere looks round, two fingers zoom. The
 navigator stands in the top middle (under the information bar when that is on): a tap opens the
 city map, a finger dragged on it puts it somewhere else, where it stays. On foot and
-with the free camera a stick at the bottom left walks (pushed to the edge: runs). The game
+with the free camera a stick at the bottom left walks (pushed to the edge: runs); on foot the
+button at the bottom right kneels, for a picture from low down, and stands up again. The game
 menu and its lists scroll with the finger and a tap picks a line (a finger put down to scroll
 no longer picks the line it lands on); on the city map the fingers are the mouse. The back key
 is Escape. The launcher is laid out for the phone: the text at least at the system's own

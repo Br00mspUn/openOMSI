@@ -52,6 +52,8 @@ enum Btn {
     InteriorCam,
     Screenshot,
     CloseMenu,
+    /// On foot: down on the knees and up again (C).
+    Kneel,
 }
 
 impl Btn {
@@ -293,6 +295,11 @@ impl App {
             // on foot or the free camera: a stick to walk or fly
             t.stick_r = 62.0 * u;
             t.stick_c = Vec2::new(pad + t.stick_r + 10.0 * u, h - pad - t.stick_r - 10.0 * u);
+            // on foot, out of the eyes: kneel for a picture from low down (#1148)
+            if let Some(f) = self.on_foot.as_ref().filter(|f| f.cam == crate::on_foot::FootCam::First && f.seat.is_none()) {
+                let kr = 26.0 * u;
+                push(&mut b, Btn::Kneel, rb(w - pad - kr, h - pad - kr, kr), "keyboard_arrow_down", "", f.kneel, true);
+            }
         } else {
             t.stick_r = 0.0;
         }
@@ -752,6 +759,7 @@ impl App {
                 }
             }
             Btn::Pause => self.toggle_pause(),
+            Btn::Kneel => self.kneel(),
             Btn::Camera => {
                 // driver → outside → passenger → driver (on foot: back to the bus)
                 self.view = match self.view.as_str() {
