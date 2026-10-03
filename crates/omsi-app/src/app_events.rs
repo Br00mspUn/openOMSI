@@ -973,7 +973,8 @@ impl ApplicationHandler for App {
                         if let Some(cam) = self.camera.as_ref() {
                             p.seat = glam::Vec3::from_array(self.settings.seat);
                             // head tracking: the head's turn on top of the look, its movement
-                            // on top of the seat (opentrack: x right, y up, z back, in cm)
+                            // on top of the seat (opentrack: x left, y up, z back, in cm; the
+                            // eye moved by HeadPose::seat_offset)
                             // (a port that cannot be had is tried again now and then, the
                             // setting stays on: turning it off here undid the switch in the
                             // menu at once)
@@ -993,7 +994,7 @@ impl ApplicationHandler for App {
                                                                  self.settings.steer_look && self.view == "driver", self.settings.steer_look_angle, self.settings.steer_look_response)
                             };
                             if let Some(t) = tracked {
-                                p.seat += glam::Vec3::new(t.pos[0], -t.pos[2], t.pos[1]).clamp(glam::Vec3::splat(-60.0), glam::Vec3::splat(60.0)) / 100.0;
+                                p.seat += t.seat_offset();
                             }
                             // (the outside view's field of view starts from the plain 60
                             // degrees every frame: taken from the last frame's camera, the
