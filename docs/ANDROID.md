@@ -27,7 +27,9 @@ maps, buses and mods. Only the way it is worked is new:
 
 Everything else is in the cab itself, as in OMSI: a tap works the switch under the finger (the
 IBIS, the ticket printer, the light switches), a finger dragged from a switch turns it (knobs,
-the ignition key, the sun blind), a drag elsewhere looks round, two fingers zoom. On foot and
+the ignition key, the sun blind), a drag elsewhere looks round, two fingers zoom. The
+navigator stands in the top middle (under the information bar when that is on): a tap opens the
+city map, a finger dragged on it puts it somewhere else, where it stays. On foot and
 with the free camera a stick at the bottom left walks (pushed to the edge: runs). The game
 menu and its lists scroll with the finger and a tap picks a line (a finger put down to scroll
 no longer picks the line it lands on); on the city map the fingers are the mouse. The back key

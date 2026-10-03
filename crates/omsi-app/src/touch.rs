@@ -93,6 +93,10 @@ enum Role {
     Mouse,
     /// The game menu's (or the chooser's) list: a drag scrolls it, a tap picks a line.
     Menu,
+    /// The small navigator: a tap opens the city map, a drag moves it (as the mouse does,
+    /// #940), where it then stays - out of the middle of the screen, which it covered on a
+    /// phone (#1138).
+    Navigator,
 }
 
 struct Touched {
@@ -464,6 +468,8 @@ impl App {
                 let d = p - t.wheel_c;
                 Role::Wheel(d.y.atan2(d.x), d.length())
             }
+        } else if self.navigator.as_ref().is_some_and(|n| n.over_panel(p.x, p.y)) {
+            Role::Navigator
         } else {
             // the cockpit's switch under the finger, else the camera's
             self.on_cursor(p.x, p.y);
@@ -480,7 +486,7 @@ impl App {
                     self.touch_button(event_loop, b, true);
                 }
             }
-            Role::Mouse => {
+            Role::Mouse | Role::Navigator => {
                 self.on_cursor(p.x, p.y);
                 self.left_button(event_loop, true);
             }
@@ -539,6 +545,13 @@ impl App {
                 let d = p - self.touch.stick_c;
                 self.touch.stick_at = Some((self.touch.stick_c, d.clamp_length_max(self.touch.stick_r)));
                 self.stick_keys(d / self.touch.stick_r);
+            }
+            // (only a finger that has gone a way drags it: one wavering on a tap still opens
+            // the city map)
+            Role::Navigator => {
+                if self.touch.fingers[k].moved {
+                    self.on_cursor(p.x, p.y);
+                }
             }
             Role::Cockpit | Role::Mouse => {
                 if let (Role::Mouse, Some(_)) = (role, self.touch.pinch) {
@@ -615,6 +628,18 @@ impl App {
             Role::Cockpit | Role::Mouse => {
                 self.on_cursor(p.x, p.y);
                 self.left_button(event_loop, false);
+            }
+            Role::Navigator => {
+                if f.moved {
+                    self.on_cursor(p.x, p.y);
+                }
+                match (cancelled, f.moved, self.navigator.as_mut()) {
+                    // (a tap taken away by the system opens nothing)
+                    (true, false, Some(n)) => {
+                        n.panel_release();
+                    }
+                    _ => self.left_button(event_loop, false),
+                }
             }
             Role::Menu => {
                 if !f.moved && !cancelled {

@@ -942,27 +942,7 @@ impl Navigator {
         let sched = if self.schedule { (f.stops.len().clamp(1, 5) as f32 * 22.0 + 12.0) * s } else { 0.0 };
         let ph = (map_h + bars + sched).round();
         let (w, h) = (pw as u32, ph as u32);
-        let margin = (sh * 0.018).max(10.0).round();
-        // (with the on-screen controls the corners are theirs: the top middle)
-        let touch = crate::platform::touch_controls();
-        let right = self.corner.contains("right");
-        let top = self.corner.contains("top") || touch;
-        // ("top-center": a phone's, between its on-screen buttons)
-        let x0 = if self.corner.contains("center") || touch { ((sw - pw) * 0.5).round() } else if right { sw - margin - pw } else { margin };
-        let y0 = if top { margin } else { sh - margin - ph };
-        // (below the information bar where they would lie over each other: in its rows on a
-        // phone it took the navigator's place in the top middle, #1164)
-        let y0 = match f.info_rect {
-            Some(i) if top && x0 < i[2] && x0 + pw > i[0] => y0.max((i[3] + margin * 0.5).round()),
-            _ => y0,
-        };
-        // (dragged by the mouse somewhere else: there, kept inside the window)
-        let room = [(sw - pw).max(0.0), (sh - ph).max(0.0)];
-        self.panel_room = room;
-        let (x0, y0) = match self.at.filter(|_| !touch) {
-            Some(a) => ((a[0].clamp(0.0, 1.0) * room[0]).round(), (a[1].clamp(0.0, 1.0) * room[1]).round()),
-            None => (x0, y0),
-        };
+        let (x0, y0) = self.panel_origin((sw, sh), (pw, ph), crate::platform::touch_controls(), f.info_rect);
 
         if self.gpu.is_none() {
             self.gpu = Some(Gpu::new(&renderer.device, renderer.format(), map_samples(renderer.format()), self.atlas.size));
@@ -2194,6 +2174,35 @@ impl Navigator {
         self.enabled && x >= r[0] && y >= r[1] && x < r[2] && y < r[3]
     }
 
+    /// Where the small navigator (`size`) goes on a screen of `screen`: its corner, the top
+    /// middle with the on-screen controls (`touch`), below the information bar (`info`) where
+    /// they would lie over each other - unless it was dragged somewhere, which it keeps
+    /// (kept inside the window), by the mouse or a finger.
+    fn panel_origin(&mut self, screen: (f32, f32), size: (f32, f32), touch: bool, info: Option<[f32; 4]>) -> (f32, f32) {
+        let ((sw, sh), (pw, ph)) = (screen, size);
+        let margin = (sh * 0.018).max(10.0).round();
+        // (with the on-screen controls the corners are theirs: the top middle)
+        let right = self.corner.contains("right");
+        let top = self.corner.contains("top") || touch;
+        // ("top-center": a phone's, between its on-screen buttons)
+        let x0 = if self.corner.contains("center") || touch { ((sw - pw) * 0.5).round() } else if right { sw - margin - pw } else { margin };
+        let y0 = if top { margin } else { sh - margin - ph };
+        // (below the information bar where they would lie over each other: in its rows on a
+        // phone it took the navigator's place in the top middle, #1164)
+        let y0 = match info {
+            Some(i) if top && x0 < i[2] && x0 + pw > i[0] => y0.max((i[3] + margin * 0.5).round()),
+            _ => y0,
+        };
+        // (dragged somewhere else: there - on a phone too, where it had to stay in the
+        // middle it covered, #1138)
+        let room = [(sw - pw).max(0.0), (sh - ph).max(0.0)];
+        self.panel_room = room;
+        match self.at {
+            Some(a) => ((a[0].clamp(0.0, 1.0) * room[0]).round(), (a[1].clamp(0.0, 1.0) * room[1]).round()),
+            None => (x0, y0),
+        }
+    }
+
     /// The mouse button went down on the small navigator: a click opens the city map, a
     /// drag moves the navigator (see [`Navigator::panel_move`]).
     pub fn panel_press(&mut self, x: f32, y: f32) {
@@ -2636,6 +2645,29 @@ mod tests {
         n.panel_move(5000.0, -5000.0);
         assert_eq!(n.at, Some([1.0, 0.0]));
         assert_eq!(placed_at("bottom-right"), None);
+    }
+
+    /// With the on-screen controls the navigator stands in the top middle, under the
+    /// information bar when that is on - and where a finger dragged it, once it has been
+    /// (#1138), as the mouse places it on a computer; the bar does not move a navigator in a
+    /// corner it does not reach (#1164).
+    #[test]
+    fn the_navigator_keeps_where_it_was_dragged_on_a_phone_and_clear_of_the_information_bar() {
+        let mut n = Navigator::new(true, 0.85, "bottom-left");
+        let (screen, size) = ((1280.0, 720.0), (300.0, 250.0));
+        assert_eq!(n.panel_origin(screen, size, true, None), (490.0, 13.0));
+        assert_eq!(n.panel_origin(screen, size, true, Some([311.0, 20.0, 898.0, 69.0])), (490.0, 76.0));
+        assert_eq!(n.panel_origin(screen, size, false, Some([311.0, 20.0, 898.0, 69.0])), (13.0, 457.0));
+        n.corner = "top-left".into();
+        assert_eq!(n.panel_origin(screen, size, false, Some([330.0, 20.0, 950.0, 69.0])), (13.0, 13.0));
+        assert_eq!(n.panel_origin(screen, size, false, Some([300.0, 20.0, 980.0, 69.0])), (13.0, 76.0));
+        // a finger's drag: there, on the phone as on the computer
+        n.panel_rect = [490.0, 13.0, 790.0, 263.0];
+        n.panel_press(600.0, 100.0);
+        assert!(n.panel_move(600.0 - 490.0, 100.0 + 457.0));
+        assert_eq!(n.panel_release(), Some(true));
+        assert_eq!(n.panel_origin(screen, size, true, None), (0.0, 470.0));
+        assert_eq!(n.panel_origin(screen, size, false, None), (0.0, 470.0));
     }
 
     use super::*;
