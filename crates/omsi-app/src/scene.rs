@@ -64,6 +64,8 @@ pub struct ObjectType {
     pub deform: Option<MeshData>,
     /// `[collision_mesh]`: what vehicles actually hit (often much plainer than the model).
     pub collision: Option<MeshData>,
+    /// A plain object that is only paint at its foot ([`paint_at_foot`]).
+    pub paint: bool,
     /// What of the type stops the outside camera (decided on first use).
     pub camera: std::sync::OnceLock<crate::camera_arm::BlockerShape>,
     /// The collision mesh as the vehicles meet it (built on first use).
@@ -577,6 +579,23 @@ const SPLINE_SHADOW_CLEARANCE: f32 = 0.75;
 /// A spline whose profiles all hang this far (m) over its line - wires, catenaries, a
 /// canopy - is no ground surface: it neither cuts the terrain nor carries anything.
 const SPLINE_OVERHEAD: f32 = 2.0;
+
+/// Whether a plain object (no `[rendertype]`, no `[surface]`) is only paint at its foot:
+/// every point of every mesh between 5 cm under and 25 cm over its origin, all of them
+/// within 5 cm of height (a plate standing upright - a line plate on a bridge rail, a stop's
+/// name plate - is a sign, not paint; the mesh pivots are for animations, not for the
+/// points). Omsi.exe draws such a marking after the roads at its own height, a few
+/// millimetres over the road it was made for - a bus bay's lines (`Korean Road Object\
+/// Parkinglot\Parkbox(bus).sco`) lie 5 mm over a road at 10 cm. The roads here are pulled
+/// towards the eye by their depth bias instead, and an object lying that close over one
+/// went under it: a depot's parking bays were all gone (#1009).
+fn paint_at_foot(sco: &SceneryObject, meshes: &[(MeshData, Vec<omsi_o3d::Material>, Vec<MaterialDef>)]) -> bool {
+    if !matches!(sco.render_type, omsi_scenery::sco::RenderType::Normal) || sco.surface || meshes.is_empty() || meshes.iter().any(|(m, _, _)| m.positions.is_empty()) {
+        return false;
+    }
+    let (lo, hi) = meshes.iter().flat_map(|(m, _, _)| m.positions.iter()).fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p.z), hi.max(p.z)));
+    lo >= -0.05 && hi <= 0.25 && hi - lo <= 0.05
+}
 
 fn scenery_render_phase(kind: omsi_scenery::sco::RenderType) -> RenderPhase {
     use omsi_scenery::sco::RenderType as ScoPhase;
@@ -3127,6 +3146,7 @@ impl World {
                         .map_err(|e| log::debug!("collision mesh {}: {e}", mp.display()))
                         .ok()
                 });
+            let paint = paint_at_foot(&sco, &meshes);
             Some(Arc::new(ObjectType {
                 sco,
                 sound_path: Default::default(),
@@ -3146,6 +3166,7 @@ impl World {
                 holes,
                 deform,
                 collision,
+                paint,
                 camera: Default::default(),
                 collision_shape: Default::default(),
             }))
@@ -7096,6 +7117,11 @@ impl World {
                                 // an object lying on the road (a crossing, markings, a zebra)
                                 // goes over the splines it overlaps
                                 inst.decal = true;
+                            } else if ot.paint {
+                                // and so does paint made as a plain object, drawn as the
+                                // markings are: with the roads' depth bias and a little more
+                                inst.decal = true;
+                                inst.surface_bias = true;
                             }
                         }
                         // Scenery signs use [matl_freetex] with a string from the map
@@ -7344,6 +7370,10 @@ impl World {
                                     mats.clone()
                                 ));
                                 renderer.set_lod_range(scene, inst, *min_size, *max_size);
+                                if let Some(x) = scene.instances.get_mut(inst).filter(|_| ot.paint) {
+                                    x.decal = true;
+                                    x.surface_bias = true;
+                                }
                                 lod_instances.push(inst);
                             }
                         }
@@ -13104,6 +13134,39 @@ mod tests {
             assert!((at(0, x, 1) - expect(x)).abs() <= 1.0, "row {x}");
         }
         assert!((0..n * n).all(|i| own.rgba[i * 4 + 2] == 0));
+    }
+
+    /// A bus bay's lines made as a plain object (NCCR's `Parkbox(bus).sco`: a flat mesh 5 mm
+    /// over a road at 10 cm) are paint and drawn over the road as the markings are (#1009);
+    /// a kerb, a sign, a pole, a box under the road, a typed marking and an empty object
+    /// are not.
+    #[test]
+    fn a_flat_plain_object_is_paint_on_the_road() {
+        let sco = |text: &str| SceneryObject::parse(&omsi_cfg::CfgFile::from_str("x.sco", text));
+        let mesh = |zs: &[f32]| {
+            let positions: Vec<glam::Vec3> = zs.iter().enumerate().map(|(i, z)| glam::Vec3::new(i as f32, (i % 2) as f32 * 5.0, *z)).collect();
+            let n = positions.len();
+            (
+                MeshData { positions, normals: vec![glam::Vec3::Z; n], uvs: vec![glam::Vec2::ZERO; n], ranges: vec![(0, 3, 0)], indices: vec![0, 1, 2], one_sided: true },
+                Vec::new(),
+                Vec::new(),
+            )
+        };
+        let plain = sco("[mesh]\nParkbox.o3d\n");
+        assert!(paint_at_foot(&plain, &[mesh(&[0.105, 0.105, 0.105, 0.105])]));
+        // a slightly sunk plate, and lines raised a little over it
+        assert!(paint_at_foot(&plain, &[mesh(&[-0.04, -0.03, -0.04]), mesh(&[0.0, 0.01, 0.0])]));
+        assert!(paint_at_foot(&plain, &[mesh(&[0.2, 0.25, 0.22])]));
+        // a kerb stone 30 cm high, a line plate standing upright (Busstop_Lineplate_Bridge,
+        // -1 to 15 cm), a pole, a box under the road
+        assert!(!paint_at_foot(&plain, &[mesh(&[0.0, 0.3, 0.1])]));
+        assert!(!paint_at_foot(&plain, &[mesh(&[-0.01, 0.15, 0.07])]));
+        assert!(!paint_at_foot(&plain, &[mesh(&[0.1, 0.1, 0.1]), mesh(&[0.0, 2.5, 0.0])]));
+        assert!(!paint_at_foot(&plain, &[mesh(&[-0.3, -0.1, -0.2])]));
+        assert!(!paint_at_foot(&plain, &[]));
+        // the typed ones are drawn over the roads as surfaces already
+        assert!(!paint_at_foot(&sco("[rendertype]\non_surface\n[mesh]\narrow.o3d\n"), &[mesh(&[0.11, 0.11, 0.11])]));
+        assert!(!paint_at_foot(&sco("[surface]\n[mesh]\nplate.o3d\n"), &[mesh(&[0.0, 0.0, 0.0])]));
     }
 
     #[test]
