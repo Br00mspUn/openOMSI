@@ -11606,8 +11606,7 @@ impl World {
             }
             return Some(e.0);
         }
-        let img = crate::rain::snow_on_glass(&self.root);
-        let id = renderer.add_texture(scene, &img, false);
+        let id = crate::rain::add_snow_on_glass(renderer, scene, &self.root);
         tex_ids.insert(key.clone(), (id, 1));
         held.push(key);
         Some(id)
