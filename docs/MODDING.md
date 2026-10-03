@@ -73,6 +73,14 @@ variable and ask for the door through its own `_Req`. Without it, it opens with 
 in OMSI 2. Its passengers' requests then go through the eighth's `_Req` in openOMSI, while
 OMSI 2 loses them (its request arrays have eight slots).
 
+openOMSI also tells the script who stands in a doorway: `PAX_Entry<n>_Busy` and
+`PAX_Exit<n>_Busy` (n 0 to 15) are 1 while somebody is on the door's threshold or in the
+opening between it and the step outside - what a door's light barrier sees - and 0 otherwise;
+the people queueing outside a shut door, in the aisle or on the deck above do not count. A
+door script can keep a door open or open it again while its `_Busy` is set. Like the `_Req`,
+they are written before the scripts run every frame and cleared after them; a door past the
+eighth without variables of its own reports through the eighth's. OMSI 2 does not have them.
+
 ## Ticket validators: one by every door
 
 OMSI 2 uses one `[stamper]` of a `passengercabin.cfg`, the last one written. openOMSI keeps

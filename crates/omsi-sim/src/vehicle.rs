@@ -120,6 +120,12 @@ pub fn builtin_vars(root: &Path) -> Vec<String> {
         v.push(format!("PAX_Exit{a}_Open"));
         v.push(format!("PAX_Exit{a}_Req"));
     }
+    // somebody standing in the doorway (openOMSI's, #720: what a door's light barrier
+    // sees), after those
+    for a in 0..PAX_DOORS {
+        v.push(format!("PAX_Entry{a}_Busy"));
+        v.push(format!("PAX_Exit{a}_Busy"));
+    }
     v
 }
 
@@ -1020,8 +1026,9 @@ pub struct VehicleInstance {
     /// wheels besides each wheel's own `Axle_Brakeforce_*`.
     v_brakeforce: Option<omsi_script::VarId>,
     v_clutch: Option<omsi_script::VarId>,
-    /// `PAX_Entry<n>_Req` and `PAX_Exit<n>_Req` ([`PAX_DOORS`]): set by the passengers every
-    /// frame and cleared after the scripts' frame (see `clear_pax_requests`).
+    /// `PAX_Entry<n>_Req` and `PAX_Exit<n>_Req` ([`PAX_DOORS`]), and their `_Busy`: set by
+    /// the passengers every frame and cleared after the scripts' frame (see
+    /// `clear_pax_requests`).
     v_pax_req: Vec<omsi_script::VarId>,
     v_accel: [Option<omsi_script::VarId>; 3],
     v_wheels: Vec<[[Option<omsi_script::VarId>; 5]; 2]>,
@@ -1235,7 +1242,10 @@ impl VehicleInstance {
             v_brake: v("Brake").or_else(|| v("brake_pedal")),
             v_brakeforce: v("Brakeforce"),
             v_clutch: v("Clutch").or_else(|| v("clutch_pedal")),
-            v_pax_req: (0..PAX_DOORS).flat_map(|i| [format!("PAX_Entry{i}_Req"), format!("PAX_Exit{i}_Req")]).filter_map(|n| v(&n)).collect(),
+            v_pax_req: (0..PAX_DOORS)
+                .flat_map(|i| [format!("PAX_Entry{i}_Req"), format!("PAX_Exit{i}_Req"), format!("PAX_Entry{i}_Busy"), format!("PAX_Exit{i}_Busy")])
+                .filter_map(|n| v(&n))
+                .collect(),
             v_accel: [v("A_Trans_X"), v("A_Trans_Y"), v("A_Trans_Z")],
             v_wheels,
             ty,

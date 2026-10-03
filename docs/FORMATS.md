@@ -590,7 +590,8 @@ registration_free kmcounter_init + model/script/sound/paths/passengercabin.
 Built-in vehicle variables are listed in `program/varlist_roadvehicle.txt`; generated per axle:
 `Wheel_Rotation_ Wheel_RotationSpeed_ Axle_Steering_ Axle_Suspension_ Axle_Springfactor_
 Axle_Brakeforce_ Axle_SurfaceID_` × `{n}_{L|R}`, `PAX_Entry{n}_Open/_Req`, `PAX_Exit{n}_…`,
-`Debug_0..5`; `PAX_Entry8..15` and `PAX_Exit8..15` besides Omsi.exe's eight (see MODDING.md).
+`Debug_0..5`; `PAX_Entry8..15` and `PAX_Exit8..15` besides Omsi.exe's eight, and
+`PAX_Entry{n}_Busy` / `PAX_Exit{n}_Busy` (somebody in that doorway; see MODDING.md).
 Callbacks: `program/callbacklist_*.txt`.
 
 Passenger cabin: entry ({noticketsale} {withbutton}) exit linkToNextVeh linkToPrevVeh stamper

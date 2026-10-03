@@ -123,6 +123,18 @@ impl Eye {
     }
 }
 
+/// What the passengers tell a bus's scripts about its doors in a frame, entry by entry and
+/// exit by exit (see [`Humans::write_door_requests`]).
+#[derive(Debug, Clone, Default)]
+pub struct DoorWants {
+    /// `PAX_Entry<i>_Req` / `PAX_Exit<i>_Req`: somebody wants in / out there.
+    pub entry_req: Vec<bool>,
+    pub exit_req: Vec<bool>,
+    /// `PAX_Entry<i>_Busy` / `PAX_Exit<i>_Busy`: somebody stands in that doorway.
+    pub entry_busy: Vec<bool>,
+    pub exit_busy: Vec<bool>,
+}
+
 /// A bus as the passengers know it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BusId {
@@ -155,7 +167,23 @@ struct Door {
 }
 
 impl Door {
-
+    /// Somebody standing at `p` (bus frame) is in the doorway (`PAX_Entry<n>_Busy`,
+    /// `PAX_Exit<n>_Busy`, #720): within a body's width of the way through the door, from
+    /// its threshold point across the bus side to the step outside - where a door's light
+    /// barrier sees them. Not the queue waiting outside a shut door, nor the deck above it.
+    /// It ends 0.4 m out from the bus side, clear of the line 0.5 m out that the people
+    /// walking along a bus keep to (`clamp_x`), so they do not set it as they pass.
+    fn in_doorway(&self, p: Vec3) -> bool {
+        const BODY: f32 = 0.3;
+        if p.z > self.inside.z + 1.0 {
+            return false;
+        }
+        let a = self.inside.truncate();
+        let b = glam::Vec2::new(self.outside.x - self.side * (DOOR_OUT - 0.1), self.inside.y);
+        let ab = b - a;
+        let t = if ab.length_squared() > 1e-6 { ((p.truncate() - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
+        (a + ab * t - p.truncate()).length() < BODY
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -224,6 +252,31 @@ fn seat_numbers(seats: &[Seat], sitting: impl Iterator<Item = usize>) -> Vec<u32
         }
     }
     out
+}
+
+/// Which doorways of bus `bn` somebody stands in (entries, exits; see `Door::in_doorway`):
+/// of the people `at` (inside a bus and where in its frame, or where in the world), its
+/// riders and those outside close enough to it.
+fn doorways_taken(bn: &BusNow, at: &[(Option<BusId>, DVec3)]) -> (Vec<bool>, Vec<bool>) {
+    let mut entries = vec![false; bn.cabin.entries.len()];
+    let mut exits = vec![false; bn.cabin.exits.len()];
+    // (beyond the bus's own length round its origin nobody outside can be in a doorway)
+    let reach = bn.half.length() + bn.centre.length() + bn.trailers.iter().map(|t| t.offset.length() as f64).fold(0.0, f64::max) + 2.0;
+    for (inside, pos) in at {
+        let local = match inside {
+            Some(b) if *b == bn.id => pos.as_vec3(),
+            Some(_) => continue,
+            None if (*pos - bn.pos).truncate().length() < reach => bn.to_local(*pos),
+            None => continue,
+        };
+        for (k, d) in bn.cabin.entries.iter().enumerate() {
+            entries[k] |= d.in_doorway(local);
+        }
+        for (k, d) in bn.cabin.exits.iter().enumerate() {
+            exits[k] |= d.in_doorway(local);
+        }
+    }
+    (entries, exits)
 }
 
 /// A section of an articulated bus in its cabin's unfolded frame.
@@ -1386,6 +1439,8 @@ pub struct Humans {
     odometer: HashMap<BusId, f64>,
     /// The `PAX_Entry<n>_Req` / `PAX_Exit<n>_Req` of each bus this frame.
     pax_req: HashMap<BusId, (Vec<bool>, Vec<bool>)>,
+    /// Its `PAX_Entry<n>_Busy` / `PAX_Exit<n>_Busy`: somebody in that doorway.
+    pax_busy: HashMap<BusId, (Vec<bool>, Vec<bool>)>,
     /// Who is at the player's cash desk (+0x7a8), how often the driver has been asked
     /// again (0x859bc4) and the most of that in this sale (0x859df4).
     desk_busy: Option<u32>,
@@ -1414,8 +1469,8 @@ pub struct Humans {
     /// Timetable buses to keep at their stop for a few seconds more (for the traffic): the
     /// bus, the stop it must be serving for it (none: any), the seconds.
     holds: Vec<(u64, Option<i64>, f32)>,
-    /// Door requests for the timetable buses' scripts: (bus, entries, exits).
-    ai_requests: Vec<(u64, Vec<bool>, Vec<bool>)>,
+    /// Door requests for the timetable buses' scripts.
+    ai_requests: Vec<(u64, DoorWants)>,
     pub tickets: Option<Arc<omsi_content::tickets::TicketPack>>,
     /// Current ticket request at the player's cash desk: (ticket name, value).
     pub request: Option<(String, f32)>,
@@ -1443,6 +1498,9 @@ pub struct Humans {
     pub entry_req: Vec<bool>,
     /// `PAX_Exit<i>_Req`: somebody inside wants out through exit `i`.
     pub exit_req: Vec<bool>,
+    /// `PAX_Entry<i>_Busy` / `PAX_Exit<i>_Busy`: somebody stands in that doorway.
+    pub entry_busy: Vec<bool>,
+    pub exit_busy: Vec<bool>,
     sync_frame: u32,
     /// Feet put down since the app last collected them (see [`Humans::take_footfalls`]).
     footfalls: Vec<ambience::Footfall>,
@@ -1675,6 +1733,7 @@ impl Humans {
             stops: HashMap::new(),
             odometer: HashMap::new(),
             pax_req: HashMap::new(),
+            pax_busy: HashMap::new(),
             desk_busy: None,
             pardons: 0,
             pardon_max: 0,
@@ -1705,6 +1764,8 @@ impl Humans {
             ticket_points: 0,
             entry_req: Vec::new(),
             exit_req: Vec::new(),
+            entry_busy: Vec::new(),
+            exit_busy: Vec::new(),
             sync_frame: 0,
             footfalls: Vec::new(),
             density: 1.0,
@@ -2026,6 +2087,8 @@ impl Humans {
                 self.seats.insert(BusId::Player, vec![false; c.seats.len()]);
                 self.entry_req = vec![false; c.entries.len().max(1)];
                 self.exit_req = vec![false; c.exits.len().max(1)];
+                self.entry_busy = vec![false; c.entries.len()];
+                self.exit_busy = vec![false; c.exits.len()];
                 self.player_cabin = Some(c);
             }
             None => log::info!("{}: no passenger cabin", vehicle.ty.def.path.display()),
@@ -2740,21 +2803,27 @@ impl Humans {
         i < OMSI_PAX_DOORS || (i < omsi_sim::vehicle::PAX_DOORS && Self::script_reports(v, &format!("PAX_{kind}{i}_Open")))
     }
 
-    /// The passengers' requests into the bus's `PAX_Entry<n>_Req` / `PAX_Exit<n>_Req`: an
-    /// entry or exit without variables of its own asks through the eighth's
-    /// ([`Humans::own_pax_door`]), where Omsi.exe drops them (its request arrays have eight
-    /// slots). Past the eighth they were written to no variable at all.
-    pub(crate) fn write_door_requests(v: &mut VehicleInstance, entry: &[bool], exit: &[bool]) {
-        for (kind, reqs) in [("Entry", entry), ("Exit", exit)] {
-            let mut slots = vec![false; reqs.len().min(omsi_sim::vehicle::PAX_DOORS)];
-            for (i, r) in reqs.iter().enumerate() {
+    /// The passengers' requests into the bus's `PAX_Entry<n>_Req` / `PAX_Exit<n>_Req`, and
+    /// who stands in its doorways into their `_Busy` (#720): an entry or exit without
+    /// variables of its own asks through the eighth's ([`Humans::own_pax_door`]), where
+    /// Omsi.exe drops them (its request arrays have eight slots). Past the eighth they were
+    /// written to no variable at all.
+    pub(crate) fn write_door_requests(v: &mut VehicleInstance, doors: &DoorWants) {
+        for (kind, flags, what) in [
+            ("Entry", &doors.entry_req, "Req"),
+            ("Exit", &doors.exit_req, "Req"),
+            ("Entry", &doors.entry_busy, "Busy"),
+            ("Exit", &doors.exit_busy, "Busy"),
+        ] {
+            let mut slots = vec![false; flags.len().min(omsi_sim::vehicle::PAX_DOORS)];
+            for (i, r) in flags.iter().enumerate() {
                 let slot = if Self::own_pax_door(v, kind, i) { i } else { OMSI_PAX_DOORS - 1 };
                 if let Some(s) = slots.get_mut(slot) {
                     *s |= *r;
                 }
             }
             for (i, r) in slots.iter().enumerate() {
-                v.set_var(&format!("PAX_{kind}{i}_Req"), if *r { 1.0 } else { 0.0 });
+                v.set_var(&format!("PAX_{kind}{i}_{what}"), if *r { 1.0 } else { 0.0 });
             }
         }
     }
@@ -3461,7 +3530,13 @@ impl Humans {
 
     /// Report the waiting and alighting passengers to the bus script, the way OMSI does.
     pub fn write_pax_vars(&self, b: &mut VehicleInstance) {
-        Self::write_door_requests(b, &self.entry_req, &self.exit_req);
+        let doors = DoorWants {
+            entry_req: self.entry_req.clone(),
+            exit_req: self.exit_req.clone(),
+            entry_busy: self.entry_busy.clone(),
+            exit_busy: self.exit_busy.clone(),
+        };
+        Self::write_door_requests(b, &doors);
     }
 
     /// Who wants a timetable bus to stop, as Omsi.exe asks before it lets one pull in
@@ -3495,7 +3570,7 @@ impl Humans {
     }
 
     /// Door requests for the timetable buses, for the traffic to hand to their scripts.
-    pub fn take_ai_requests(&mut self) -> Vec<(u64, Vec<bool>, Vec<bool>)> {
+    pub fn take_ai_requests(&mut self) -> Vec<(u64, DoorWants)> {
         std::mem::take(&mut self.ai_requests)
     }
 
@@ -5979,7 +6054,7 @@ mod tests {
         v.set_var("PAX_Entry9_Open", 1.0);
         let (e, _) = Humans::doors_open(&v, 10, 0);
         assert_eq!(e, [false, false, false, false, false, false, false, false, false, true]);
-        Humans::write_door_requests(&mut v, &req, &[]);
+        Humans::write_door_requests(&mut v, &DoorWants { entry_req: req.clone(), ..Default::default() });
         assert_eq!((v.var("PAX_Entry9_Req"), v.var("PAX_Entry7_Req")), (Some(1.0), Some(0.0)));
 
         // an older bus knows eight: the ninth and tenth go with the eighth
@@ -5988,8 +6063,81 @@ mod tests {
         v.set_var("PAX_Entry7_Open", 1.0);
         let (e, _) = Humans::doors_open(&v, 10, 0);
         assert_eq!(e, [false, false, false, false, false, false, false, true, true, true]);
-        Humans::write_door_requests(&mut v, &req, &[]);
+        Humans::write_door_requests(&mut v, &DoorWants { entry_req: req.clone(), ..Default::default() });
         assert_eq!((v.var("PAX_Entry9_Req"), v.var("PAX_Entry7_Req")), (Some(0.0), Some(1.0)));
+    }
+
+    /// #720: `PAX_Entry<n>_Busy` / `PAX_Exit<n>_Busy` tell a door script that somebody stands
+    /// in that doorway - on the threshold or in the opening, not in the queue outside a shut
+    /// door, the aisle or the deck above - and go with the frame like the requests.
+    #[test]
+    fn a_doorway_is_busy_while_somebody_stands_in_it() {
+        let dir = std::env::temp_dir().join(format!("omsi-doorway-busy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("test.bus"), "[boundingbox]\n2.5\n12\n3\n0\n0\n1.5\n\n[passengercabin]\ncabin.cfg\n\n[paths]\npaths.cfg\n").unwrap();
+        // the front door's threshold on the right (x 1.1), an aisle point beside it, the
+        // rear door's threshold at y -3
+        std::fs::write(dir.join("paths.cfg"), "[pathpnt]\n1.1\n4\n0.4\n\n[pathpnt]\n0\n4\n0.5\n\n[pathpnt]\n0\n-3\n0.5\n\n[pathpnt]\n1.1\n-3\n0.4\n\n[pathlink]\n0\n1\n\n[pathlink]\n1\n2\n\n[pathlink]\n2\n3\n").unwrap();
+        std::fs::write(dir.join("cabin.cfg"), "[entry]\n0\n\n[exit]\n3\n\n[passpos]\n-0.5\n0\n0.9\n0.45\n0\n").unwrap();
+        let def = omsi_vehicle::Vehicle::load(&dir.join("test.bus")).unwrap();
+        let cabin = Cabin::load_train(&[(&def, Vec3::ZERO, f32::INFINITY)]).expect("cabin");
+        let door = &cabin.entries[0];
+        assert!(door.in_doorway(Vec3::new(1.1, 4.0, 0.4)), "on the threshold");
+        assert!(door.in_doorway(Vec3::new(1.35, 4.1, 0.0)), "in the opening");
+        assert!(!door.in_doorway(Vec3::new(1.8, 4.0, 0.0)), "waiting outside the shut door");
+        // (the bus is 2.5 m wide: walking past along the line 0.5 m out from its side)
+        assert!(!door.in_doorway(Vec3::new(1.25 + 0.5, 4.0, 0.0)), "walking past the door");
+        assert!(!door.in_doorway(Vec3::new(1.25 + 0.5, 4.0, 0.4)), "walking past the door");
+        assert!(!door.in_doorway(Vec3::new(0.0, 4.0, 0.5)), "in the aisle");
+        assert!(!door.in_doorway(Vec3::new(1.1, 4.0, 2.4)), "on the deck above");
+        assert!(!door.in_doorway(Vec3::new(1.1, 2.5, 0.4)), "beside the door");
+        assert!(cabin.exits[0].in_doorway(Vec3::new(1.2, -3.0, 0.4)));
+        assert!(!cabin.exits[0].in_doorway(Vec3::new(1.2, 4.0, 0.4)));
+        // a bus standing at (100, 200) heading east: somebody stepping in from the kerb (in
+        // the world) and a rider at the rear door (in its frame)
+        let rot = Mat4::from_rotation_z(-90f32.to_radians());
+        let bn = BusNow {
+            id: BusId::Ai(3),
+            cabin: Arc::new(cabin),
+            pos: DVec3::new(100.0, 200.0, 0.0),
+            rot,
+            heading: 90.0,
+            speed: 0.0,
+            entry_open: vec![true],
+            exit_open: vec![true],
+            walk_open: None,
+            interior: 0.0,
+            air: CabinAir::default(),
+            half: DVec2::new(1.25, 6.0),
+            centre: DVec2::ZERO,
+            accel: DVec2::ZERO,
+            trailers: Vec::new(),
+            terminus: None,
+            takes: Takes::Terminus,
+        };
+        let step_in = bn.world(Vec3::new(1.35, 4.0, 0.0));
+        assert_eq!(doorways_taken(&bn, &[(None, step_in)]), (vec![true], vec![false]));
+        let rear = DVec3::new(1.1, -3.0, 0.4);
+        assert_eq!(doorways_taken(&bn, &[(Some(BusId::Ai(3)), rear)]), (vec![false], vec![true]));
+        // a rider of another bus, somebody waiting further out on the pavement: nobody here
+        let waiting = bn.world(Vec3::new(2.6, 4.0, 0.0));
+        assert_eq!(doorways_taken(&bn, &[(Some(BusId::Player), rear), (None, waiting)]), (vec![false], vec![false]));
+        // into the script's variables, a door past the eighth with the eighth's
+        std::fs::write(dir.join("vars.bus"), "[model]\nmodel.cfg\n[varnamelist]\n1\nvars.txt\n[script]\n1\nmain.osc\n").unwrap();
+        std::fs::write(dir.join("model.cfg"), "").unwrap();
+        std::fs::write(dir.join("vars.txt"), "door_0\n").unwrap();
+        std::fs::write(dir.join("main.osc"), "{init}\n{end}\n").unwrap();
+        let ty = std::sync::Arc::new(omsi_sim::VehicleType::load(&dir, &dir.join("vars.bus")).unwrap());
+        std::fs::remove_dir_all(&dir).ok();
+        let mut v = VehicleInstance::new(ty, omsi_sim::VehicleHost::new(Default::default()));
+        let mut entry_busy = vec![false; 10];
+        entry_busy[9] = true;
+        Humans::write_door_requests(&mut v, &DoorWants { entry_busy, exit_busy: vec![false, true], ..Default::default() });
+        assert_eq!((v.var("PAX_Entry7_Busy"), v.var("PAX_Entry0_Busy")), (Some(1.0), Some(0.0)));
+        assert_eq!((v.var("PAX_Exit1_Busy"), v.var("PAX_Exit0_Busy")), (Some(1.0), Some(0.0)));
+        // nobody there in the next frame: gone after the scripts' frame, as the requests
+        v.update(0.02);
+        assert_eq!((v.var("PAX_Entry7_Busy"), v.var("PAX_Exit1_Busy")), (Some(0.0), Some(0.0)));
     }
 }
 

@@ -848,15 +848,47 @@ impl Humans {
             }
             self.pax_tick(i, dt, world, buses, bus_ix, at_stops, player_bus, renderer, scene, taken_ticket, remove);
         }
+        // (where every passenger stands: in a bus's frame, or the world's - and the people
+        // walking the pavement, among them a rider who has just stepped off, still on the
+        // step until they are clear of the door. Not those who stand where they got off
+        // with no pavement to go on along: they would hold the door open for good.)
+        let at: Vec<(Option<BusId>, DVec3)> = self
+            .people
+            .iter()
+            .filter_map(|p| match &p.state {
+                State::Pax(x) => Some((x.inside, x.pos)),
+                State::Strolling(_) => Some((None, p.position)),
+                _ => None,
+            })
+            .collect();
+        let busy: HashMap<BusId, (Vec<bool>, Vec<bool>)> = buses.iter().map(|bn| (bn.id, doorways_taken(bn, &at))).collect();
+        if debug_pax() {
+            for (b, (e, x)) in &busy {
+                let before = self.pax_busy.get(b);
+                for (kind, now, was) in [("entry", e, before.map(|o| &o.0)), ("exit", x, before.map(|o| &o.1))] {
+                    for (k, on) in now.iter().enumerate() {
+                        if was.and_then(|w| w.get(k)).copied().unwrap_or(false) != *on {
+                            log::info!("t={:.1} bus {b:?} {kind} {k}: {}", self.time, if *on { "somebody in the doorway" } else { "the doorway is free" });
+                        }
+                    }
+                }
+            }
+        }
+        self.pax_busy = busy;
         // the player's bus reads its requests from `entry_req` / `exit_req`
         if let Some((e, x)) = self.pax_req.get(&BusId::Player) {
             self.entry_req = e.clone();
             self.exit_req = x.clone();
         }
+        if let Some((e, x)) = self.pax_busy.get(&BusId::Player) {
+            self.entry_busy = e.clone();
+            self.exit_busy = x.clone();
+        }
         self.ai_requests.clear();
         for (b, (e, x)) in &self.pax_req {
             if let BusId::Ai(id) = b {
-                self.ai_requests.push((*id, e.clone(), x.clone()));
+                let (entry_busy, exit_busy) = self.pax_busy.get(b).cloned().unwrap_or_default();
+                self.ai_requests.push((*id, DoorWants { entry_req: e.clone(), exit_req: x.clone(), entry_busy, exit_busy }));
             }
         }
         // timetable buses wait while people still get on or off (0x7d9e8b - 0x7d9f5e):

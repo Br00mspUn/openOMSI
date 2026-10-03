@@ -992,8 +992,8 @@ pub(crate) fn run_offscreen(
                 for (id, stop, secs) in h.take_holds() {
                     t.hold_boarding(id, stop, secs);
                 }
-                for (id, entry, exit) in h.take_ai_requests() {
-                    t.set_pax_requests(id, &entry, &exit);
+                for (id, doors) in h.take_ai_requests() {
+                    t.set_pax_requests(id, &doors);
                 }
             }
             if let Some(p) = player.as_mut() {
