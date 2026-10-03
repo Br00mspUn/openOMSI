@@ -769,13 +769,14 @@ impl Humans {
         self.stops.get(&stop).is_some_and(|s| s.buses.iter().any(|b| b.0 == bus))
     }
 
-    /// sub_7e910c: a free place of the bus, at random (none free: nobody gets on).
-    pub(super) fn reserve_place(&mut self, bus: BusId, n: usize) -> Option<usize> {
+    /// sub_7e910c: a free place of the bus, at random (none free: nobody gets on). `off`:
+    /// the places its scripts have switched off (#721), which nobody takes.
+    pub(super) fn reserve_place(&mut self, bus: BusId, n: usize, off: &[bool]) -> Option<usize> {
         let seats = self.seats.entry(bus).or_insert_with(|| vec![false; n]);
         if seats.len() < n {
             seats.resize(n, false);
         }
-        let free: Vec<usize> = (0..n).filter(|k| !seats[*k]).collect();
+        let free: Vec<usize> = (0..n).filter(|k| !seats[*k] && !off.get(*k).copied().unwrap_or(false)).collect();
         if free.is_empty() {
             return None;
         }
@@ -875,6 +876,16 @@ impl Humans {
             }
         }
         self.pax_busy = busy;
+        // the places' own occupancy variables (#721): the riders at their places
+        let sitting: Vec<(BusId, usize)> = self
+            .people
+            .iter()
+            .filter_map(|p| match &p.state {
+                State::Pax(x) if x.task == Task::SittingInBus => Some((x.inside?, x.seat?)),
+                _ => None,
+            })
+            .collect();
+        self.pax_places = buses.iter().map(|bn| (bn.id, places_taken(bn, &sitting))).collect();
         // the player's bus reads its requests from `entry_req` / `exit_req`
         if let Some((e, x)) = self.pax_req.get(&BusId::Player) {
             self.entry_req = e.clone();
@@ -888,7 +899,8 @@ impl Humans {
         for (b, (e, x)) in &self.pax_req {
             if let BusId::Ai(id) = b {
                 let (entry_busy, exit_busy) = self.pax_busy.get(b).cloned().unwrap_or_default();
-                self.ai_requests.push((*id, DoorWants { entry_req: e.clone(), exit_req: x.clone(), entry_busy, exit_busy }));
+                let places = self.pax_places.get(b).cloned().unwrap_or_default();
+                self.ai_requests.push((*id, DoorWants { entry_req: e.clone(), exit_req: x.clone(), entry_busy, exit_busy, places }));
             }
         }
         // timetable buses wait while people still get on or off (0x7d9e8b - 0x7d9f5e):
@@ -1627,7 +1639,7 @@ impl Humans {
                 let Some(stop) = p.stop else { return };
                 if let Some(bn) = bn {
                     if bn.speed.abs() < 3.0 && self.in_stop_box(stop, bn.id) {
-                        if let Some(k) = self.reserve_place(bn.id, bn.cabin.seats.len()) {
+                        if let Some(k) = self.reserve_place(bn.id, bn.cabin.seats.len(), &bn.places_off) {
                             let (tk, id) = self.decide_pax_ticket(i, bn);
                             let price = self.tickets.as_ref().and_then(|t| t.tickets.get(id.saturating_sub(1) as usize)).map(|t| t.value).unwrap_or(0.0);
                             let pp = self.pax_mut(i).unwrap();

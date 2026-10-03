@@ -17,6 +17,13 @@ pub struct PassPos {
     /// the seat number scripts ask `GetHumanCountOnSeat` about (0x7d39a4) - with the
     /// driver's place first, as most cabins have it, the first `[passpos]` is seat 1.
     pub file_index: usize,
+    /// openOMSI's (#721): a script variable that switches the `[passpos]` on and off - while
+    /// it is 0 no passenger takes the place - named on the line straight after its five
+    /// values. None (or a name the scripts do not have): always on.
+    pub switch_var: Option<String>,
+    /// openOMSI's: a script variable the engine sets to 1 while somebody is on the place and
+    /// to 0 while nobody is, named on the line after that.
+    pub taken_var: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -112,7 +119,20 @@ impl PassengerCabin {
                         None => [0, 1, 2, 3],
                     };
                     let file_index = c.pass_positions.len() + c.driver_positions.len();
-                    let p = PassPos { pos, height, rot, illumination, file_index };
+                    // (openOMSI's two variables of a `[passpos]`, #721: lines that follow at
+                    // once - a blank line, the next block or a `{...}` flag ends them, so every
+                    // OMSI 2 file reads as before, and Omsi.exe passes over the lines)
+                    let mut more = || {
+                        let l = r.lines().get(r.pos())?.trim();
+                        if k != "passpos" || l.is_empty() || l.starts_with('[') || l.starts_with('{') {
+                            return None;
+                        }
+                        r.line();
+                        Some(l.to_string())
+                    };
+                    let switch_var = more();
+                    let taken_var = switch_var.as_ref().and_then(|_| more());
+                    let p = PassPos { pos, height, rot, illumination, file_index, switch_var, taken_var };
                     if k == "passpos" {
                         c.pass_positions.push(p);
                         last = Some((false, c.pass_positions.len() - 1));
@@ -174,6 +194,22 @@ mod tests {
         if let Ok(c) = PassengerCabin::load(&root.join("Vehicles/MAN_SD200/Model/passengercabin.cfg")) {
             assert_eq!(c.entries.iter().map(|e| (e.path_point, e.no_ticket_sale)).collect::<Vec<_>>(), [(0, false), (4, true)]);
         }
+    }
+
+    /// #721: a `[passpos]` may name a variable that switches it on and off and one the
+    /// engine writes its occupancy into, on the lines straight after its values.
+    #[test]
+    fn a_place_may_name_its_switch_and_occupancy_variables() {
+        let text = "[passpos]\n0.94\n0.04\n0.92\n0.43\n0\nseat_folded_down\nseat_taken\n\n\
+                    [passpos]\n0.5\n2\n1\n0.5\n0\nlayout_long\n\n[passpos]\n0.5\n1\n1\n0.5\n0\n\n\
+                    [passpos]\n0.5\n0\n1\n0.5\n0\n[entry]\n0\n{noticketsale}\n[drivpos]\n-0.8\n4.5\n1.0\n0.5\n0\nnot_a_place_var\n";
+        let c = PassengerCabin::parse(&CfgFile::from_str("passengercabin.cfg", text));
+        let vars: Vec<(Option<&str>, Option<&str>)> = c.pass_positions.iter().map(|p| (p.switch_var.as_deref(), p.taken_var.as_deref())).collect();
+        assert_eq!(vars, [(Some("seat_folded_down"), Some("seat_taken")), (Some("layout_long"), None), (None, None), (None, None)]);
+        assert_eq!(c.pass_positions[0].pos, [0.94, 0.04, 0.92]);
+        assert_eq!(c.entries[0].path_point, 0);
+        assert!(c.entries[0].no_ticket_sale);
+        assert_eq!(c.driver_positions[0].switch_var, None);
     }
 
     #[test]

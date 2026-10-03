@@ -81,6 +81,31 @@ door script can keep a door open or open it again while its `_Busy` is set. Like
 they are written before the scripts run every frame and cleared after them; a door past the
 eighth without variables of its own reports through the eighth's. OMSI 2 does not have them.
 
+## Passenger places switched by the script
+
+OMSI 2's `[passpos]` places are all there all the time. In openOMSI a `[passpos]` may name a
+script variable on the line straight after its five values: while that variable is 0 no
+passenger takes the place (whoever sits there already stays until they get off), so a bus
+can have two seating layouts and switch between them with a setvar. A second name on the
+line after that is a variable the engine sets to 1 while somebody is on the place and to 0
+while nobody is - a tip-up seat can fold down for the person on it - without the seat
+numbers `GetHumanCountOnSeat` needs:
+
+```
+[passpos]
+0.94
+0.04
+0.92
+0.43
+0
+layout_transverse
+seat_12_taken
+```
+
+Both are ordinary variables of the bus's varlists. A place without the lines, or with a
+name the scripts do not have, is always there; a blank line or the next block ends the
+list, and OMSI 2 passes over the lines.
+
 ## Ticket validators: one by every door
 
 OMSI 2 uses one `[stamper]` of a `passengercabin.cfg`, the last one written. openOMSI keeps

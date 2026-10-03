@@ -849,7 +849,8 @@ texture of man02 and the women's hair carry `[matl_alpha] 1` (alpha test).
 The `[passengercabin]` file gives `[passpos] x y z seat-height rot` seats - x, y, z is the
 **hip** ("Attachpunkt Arsch") when the seat height above the floor is greater than zero and
 the **foot** when it is zero, which marks a standing place - plus `[entry]`/`[exit]`
-path points, `[ticket_sale]`, `[stamper]`. `[entry]` may carry `{noticketsale}`: passengers
+path points, `[ticket_sale]`, `[stamper]`. In openOMSI a `[passpos]` may go on with one or
+two script variable names on the lines straight after its five values (see MODDING.md). `[entry]` may carry `{noticketsale}`: passengers
 who use that door walk straight to a seat instead of past the cash desk. It and `{withbutton}`
 are lines of their own that mark the entry read last, wherever they stand between the blocks
 (the stock cabins write a blank line before them), as Omsi.exe reads them.
