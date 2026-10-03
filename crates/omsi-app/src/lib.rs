@@ -11,6 +11,9 @@
 
 mod admin;
 mod discord;
+#[cfg(steam)]
+mod steam;
+mod voice;
 mod headtrack;
 #[cfg(windows)]
 mod openxr;
@@ -474,6 +477,8 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         vr_cursor_physical: None,
         vr_cursor_warp_pending: None,
         window_focused: false,
+        input_away: false,
+        window_hidden: false,
         keys: Default::default(),
         door_key_triggers: Default::default(),
         last: Instant::now(),
@@ -491,6 +496,8 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         game_menu: None,
         menu_top: None,
         menu_scroll_drag: false,
+        dd_scroll_drag: None,
+        pane_scroll_drag: None,
         pane_scroll: None,
         plugin_keys: Vec::new(),
         clock_hold: 0.0,
@@ -499,6 +506,9 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         teleport_pick: false,
         discord: None,
         discord_t: 0.0,
+        #[cfg(steam)]
+        steam: None,
+        voice: None,
         headtrack: None,
         headtrack_failed: None,
         controllers: None,
@@ -550,6 +560,7 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         frames: 0,
         fps_t: Instant::now(),
         service_msg: clock_note.map(|m| (m, 10.0)),
+        notices: Vec::new(),
         log_state: Default::default(),
         plugins: None,
         career: Default::default(),

@@ -100,7 +100,13 @@ pub(crate) fn run_offscreen(
                 if let Some(k) = args.duty_trip {
                     d.start_at(k, args.duty_first_stop);
                 }
-                d.update(&mut p.vehicle, parse_time(&args.time));
+                if args.is_resuming() {
+                    d.resume(&mut p.vehicle, parse_time(&args.time), args.situation_next_stop);
+                    // (as in the window: see `App`)
+                    p.duty_typed = args.autostart;
+                } else {
+                    d.update(&mut p.vehicle, parse_time(&args.time));
+                }
                 let mut fonts = world.fonts.lock();
                 if let Err(e) = crate::schedule_paper::update_vehicle(
                     &mut p.vehicle,
@@ -266,7 +272,7 @@ pub(crate) fn run_offscreen(
         .and_then(|v| v.parse().ok())
         .unwrap_or(0.0);
     let mut last_reasons: Vec<String> = Vec::new();
-    if args.autostart {
+    if args.autostart && !args.is_resuming() {
         if let Some(p) = player.as_mut() {
             log::info!("{}", p.start_up());
             if let Some(d) = duty.as_ref() {
@@ -588,6 +594,7 @@ pub(crate) fn run_offscreen(
             t.others = lan_outlines(&remotes_off);
             t.others.extend(own_outlines(player.as_ref(), &[]));
             t.player_priority = player.as_ref().and_then(|p| p.vehicle.var("TrafficPriority")).is_some_and(|v| v > 0.5);
+            t.player_blinker = player.as_ref().map(|p| lan::indicator(&p.vehicle)).unwrap_or(0);
             t.tick(dt, player.as_ref().map(|p| player_outline(p)));
             world.set_switches(&t.switch_requests());
             world.set_signals(&t.signal_aspects(&world.signal_routes, None));
@@ -2420,7 +2427,7 @@ pub(crate) fn run_offscreen(
             traffic
                 .as_ref()
                 .map(|t| t.light_vars(c, li))
-                .unwrap_or((-1.0, 0.0))
+                .unwrap_or((omsi_sim::traffic::UNLINKED_PHASE as f32, 0.0))
         };
         let dt = 1.0 / 30.0;
         let mut n = 0;
