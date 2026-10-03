@@ -2126,6 +2126,11 @@ impl ApplicationHandler for App {
                                 let spots = nav.arrow_spots(self.traffic.as_ref().map(|t| &t.net), 350.0, &|id| w.object_positions.lock().get(&id).map(|p| (p.0, p.1[0])));
                                 self.route_arrows.tick(dt, w, r, scene, &spots);
                             }
+                        } else if self.route_arrows.any() {
+                            // (switched off in the menu: the ones standing go too)
+                            if let Some(w) = self.world.as_ref() {
+                                self.route_arrows.clear(w, r, scene);
+                            }
                         }
                     }
                     if let (Some(ui), Some(s)) = (self.ui.as_mut(), self.surface.as_ref()) {
