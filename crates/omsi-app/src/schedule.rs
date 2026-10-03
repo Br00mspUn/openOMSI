@@ -2825,6 +2825,20 @@ pub fn set_player_destination_directly(
     set_destination(v, hof, line, terminus, stops, true)
 }
 
+/// The same with terminus number `ti` of the depot file, for a destination picked from
+/// the list of them: termini often share a name (four "ul. Xutorskaya" of codes 92, 120,
+/// 123 and 124, one per route), and looked up by its name the pick always gave the first
+/// of them (#738).
+pub fn set_player_destination_at(
+    v: &mut omsi_sim::VehicleInstance,
+    hof: &omsi_vehicle::Hof,
+    line: &str,
+    ti: usize,
+    stops: &[&str],
+) {
+    set_destination_at(v, hof, line, ti, stops, true)
+}
+
 /// What the IBIS shows once a driver has typed a trip's codes, standing at the timetable's
 /// stop `stop` (index and name).
 pub fn ibis_target(
@@ -3235,7 +3249,20 @@ fn set_destination(
         "AI bus: line {line} terminus '{terminus}' → depot terminus {ti} code {}",
         hof.termini[ti].code
     );
-    let code = hof.termini[ti].code;
+    set_destination_at(v, hof, line, ti, stops, player)
+}
+
+/// [`set_destination`] with the depot file's terminus `ti` itself.
+fn set_destination_at(
+    v: &mut omsi_sim::VehicleInstance,
+    hof: &omsi_vehicle::Hof,
+    line: &str,
+    ti: usize,
+    stops: &[&str],
+    player: bool,
+) {
+    let Some(term) = hof.termini.get(ti) else { return };
+    let code = term.code;
     let route_index = pick_route(hof, &routes_to(hof, line, code), stops);
     let line_num = line_number_digits(line).parse::<f32>().unwrap_or(0.0);
     // The route's last two digits select its stop list; they must not replace
@@ -5011,6 +5038,60 @@ mod tests {
         });
         std::fs::remove_dir_all(dir).unwrap();
         omsi_sim::VehicleInstance::new(ty, omsi_sim::VehicleHost::new(Default::default()))
+    }
+
+    /// A vehicle that declares the IBIS variables a destination is written to.
+    fn ibis_test_vehicle() -> omsi_sim::VehicleInstance {
+        let dir = std::env::temp_dir().join(format!("omsi_ibis_dest_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("ibis.osc");
+        let vars = dir.join("vars.txt");
+        let strings = dir.join("strings.txt");
+        std::fs::write(&vars, "IBIS_LinieKurs\nIBIS_TerminusIndex\nIBIS_TerminusCode\n").unwrap();
+        std::fs::write(&strings, "IBIS_terminus_name\n").unwrap();
+        std::fs::write(&script, "{frame}\n{end}\n").unwrap();
+        let program = omsi_script::compile(&omsi_script::CompileInput {
+            scripts: vec![script],
+            varlists: vec![vars],
+            stringvarlists: vec![strings],
+            ..Default::default()
+        });
+        assert!(program.errors.is_empty(), "{:?}", program.errors);
+        let ty = std::sync::Arc::new(omsi_sim::VehicleType {
+            def: Default::default(),
+            model: Default::default(),
+            model_dir: dir.clone(),
+            program: std::sync::Arc::new(program),
+            meshes: Vec::new(),
+            paint_schemes: Vec::new(),
+            texchanges: Vec::new(),
+            wheel_meshes: Vec::new(),
+            suspension_axles: Vec::new(),
+            missing_packs: Vec::new(),
+            mesh_bounds: Vec::new(),
+            mesh_boxes: Vec::new(),
+        });
+        std::fs::remove_dir_all(dir).unwrap();
+        omsi_sim::VehicleInstance::new(ty, omsi_sim::VehicleHost::new(Default::default()))
+    }
+
+    /// #738: of four destinations of one name the one picked from the list is set, not
+    /// the first of that name.
+    #[test]
+    fn a_destination_picked_from_the_list_is_that_one_of_its_name() {
+        let t = |code: i32, id: &str| omsi_vehicle::hof::Terminus { code, texture_id: id.into(), strings: vec!["ul. Xutorskaya".into()], ..Default::default() };
+        let hof = omsi_vehicle::Hof { termini: vec![t(92, "Xut_92"), t(120, "Xut_120"), t(123, "Xut_123"), t(124, "Xut_124")], ..Default::default() };
+        let mut v = ibis_test_vehicle();
+        set_player_destination_at(&mut v, &hof, "39", 1, &[]);
+        assert_eq!(v.var("IBIS_TerminusCode"), Some(120.0));
+        assert_eq!(v.var("IBIS_TerminusIndex"), Some(1.0));
+        assert_eq!(v.var("IBIS_LinieKurs"), Some(39.0));
+        assert_eq!(v.str_var("IBIS_terminus_name"), "ul. Xutorskaya");
+        set_player_destination_at(&mut v, &hof, "39", 3, &[]);
+        assert_eq!(v.var("IBIS_TerminusCode"), Some(124.0));
+        // (by its name it is the first of them, as the list used to set it)
+        set_player_destination_directly(&mut v, Some(&hof), "39", "ul. Xutorskaya", &[]);
+        assert_eq!(v.var("IBIS_TerminusCode"), Some(92.0));
     }
 
     #[test]

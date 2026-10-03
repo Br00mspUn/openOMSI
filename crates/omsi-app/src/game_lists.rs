@@ -113,9 +113,18 @@ pub(crate) fn set_route_by_hand(app: &mut App, line: &str) {
             let hof = p.vehicle.host.hof.clone();
             let code = p.vehicle.var("IBIS_TerminusCode").unwrap_or(-1.0) as i32;
             let named = |t: &&omsi_vehicle::hof::Terminus| t.strings.first().is_some_and(|s| !s.trim().is_empty());
-            let term = hof.as_ref().and_then(|h| h.termini.iter().filter(named).find(|t| t.code == code).or_else(|| h.termini.iter().find(named)));
-            let name = term.and_then(|t| t.strings.first().cloned()).unwrap_or_default();
-            crate::schedule::set_player_destination_directly(&mut p.vehicle, hof.as_deref(), line, &name, &[]);
+            // (by its place in the depot file: by name it was the first of that name)
+            let index = p.vehicle.var("IBIS_TerminusIndex").filter(|i| *i >= 0.0).map(|i| i.round() as usize);
+            let term = hof.as_ref().and_then(|h| {
+                let ti = index
+                    .filter(|&i| h.termini.get(i).is_some_and(|t| t.code == code))
+                    .or_else(|| h.termini.iter().position(|t| t.code == code))
+                    .or_else(|| h.termini.iter().position(|t| named(&t)))?;
+                Some((h, ti))
+            });
+            if let Some((hof, ti)) = term {
+                crate::schedule::set_player_destination_at(&mut p.vehicle, hof, line, ti, &[]);
+            }
         } else {
             // OMSI's route-number field is also used as arbitrary display text. Do not
             // force symbols/unknown letters through IBIS_LinieKurs: that would turn "-10"
@@ -276,15 +285,16 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Vec<(String, String)> {
                 out.push((format!("{}: {now}...", tr("Route number")), "routes".into()));
             }
             if let Some(hof) = app.player.as_ref().and_then(|p| p.vehicle.host.hof.clone()) {
-                let mut termini: Vec<(String, String)> = hof
+                let mut termini: Vec<(String, i32, usize)> = hof
                     .termini
                     .iter()
-                    .map(|t| (t.strings.iter().find(|s| !s.trim().is_empty()).cloned().unwrap_or_else(|| t.code.to_string()), t.code.to_string()))
+                    .enumerate()
+                    .map(|(i, t)| (t.strings.iter().find(|s| !s.trim().is_empty()).cloned().unwrap_or_else(|| t.code.to_string()), t.code, i))
                     .collect();
-                // (alphabetical, by name)
-                termini.sort_by_key(|(name, _)| name.trim().to_lowercase());
-                for (name, code) in termini {
-                    out.push((format!("{:>3}  {}", code, name.trim()), format!("dest {code}")));
+                // (alphabetical, by name; picked by its row: several may share a name or a code)
+                termini.sort_by_key(|(name, ..)| name.trim().to_lowercase());
+                for (name, code, i) in termini {
+                    out.push((format!("{:>3}  {}", code, name.trim()), format!("dest {i}")));
                 }
             }
             if out.is_empty() {
@@ -703,13 +713,13 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
         ListKind::Destinations => {
             if let Some(p) = app.player.as_mut() {
                 let hof = p.vehicle.host.hof.clone();
-                let code: i32 = arg.trim().parse().unwrap_or(-1);
-                if let Some(t) = hof.as_ref().and_then(|h| h.termini.iter().find(|t| t.code == code)) {
+                let ti: usize = arg.trim().parse().unwrap_or(usize::MAX);
+                if let Some((hof, t)) = hof.as_ref().and_then(|h| h.termini.get(ti).map(|t| (h, t))) {
                     // (the line on the IBIS stays; only the destination changes)
                     let line = p.vehicle.var("IBIS_LinieKurs").filter(|l| *l > 0.0).map(|l| format!("{}", l as i64)).unwrap_or_default();
-                    let name = t.strings.first().cloned().unwrap_or_default();
-                    crate::schedule::set_player_destination_directly(&mut p.vehicle, hof.as_deref(), &line, &name, &[]);
-                    log::info!("destination display set by hand: {code} {} (terminus code now {:?})", name.trim(), p.vehicle.var("IBIS_TerminusCode"));
+                    let name = t.strings.iter().find(|s| !s.trim().is_empty()).cloned().unwrap_or_default();
+                    crate::schedule::set_player_destination_at(&mut p.vehicle, hof, &line, ti, &[]);
+                    log::info!("destination display set by hand: {} {} (terminus code now {:?})", t.code, name.trim(), p.vehicle.var("IBIS_TerminusCode"));
                     app.service_msg = Some((format!("Destination: {}", name.trim()), 3.0));
                 }
             }

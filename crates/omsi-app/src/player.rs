@@ -1319,7 +1319,7 @@ impl Player {
                     if let Some((mut old, ..)) = self.ibis_typist.take() {
                         old.abandon(&mut self.vehicle);
                     }
-                    schedule::set_player_destination_directly(&mut self.vehicle, Some(&hof), &line, &wanted, &[]);
+                    schedule::set_player_destination_at(&mut self.vehicle, &hof, &line, ti, &[]);
                 }
             }
         }
