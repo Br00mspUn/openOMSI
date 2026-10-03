@@ -3681,7 +3681,8 @@ impl App {
         let Some(w) = self.world.clone() else { return };
         let date = self.clock.date_code();
         let snow = self.weather.as_ref().is_some_and(|x| x.snow);
-        let season = crate::world_load::season_folder_on(&self.args, &w.global, self.clock.day_of_year, snow).1;
+        let on_road = self.weather.as_ref().is_some_and(|x| x.snow_on_road);
+        let season = crate::world_load::season_folder_on(&self.args, &w.global, self.clock.day_of_year, snow, on_road).1;
         let Some((was_date, was_season)) = self.world_day.clone() else {
             self.world_day = Some((date, omsi_texture::season_folder()));
             return;

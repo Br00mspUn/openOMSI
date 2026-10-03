@@ -528,8 +528,13 @@ rim the reflection running on away from the camera.
   listening to that trigger plays it. `$msg` shows the top string without popping it.
 
 * global.cfg `[addseason] kind start_day end_day` (day of year): 1 spring, 2 autumn, 3 winter,
-  4 winter with snow; the season's textures live in `texture\spring|fall|Winter|WinterSnow\`
-  subfolders next to the normal textures (same file names) and take precedence.
+  4 winter with snow, 5 dry summer; the season's textures live in
+  `texture\Spring|Fall|Winter|WinterSnow|SummerDry\` subfolders next to the normal textures
+  (same file names) and take precedence. A texture without a winter picture takes its autumn
+  one. A weather with `[snow]` takes the `WinterSnow` pictures whatever the season, and with
+  `[snowOnRoad]` as well the `WinterSnowfall` ones before them (the stock roads keep their
+  snowy asphalt there); a texture with no snow picture takes its winter one, else its autumn
+  one (Omsi.exe 0x7f910c).
   `[trafficdensity_road]` / `[trafficdensity_passenger] hour factor` lines form a curve
   over the day that scales AI traffic and waiting passengers.
 * Scenery `.sco` `[sound] sound\x.cfg` uses the vehicle sound.cfg format, driven by the

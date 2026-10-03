@@ -1805,17 +1805,15 @@ fn snowing() -> bool {
     SNOW_WEATHER.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Whether a texture name resolves to the season's own copy of it (`texture\WinterSnow\…`):
+/// Whether a texture name resolves to the season's own copy of it (`texture\WinterSnow\…`,
+/// or a folder the season falls back to):
 /// a vehicle that brings its own winter picture keeps it.
 fn seasonal_texture(name: &str, dirs: &[&Path]) -> bool {
-    match (
-        omsi_texture::season_folder(),
-        omsi_texture::find_texture(name, dirs),
-    ) {
-        (Some(season), Some(p)) => p.components().any(|c| {
-            c.as_os_str()
-                .to_string_lossy()
-                .eq_ignore_ascii_case(&season)
+    let seasons = omsi_texture::season_folders();
+    match omsi_texture::find_texture(name, dirs) {
+        Some(p) if !seasons.is_empty() => p.components().any(|c| {
+            let c = c.as_os_str().to_string_lossy();
+            seasons.iter().any(|s| c.eq_ignore_ascii_case(s))
         }),
         _ => false,
     }
@@ -10171,9 +10169,9 @@ fn bump_key(path: &Path) -> PathBuf {
 
 /// Whether a texture file is a season's snow picture: it lies in a `WinterSnow` folder
 /// (`Texture\WinterSnow\gras.bmp`, any case), where the snow weather finds the map's
-/// snowy textures.
+/// snowy textures, or in a `WinterSnowfall` one, its snowy roads.
 fn is_snow_picture(path: &Path) -> bool {
-    path.components().any(|c| c.as_os_str().to_str().is_some_and(|s| s.eq_ignore_ascii_case("WinterSnow")))
+    path.components().any(|c| c.as_os_str().to_str().is_some_and(|s| s.eq_ignore_ascii_case("WinterSnow") || s.eq_ignore_ascii_case("WinterSnowfall")))
 }
 
 /// A PBR set beside the diffuse texture `path` (`foo_n.png` and the rest, see
