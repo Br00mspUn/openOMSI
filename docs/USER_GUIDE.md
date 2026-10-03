@@ -173,7 +173,8 @@ again only when something changes; drag on it to turn the bus, scroll to zoom. I
   an edge, plus the scripts' shaking, `FF_Vib_Amp`. A wheel nobody has set up steers with
   its X axis. A wheel that a community controller mapping also makes a gamepad (a
   Logitech G29) is listed once, and *Use this device* switches any device off
-  (it is then neither read nor listed as steering). Select a device to adjust *Steering force*
+  (it is then neither read nor listed as steering); **Remove this device** (clicked twice) takes
+  one out of the list, kept so by **Save**. Select a device to adjust *Steering force*
   (centering and resistance) and *Vibration* separately, then press **Save**. The values are stored
   for that device in the content folder's `Inputs/gamectrler.cfg`; restart a running game to use
   the new values. *Force feedback and vibration* in Settings → Driving remains the global on/off switch.

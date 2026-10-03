@@ -49,6 +49,8 @@ pub struct PadsView {
     /// The button last pressed on the shown device and when: its line is lit, so that one
     /// sees which it is and what it does, and can give it an action there.
     pub last_pressed: Option<(usize, std::time::Instant)>,
+    /// "Remove this device" clicked once, and when: a second click removes it.
+    confirm_remove: Option<std::time::Instant>,
 }
 
 /// The set-up assistant of a device: the player lets go of everything, then turns the wheel
@@ -1384,6 +1386,7 @@ fn game_controllers(l: &mut Launcher, body: Rect) {
         pv.capturing = false;
         pv.revealed_button = None;
         pv.wizard = None;
+        pv.confirm_remove = None;
     }
     if let Some(name) = add {
         devices.push(DeviceCfg { name, second: "0".into(), ..Default::default() });
@@ -1625,6 +1628,33 @@ fn game_controllers(l: &mut Launcher, body: Rect) {
     if l.ui.button("pad-add-button", add_r, if pv.capturing { "Press a button on the device…" } else { "Add a button" }, Some("add"), ButtonKind::Normal) {
         pv.capturing = !pv.capturing;
     }
+    // a device no longer used (a wheel sold, one that came along in OMSI's own file) leaves
+    // the list on a second click; Save keeps it so, and a connected one can be set up again
+    // from the list (#636)
+    let armed = pv.confirm_remove.is_some_and(|t| t.elapsed().as_secs() < 4);
+    let remove_r = Rect::new(inner.right() - 260.0, inner.bottom() - 40.0, 260.0, 36.0);
+    if l.ui.button("pad-remove", remove_r, if armed { "Click again to remove" } else { "Remove this device" }, Some("delete"), ButtonKind::Danger) {
+        if armed {
+            release_feedback(&mut pv.io, &mut pv.feedback_test);
+            let name = remove_device(devices, &mut pv.selected);
+            pv.capturing = false;
+            pv.revealed_button = None;
+            pv.last_pressed = None;
+            pv.confirm_remove = None;
+            pv.dirty = true;
+            l.state.set_status(format!("{name} removed: press Save to keep it so."), false);
+        } else {
+            pv.confirm_remove = Some(std::time::Instant::now());
+        }
+    }
+}
+
+/// Take the device shown (`selected`) out of the list; the one below it (or the last) is
+/// shown next. Its name.
+fn remove_device(devices: &mut Vec<crate::controllers::DeviceCfg>, selected: &mut usize) -> String {
+    let name = devices.remove(*selected).name;
+    *selected = (*selected).min(devices.len().saturating_sub(1));
+    name
 }
 
 /// The steps of the set-up assistant (see `Wizard`): what the player is asked each time.
@@ -2594,5 +2624,27 @@ mod pad_action_tests {
             let handled = crate::input_script::is_game_action(a) || a.starts_with("gear_") || crate::player::door_action(a).is_some();
             assert!(handled, "{a}");
         }
+    }
+}
+
+#[cfg(test)]
+mod pad_remove_tests {
+    use crate::controllers::{cfg_text, parse_cfg};
+
+    /// A device taken out of the list is gone from the file Save writes, and the next one is
+    /// shown - the one below it, or above it when it was the last (#636).
+    #[test]
+    fn a_removed_device_leaves_the_file() {
+        let mut devices = parse_cfg("[ctrl]\r\nSideWinder Joystick\r\n0\r\n\r\n[ctrl]\r\nLogitech G25 Racing Wheel USB\r\n1\r\n\r\n[ctrl]\r\nMOZA R3 Base\r\n0\r\n");
+        let mut sel = 1;
+        assert_eq!(super::remove_device(&mut devices, &mut sel), "Logitech G25 Racing Wheel USB");
+        assert_eq!(sel, 1);
+        let names = |text: &str| parse_cfg(text).into_iter().map(|d| d.name).collect::<Vec<_>>();
+        assert_eq!(names(&cfg_text(&devices)), ["SideWinder Joystick", "MOZA R3 Base"]);
+        assert_eq!(super::remove_device(&mut devices, &mut sel), "MOZA R3 Base");
+        assert_eq!(sel, 0);
+        assert_eq!(super::remove_device(&mut devices, &mut sel), "SideWinder Joystick");
+        assert_eq!(sel, 0);
+        assert!(names(&cfg_text(&devices)).is_empty());
     }
 }
