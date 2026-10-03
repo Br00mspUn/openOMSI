@@ -7127,7 +7127,10 @@ impl Renderer {
                     color: [p.color[0], p.color[1], p.color[2], p.alpha.clamp(0.0, 1.0)],
                     dir: [0.0, 0.0, 0.0, -1.0],
                     up: [0.0, 0.0, 1.0, 2.0],
-                    extra: [-2.0, 0.0, 0.0, 1.0],
+                    // (a plain sprite, w 0: with 1, the mark of a lamp's cone in the fog,
+                    // the shader laid every puff out as a fan along an axis of zero length
+                    // - nowhere, no exhaust, steam or spray was ever seen)
+                    extra: [-2.0, 0.0, 0.0, 0.0],
                 }
             })
             .collect();
@@ -12205,6 +12208,31 @@ mod tests {
         for row in 42..92 {
             let c = &rgba[(row * 128 + 64) * 4..(row * 128 + 64) * 4 + 3];
             assert!(c[0] > c[1] + 60, "row {row}: the road over the rails: {c:?}");
+        }
+    }
+
+    /// A `[smoke]` puff (an exhaust's, a wheel's spray) is drawn where it is, in its colour,
+    /// in every graphics mode (#949, #948).
+    #[test]
+    #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
+    fn smoke_puffs_are_drawn() {
+        let camera = Camera { position: DVec3::ZERO, yaw: 0.0, pitch: 0.0, roll: 0.0, fov_deg: 60.0, near: 0.1, far: 100.0 };
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let mut renderer = pollster::block_on(Renderer::new_with(
+            &instance,
+            None,
+            Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            RenderOptions { msaa: 1, ssao: false, shadow_size: 1024, fxaa: false, render_scale: 1.0, ..Default::default() },
+        ))
+        .expect("test renderer");
+        renderer.set_smoke_texture(&omsi_texture::Image { width: 4, height: 4, rgba: vec![255; 64], has_alpha: true });
+        let mut scene = renderer.new_scene();
+        for (classic, enhanced) in [(true, false), (false, false), (false, true)] {
+            scene.smoke = vec![SmokeParticle { position: DVec3::new(0.0, 5.0, 0.0), size: 1.0, color: [1.0, 0.0, 0.0], alpha: 1.0 }];
+            let lighting = Lighting { shadows: false, fog_density: 0.0, classic, enhanced, ..Default::default() };
+            let rgba = renderer.render_to_image(&mut scene, 64, 64, &camera, &lighting).unwrap();
+            let c = &rgba[(32 * 64 + 32) * 4..(32 * 64 + 32) * 4 + 3];
+            assert!(c[0] > 120 && c[1] < 60 && c[2] < 60, "a red puff 5 m ahead (classic {classic}, enhanced {enhanced}): {c:?}");
         }
     }
 
