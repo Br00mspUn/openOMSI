@@ -418,6 +418,8 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
     let view = args.view.clone();
     let args_root_for_keys = args.root.clone();
     let clock_note = args.clock_moved.clone();
+    // (as the last session left it, #1164)
+    let info_bar = settings.info_bar;
     let mut app = App {
         args,
         instance: graphics_instance(),
@@ -543,7 +545,7 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         own_keys: crate::startup::own_keys(&args_root_for_keys),
         own_shift: crate::startup::own_bindings(&args_root_for_keys, omsi_content::input::KEY_SHIFT),
         menu_prev_pause: false,
-        info_bar: false,
+        info_bar,
         pending_time: None,
         world_day: None,
         autosave_t: 0.0,

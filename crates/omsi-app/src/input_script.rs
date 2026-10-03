@@ -396,7 +396,7 @@ impl App {
                     // OMSI's `view_toggle_informationdisplay` (Ctrl+Y)
                     // OMSI's `view_toggle_informationdisplay` (Shift+Y: 21 / 2)
                     KeyCode::KeyY if shift_now && !ctrl => {
-                        self.info_bar = !self.info_bar;
+                        self.set_info_bar(!self.info_bar);
                         return;
                     }
                     // OMSI's `view_set_schedule` (Insert: 210 / 1, the key's state every frame)
@@ -2935,7 +2935,7 @@ impl App {
                 self.close_game_menu();
             }
             "info" => {
-                self.info_bar = !self.info_bar;
+                self.set_info_bar(!self.info_bar);
                 self.close_game_menu();
             }
             "refuel" | "wash" | "repair" => {
@@ -3478,7 +3478,7 @@ impl App {
                     }
                 }
             }
-            "view_toggle_informationdisplay" => self.info_bar = !self.info_bar,
+            "view_toggle_informationdisplay" => self.set_info_bar(!self.info_bar),
             // (Omsi.exe's camera reset, 0x7edde4, puts back the field of view with the
             // direction: the zoom goes as well, #244)
             "view_reset_direction" => {
@@ -3612,6 +3612,15 @@ impl App {
         if self.settings.mouse_steering != on {
             self.settings.mouse_steering = on;
             crate::game_lists::remember_setting("mouse_steering", if on { "1" } else { "0" });
+        }
+    }
+
+    /// The information bar on or off, and kept so for the next session (#1164).
+    pub(crate) fn set_info_bar(&mut self, on: bool) {
+        self.info_bar = on;
+        if self.settings.info_bar != on {
+            self.settings.info_bar = on;
+            crate::game_lists::remember_setting("info_bar", if on { "1" } else { "0" });
         }
     }
 

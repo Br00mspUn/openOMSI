@@ -1381,7 +1381,7 @@ fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String
             None
         }
         "info_bar" => {
-            app.info_bar = on;
+            app.set_info_bar(on);
             None
         }
         "nav_arrows" => {

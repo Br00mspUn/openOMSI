@@ -2628,6 +2628,7 @@ pub(crate) fn run_offscreen(
                 ui_scale: settings.ui_scale,
                 follow_window: settings.ui_scale_window,
                 dt: 0.1,
+                info_rect: None,
             };
             for _ in 0..30 {
                 nav.frame_at(&renderer, &mut scene, &frame, viewport[0]);

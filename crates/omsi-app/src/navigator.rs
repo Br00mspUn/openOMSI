@@ -181,6 +181,9 @@ pub struct NavFrame<'a> {
     /// is held to 480 px, as before.
     pub follow_window: bool,
     pub dt: f32,
+    /// Where the information bar is (`ui::Ui::info_rect`): a navigator along the top keeps
+    /// below it.
+    pub info_rect: Option<[f32; 4]>,
 }
 
 /// The texts, per language.
@@ -947,6 +950,12 @@ impl Navigator {
         // ("top-center": a phone's, between its on-screen buttons)
         let x0 = if self.corner.contains("center") || touch { ((sw - pw) * 0.5).round() } else if right { sw - margin - pw } else { margin };
         let y0 = if top { margin } else { sh - margin - ph };
+        // (below the information bar where they would lie over each other: in its rows on a
+        // phone it took the navigator's place in the top middle, #1164)
+        let y0 = match f.info_rect {
+            Some(i) if top && x0 < i[2] && x0 + pw > i[0] => y0.max((i[3] + margin * 0.5).round()),
+            _ => y0,
+        };
         // (dragged by the mouse somewhere else: there, kept inside the window)
         let room = [(sw - pw).max(0.0), (sh - ph).max(0.0)];
         self.panel_room = room;
@@ -1367,7 +1376,7 @@ fn congestion_on(net: &Network, traffic: &Network, c: &HashMap<usize, f32>) -> H
 
 impl<'a> NavFrame<'a> {
     fn clone_ref(&self) -> NavFrame<'a> {
-        NavFrame { traffic: self.traffic, bus: self.bus, heading: self.heading, speed_kmh: self.speed_kmh, outside_temp: self.outside_temp, inside_temp: self.inside_temp, line: self.line.clone(), terminus: self.terminus.clone(), stops: self.stops.clone(), delay: self.delay, passengers: self.passengers, time: self.time, weekday: self.weekday, language: self.language, screen: self.screen, ui_scale: self.ui_scale, follow_window: self.follow_window, dt: self.dt, stop_requested: self.stop_requested }
+        NavFrame { traffic: self.traffic, bus: self.bus, heading: self.heading, speed_kmh: self.speed_kmh, outside_temp: self.outside_temp, inside_temp: self.inside_temp, line: self.line.clone(), terminus: self.terminus.clone(), stops: self.stops.clone(), delay: self.delay, passengers: self.passengers, time: self.time, weekday: self.weekday, language: self.language, screen: self.screen, ui_scale: self.ui_scale, follow_window: self.follow_window, dt: self.dt, stop_requested: self.stop_requested, info_rect: self.info_rect }
     }
 }
 

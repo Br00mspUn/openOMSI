@@ -2116,6 +2116,7 @@ impl ApplicationHandler for App {
                                 self.settings.ui_scale_window
                             },
                             dt,
+                            info_rect: self.ui.as_ref().and_then(|u| u.info_rect).filter(|_| !vr_active),
                         };
                         let __tn = Instant::now();
                         nav.frame_at(r, scene, &frame, hud[0]);
@@ -2240,6 +2241,7 @@ impl ApplicationHandler for App {
                             // covered the map's zoom and close buttons)
                             timetable: (self.timetable && !map_open).then(|| timetable_rows(self.duty.as_ref(), self.player.as_ref().map(|p| p.vehicle.host.tt_delay as f64))).flatten(),
                             info: self.info_bar.then(|| info_line(&self.clock, self.player.as_ref(), self.duty.as_ref(), self.humans.as_ref().map(|h| h.riding()))),
+                            info_room: self.touch.info_room.filter(|_| self.touch.enabled),
                             tutorial: self.tutorial.as_ref().filter(|t| !t.hidden && self.game_menu.is_none()).and_then(|t| t.page().map(|p| (p.title.as_str(), p.text.as_str(), p.image.as_deref(), t.at, t.pages.len()))),
                             chat,
                             tags,
@@ -3232,7 +3234,7 @@ fn info_line(clock: &omsi_sim::SimClock, player: Option<&Player>, duty: Option<&
             }
         }
     }
-    parts.join("   ·   ")
+    parts.join(ui::INFO_SEP)
 }
 
 /// `n` with the word for a passenger in the interface's language (singular for one; both
