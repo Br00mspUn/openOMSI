@@ -12033,6 +12033,55 @@ mod tests {
         }
     }
 
+    /// Rails laid a millimetre over a road as a spline of their own, seen from the cab: the
+    /// road's 10 m stretch between two cross-sections and the rails' metre-long ones are
+    /// pulled towards the eye alike, so the rails lie on the road right up to the bus. With a
+    /// fixed 2 cm pull per vertex the road's long triangles bowed over them near the eye and
+    /// the rails went under the road there (#1196).
+    #[test]
+    #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
+    fn a_spline_a_millimetre_over_a_road_stays_over_it_near_the_eye() {
+        let camera = Camera { position: DVec3::new(0.0, 0.0, 2.5), yaw: 0.0, pitch: -25.0, roll: 0.0, fov_deg: 60.0, near: 0.1, far: 200.0 };
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let mut renderer = pollster::block_on(Renderer::new_with(
+            &instance,
+            None,
+            Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            RenderOptions { msaa: 1, ssao: false, shadow_size: 1024, fxaa: false, render_scale: 1.0, ..Default::default() },
+        ))
+        .expect("test renderer");
+        let mut scene = renderer.new_scene();
+        let strip = |half: f32, z: f32, stations: usize| {
+            let mut m = MeshData { ranges: vec![(0, 6 * stations as u32, 0)], ..Default::default() };
+            for i in 0..=stations {
+                let y = 2.0 + 10.0 * i as f32 / stations as f32;
+                m.positions.extend([Vec3::new(-half, y, z), Vec3::new(half, y, z)]);
+                m.normals.extend([Vec3::Z; 2]);
+                m.uvs.extend([glam::Vec2::ZERO; 2]);
+            }
+            for i in 0..stations as u32 {
+                let a = 2 * i;
+                m.indices.extend([a, a + 1, a + 2, a + 1, a + 3, a + 2]);
+            }
+            m
+        };
+        let road = renderer.add_mesh(&mut scene, &strip(3.0, 0.0, 1));
+        let rails = renderer.add_mesh(&mut scene, &strip(0.2, 0.001, 10));
+        let grey = renderer.add_material(&mut scene, None, AlphaMode::Opaque, [0.3, 0.3, 0.3, 1.0], true);
+        let red = renderer.add_material(&mut scene, None, AlphaMode::Opaque, [1.0, 0.0, 0.0, 1.0], true);
+        for (mesh, mat) in [(road, grey), (rails, red)] {
+            let i = renderer.add_surface_instance(&mut scene, mesh, DVec3::ZERO, Mat4::IDENTITY, vec![mat]);
+            scene.instances[i].render_phase = RenderPhase::Spline;
+        }
+        let lighting = Lighting { shadows: false, fog_density: 0.0, ..Default::default() };
+        let rgba = renderer.render_to_image(&mut scene, 128, 128, &camera, &lighting).unwrap();
+        // the middle column from 3 m (row 93) to 11 m (row 40) in front of the camera
+        for row in 42..92 {
+            let c = &rgba[(row * 128 + 64) * 4..(row * 128 + 64) * 4 + 3];
+            assert!(c[0] > c[1] + 60, "row {row}: the road over the rails: {c:?}");
+        }
+    }
+
     #[test]
     fn noop_backend_initializes_renderer() {
         let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();

@@ -464,18 +464,24 @@ fn vs_main(in: VsIn) -> VsOut {
     let m = model_matrix(e);
     let wp = m * vec4<f32>(in.pos, 1.0);
     var out: VsOut;
-    // Legacy surfaces are pulled towards the eye along the line of sight. OMSI splines and
-    // [surface] objects use a fixed 8 cm world lift; ordered scenery phases use their authored
-    // world positions. Both use code 0.9 to keep weather classification without view-space pull.
-    // Painted ground (0.75) stays put.
+    // Road surfaces (splines, the objects lying on them, a shadow blob) are pulled towards
+    // the eye along the line of sight - the picture does not move, only the depth - so that
+    // they win over the flush ground beside them. Code 0.9 keeps the surface shading without
+    // the pull; painted ground (0.75) stays put.
     let surf = inst_params[e * 2u + 1u].w;
     var cp = wp.xyz;
     if (surf > 0.9) {
         let to = wp.xyz - camera.cam_pos.xyz;
         let d = length(to);
-        // (legacy surface objects, 1.25, a little more than the splines under them)
+        // The same share of the way to the eye at every vertex (0.3 %, a few millimetres of
+        // height seen from the cab): the pulled road is still the plane it was, so a spline
+        // laid a millimetre over another - the rails or markings over a road - stays over it
+        // however the two are cut into triangles. A fixed 2 cm more along each vertex's own
+        // line of sight bowed the road's long triangles over the short ones of what lies on
+        // it, by millimetres near the eye, and the rails went under the road there (#1196).
+        // (surface objects, 1.25, a little more than the splines under them)
         let decal = select(0.0, 0.01 + 0.001 * d, surf > 1.1 && surf < 1.5);
-        let pull = min(0.02 + 0.002 * d + decal, d * 0.3);
+        let pull = min(0.003 * d + decal, d * 0.3);
         cp = wp.xyz - to / max(d, 1e-3) * pull;
     }
     out.clip = camera.view_proj * vec4<f32>(cp, 1.0);
