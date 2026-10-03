@@ -2307,7 +2307,7 @@ mod settings_tests {
             "s-wrange", "s-wlock", "s-pedt", "s-pedb", "set-ff_enabled", "set-ff_invert", "s-wreset", "s-go-pads",
         ];
         let mut camera = vec![
-            "s-seaty", "s-seatz", "s-seatx", "s-seatreset", "s-fov", "s-look-sens", "set-steer_look", "s-steer-look-angle", "s-steer-look-response", "set-head_movement", "set-driverview_smooth", "set-hands_in_cab", "set-alt_view",
+            "s-seaty", "s-seatz", "s-seatx", "s-seatreset", "s-fov", "s-look-sens", "set-right_stick_look", "set-steer_look", "s-steer-look-angle", "s-steer-look-response", "set-head_movement", "set-driverview_smooth", "set-hands_in_cab", "set-alt_view",
             "set-camera_collision", "set-driver", "set-head_tracking",
         ];
         if cfg!(windows) {
@@ -2378,6 +2378,23 @@ mod settings_tests {
             }
             assert_eq!(ui.drawn.len(), names.len(), "the {} tab has a clickable thing more than the list names", SETTINGS_TABS[tab]);
         }
+    }
+
+    #[test]
+    fn right_stick_look_switch_toggles_and_saves_from_the_camera_tab() {
+        let mut s = all_rows();
+        assert_eq!(s["right_stick_look"], json!(true));
+
+        click(2, "set-right_stick_look", &mut s);
+        assert_eq!(s["right_stick_look"], json!(false));
+        let saved = core::settings_to_text(&s, None);
+        assert_eq!(
+            core::settings_from_text(Some(&saved))["right_stick_look"],
+            json!(false)
+        );
+
+        click(2, "set-right_stick_look", &mut s);
+        assert_eq!(s["right_stick_look"], json!(true));
     }
 
     #[test]
