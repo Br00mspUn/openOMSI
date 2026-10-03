@@ -127,6 +127,8 @@ pub(super) struct Pax {
     pub sub: u8,
     /// The entry or exit asked for (+0x640).
     pub door: Option<usize>,
+    /// The validator they stamp at (an index into the cabin's: a bus may have several).
+    pub stamper: Option<usize>,
     /// `HeightOfSeat` (+0x648) and `PAX_State` (+0x64c: 0 stand, 1 walk, 2 sit).
     pub seat_h: f32,
     pub pax_state: f32,
@@ -204,6 +206,7 @@ impl Pax {
             bad_change: false,
             sub: 0,
             door: None,
+            stamper: None,
             seat_h: 0.0,
             pax_state: 0.0,
             timer: 0.0,
@@ -628,6 +631,14 @@ impl Cabin {
         found
     }
 
+    /// The validator nearest `p` (bus frame, the height weighed as in `omsi_nearest`): the
+    /// one a passenger who came in there stamps at. The first of equally near ones.
+    pub(super) fn nearest_stamper(&self, p: Vec3) -> Option<usize> {
+        let at = |s: &(Option<usize>, Vec3)| s.0.and_then(|k| self.graph.points.get(k).copied()).unwrap_or(s.1);
+        let d = |k: usize| weighted_dist(p, at(&self.stampers[k]), 5.0);
+        (0..self.stampers.len()).min_by(|&a, &b| d(a).total_cmp(&d(b)))
+    }
+
     /// sub_723fac: the next point from `from` towards `to` and the link taken.
     pub(super) fn route_next(&self, from: usize, to: usize) -> Option<(usize, usize)> {
         let links = self.routes.get(from)?;
@@ -778,7 +789,7 @@ impl Humans {
     pub(super) fn decide_pax_ticket(&mut self, i: usize, bn: &BusNow) -> (u8, u8) {
         let Some(tp) = self.tickets.clone() else { return (TICKET_NONE, 0) };
         let mut r = self.rand_f() as f32;
-        if bn.cabin.stamper.is_some() {
+        if !bn.cabin.stampers.is_empty() {
             if r < tp.stamper_prop {
                 return (TICKET_STAMP, 0);
             }
@@ -1350,7 +1361,10 @@ impl Humans {
                 }
                 let ticket = p.ticket;
                 match ticket {
-                    TICKET_STAMP => p.pt_target = bn.cabin.stamper.and_then(|s| s.0),
+                    TICKET_STAMP => {
+                        p.stamper = bn.cabin.nearest_stamper(local);
+                        p.pt_target = p.stamper.and_then(|k| bn.cabin.stampers[k].0);
+                    }
                     TICKET_BUY => p.pt_target = bn.cabin.sale.and_then(|s| s.0),
                     _ => self.route_to_place(i, bn),
                 }
@@ -1737,7 +1751,7 @@ impl Humans {
                 pp.st = 9;
                 pp.smooth = true;
                 if pp.ticket == TICKET_STAMP {
-                    if let Some((_, dev)) = bn.cabin.stamper {
+                    if let Some(&(_, dev)) = pp.stamper.and_then(|k| bn.cabin.stampers.get(k)) {
                         pp.target = dev.as_dvec3();
                         pp.target_bus = true;
                         pp.reach_at = dev;
@@ -1766,7 +1780,7 @@ impl Humans {
             } else if p.sub == 2 && p.timer <= 0.0 {
                 self.route_to_place(i, bn);
                 let pp = self.pax_mut(i).unwrap();
-                pp.pt = bn.cabin.stamper.and_then(|s| s.0);
+                pp.pt = pp.stamper.and_then(|k| bn.cabin.stampers.get(k)).and_then(|s| s.0);
                 pp.ticket = TICKET_NONE;
                 pp.sub = 0;
             }

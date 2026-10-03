@@ -73,6 +73,13 @@ variable and ask for the door through its own `_Req`. Without it, it opens with 
 in OMSI 2. Its passengers' requests then go through the eighth's `_Req` in openOMSI, while
 OMSI 2 loses them (its request arrays have eight slots).
 
+## Ticket validators: one by every door
+
+OMSI 2 uses one `[stamper]` of a `passengercabin.cfg`, the last one written. openOMSI keeps
+every `[stamper]` of every section, and a passenger with a ticket to stamp uses the one
+nearest the door they came in by. Write one `[stamper]` block per validator (path point,
+then x, y, z of the device, as usual); OMSI 2 still takes the last of them.
+
 ## Scripts and plugins
 
 - Script variables and string variables have no count limit.

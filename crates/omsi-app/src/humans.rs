@@ -198,9 +198,11 @@ struct Cabin {
     link_room: Vec<f32>,
     /// The routing tables of the path network (sub_72410c).
     routes: Vec<Vec<RouteLink>>,
-    /// The validator and the cash desk as Omsi.exe keeps them - one each, the last of the
-    /// file (cabin +0x14/+0x18, +0x28/+0x2c): (path point, device).
-    stamper: Option<(Option<usize>, Vec3)>,
+    /// The validators and the cash desk: (path point, device). Omsi.exe keeps one of each,
+    /// the last of the file (cabin +0x14/+0x18, +0x28/+0x2c); every `[stamper]` of every
+    /// section is kept here, and a passenger stamps at the one nearest the door they came
+    /// in by (`Cabin::nearest_stamper`, #722) - with one, that one.
+    stampers: Vec<(Option<usize>, Vec3)>,
     sale: Option<(Option<usize>, Vec3)>,
     /// Where the money goes (+0x38) and where the change is taken from (+0x58), with the
     /// money point's spread.
@@ -286,6 +288,7 @@ impl Cabin {
         // (the script seat numbers of the sections in front)
         let mut seat_base = 0usize;
         let mut cabin_parts: Vec<CabinPart> = Vec::new();
+        let mut stampers: Vec<(Option<usize>, Vec3)> = Vec::new();
         // the point of the section in front that leads on to the next one
         let mut rear_link: Option<usize> = None;
         for (k, (def, offset, joint_y)) in parts.iter().enumerate() {
@@ -362,6 +365,7 @@ impl Cabin {
             );
             exit_points.extend(cab.exits.iter().map(|e| (shift(*e), half)));
             places.extend(cab.pass_positions.iter().map(|p| (p.clone(), *offset, seat_base + p.file_index)));
+            stampers.extend(cab.stampers.iter().map(|st| (valid(st.path_point), Vec3::from(st.pos) + *offset)));
             seat_base += cab.pass_positions.len() + cab.driver_positions.len();
             cabin_parts.push(CabinPart {
                 offset: *offset,
@@ -498,7 +502,6 @@ impl Cabin {
             .collect();
         let routes = build_routes(graph.points.len(), &links);
         let point_of = |i: i32| usize::try_from(i).ok().filter(|i| *i < graph.points.len());
-        let stamper = data.stampers.last().map(|st| (point_of(st.path_point), Vec3::from(st.pos)));
         let sale = data.ticket_sales.last().map(|st| (point_of(st.path_point), Vec3::from(st.pos)));
         let money_point = data.money_points.last().map(|m| Vec3::from(m.pos));
         let money_var = data.money_points.last().map(|m| (Vec3::from(m.pos), m.var));
@@ -516,7 +519,7 @@ impl Cabin {
             parts: cabin_parts,
             link_room,
             routes,
-            stamper,
+            stampers,
             sale,
             money_point,
             money_var,
@@ -5924,6 +5927,30 @@ mod tests {
         assert_eq!(x, vec![true, true, true, true]);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// #722: a validator by each door - every `[stamper]` is kept, and a passenger stamps at
+    /// the one nearest where they came in (Omsi.exe kept the file's last one only).
+    #[test]
+    fn passengers_stamp_at_the_validator_nearest_their_door() {
+        let dir = std::env::temp_dir().join(format!("omsi-stampers-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("test.bus"), "[passengercabin]\ncabin.cfg\n\n[paths]\npaths.cfg\n").unwrap();
+        // an aisle from the front door (y 5) to the rear one (y -4)
+        let pts: String = [5.0, 4.0, -3.0, -4.0].iter().map(|y| format!("[pathpnt]\n0\n{y}\n0.5\n\n")).collect();
+        std::fs::write(dir.join("paths.cfg"), format!("{pts}[pathlink]\n0\n1\n\n[pathlink]\n1\n2\n\n[pathlink]\n2\n3\n")).unwrap();
+        std::fs::write(
+            dir.join("cabin.cfg"),
+            "[entry]\n0\n\n[entry]\n3\n\n[stamper]\n1\n0.5\n4\n1.5\n\n[stamper]\n2\n0.5\n-3\n1.5\n\n[passpos]\n0\n0\n0.5\n0\n0\n",
+        )
+        .unwrap();
+        let def = omsi_vehicle::Vehicle::load(&dir.join("test.bus")).unwrap();
+        let cabin = Cabin::load_train(&[(&def, Vec3::ZERO, f32::INFINITY)]).expect("cabin");
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(cabin.stampers.len(), 2);
+        assert_eq!(cabin.stampers[1], (Some(2), Vec3::new(0.5, -3.0, 1.5)));
+        assert_eq!(cabin.nearest_stamper(Vec3::new(0.0, 5.0, 0.5)), Some(0), "in by the front door");
+        assert_eq!(cabin.nearest_stamper(Vec3::new(0.0, -4.0, 0.5)), Some(1), "in by the rear door");
     }
 
     /// #719: a five-door bus with two paths a door has ten entries. Past Omsi.exe's eight,
