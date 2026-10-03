@@ -875,8 +875,14 @@ impl App {
                 t.steer = s;
             }
         } else if !t.steering {
-            let back = (1.2 + 1.5 * t.steer.abs()) * dt;
-            t.steer = if t.steer.abs() <= back { 0.0 } else { t.steer - back * t.steer.signum() };
+            // let go: back as the bus's wheel comes back by itself with the keys - the castor's
+            // pull, slow standing and brisker rolling (OMSI's steady pace with Steering
+            // linearity, less at speed with Dynamic steering), not at all with Old Steering;
+            // it sprang back to the middle in a third of a second whatever the speed (#1090)
+            t.steer = match self.player.as_ref() {
+                Some(p) => p.axes.let_go(t.steer, dt),
+                None => 0.0,
+            };
         }
         if let Some((_, left)) = t.note.as_mut() {
             *left -= dt;

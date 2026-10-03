@@ -16,7 +16,7 @@ maps, buses and mods. Only the way it is worked is new:
 
 | Where | What |
 |---|---|
-| bottom left | the steering wheel: take the rim and turn it round - it follows the finger, 120° of rim is the full lock (it comes back when let go) - or tilt the phone (panel → Tilt steering) |
+| bottom left | the steering wheel: take the rim and turn it round - it follows the finger, 120° of rim is the full lock (let go, it comes back as the bus's wheel does with the keys: slowly standing, brisker rolling, not at all with Old Steering) - or tilt the phone (panel → Tilt steering) |
 | bottom right | the brake and the accelerator: the higher up the pedal, the harder |
 | above the pedals | the gearbox (R N D of an automatic, − N + of a manual), a button for each door, front to back |
 | beside the pedals | the parking brake, the stop brake / door release |
