@@ -6392,23 +6392,7 @@ impl Renderer {
     /// weather has moved on), the exposure following it, the sky table and the uniform.
     /// Returns whether the reflection probe is to be drawn this frame.
     fn prepare_enhanced(&mut self, lighting: &Lighting, cam_rel: Vec3, ro: DVec3, dt: f32) -> bool {
-        let s = lighting.sun_dir.normalize_or_zero();
-        // haze: the weather's visibility below a few kilometres thickens the aerosol
-        let visibility = 2.3 / lighting.fog_density.max(1e-6);
-        let haze = (8000.0 / visibility).clamp(1.0, 6.0) + 2.0 * lighting.rain;
-        // rain and snow fall from a closed deck: whatever the cloud type says, the sun is
-        // gone and the sky is the grey dome (a low sun scattered orange in the snowfall)
-        let wet_cover = (lighting.rain * 1.5).clamp(0.0, 1.0);
-        let sun_visibility = lighting.sun_intensity.clamp(0.0, 1.0) * (1.0 - wet_cover);
-        let input = atmosphere::SkyInput {
-            sun_dir: s,
-            sun_visibility,
-            overcast: lighting.overcast.clamp(0.0, 1.0).max(wet_cover),
-            haze,
-            rain: lighting.rain.clamp(0.0, 1.0),
-            ground_albedo: 0.2 + 0.45 * lighting.snow.clamp(0.0, 1.0),
-            tint: lighting.envir_tint,
-        };
+        let (input, sun_visibility) = enhanced_sky_input(lighting);
         // A new sky takes a few milliseconds: it is computed on a helper thread and taken in
         // when it is ready. A picture on its own, and the first frame, wait for it.
         if let Some((_, rx)) = &self.sky_job {
@@ -6462,16 +6446,10 @@ impl Renderer {
             .fold(Vec3::ZERO, |a, b| a + b)
             / 6.0;
         let fog_rgb = avg * 0.9 / std::f32::consts::PI;
-        // the weather's own fog (vanilla's density, which the culling uses as well); a
-        // clear day's air is the sky model's
-        let weather_fog = if lighting.fog_density > 1e-4 {
-            lighting.fog_density
-        } else {
-            0.0
-        };
+        let weather_fog = enhanced_weather_fog(lighting);
         // (the air near the ground: the Rayleigh part and half the aerosols of the sky
         // model's, whose layer is thinner where a street is than its average)
-        let clear_air = 1.3e-5 + 2.2e-5 * haze;
+        let clear_air = 1.3e-5 + 2.2e-5 * input.haze;
         // the fog lies on the ground under the player's vehicle, or just under the camera
         let base = match lighting.fog_base.or(lighting.inside.map(|v| v.0.z)) {
             Some(z) => (z - ro.z) as f32,
@@ -6526,7 +6504,7 @@ impl Renderer {
             sun: st.sun.extend(SUN_RADIUS).to_array(),
             sh,
             ground: st.ground.extend(st.lut_scale).to_array(),
-            fog: [weather_fog, 1.0 / 300.0, base, clear_air],
+            fog: [weather_fog, FOG_FALLOFF, base, clear_air],
             fog_color: fog_rgb.extend(probe_scale).to_array(),
             weather: [
                 lighting.wetness.clamp(0.0, 1.0),
@@ -10239,6 +10217,62 @@ fn meter_tuning() -> [f32; 6] {
     })
 }
 
+/// How the enhanced picture's weather fog thins out with height (1/m): a 300 m scale height
+/// over the fog's base (`layer_depth` in enhanced_common.wgsl).
+const FOG_FALLOFF: f32 = 1.0 / 300.0;
+
+/// The weather's own fog in the enhanced picture, its extinction at the base (1/m):
+/// vanilla's density, which the culling uses as well; none below 1e-4, where a clear day's
+/// air is the sky model's.
+fn enhanced_weather_fog(lighting: &Lighting) -> f32 {
+    if lighting.fog_density > 1e-4 {
+        lighting.fog_density
+    } else {
+        0.0
+    }
+}
+
+/// How much of the sun's light gets down through the enhanced fog layer (extinction
+/// `sigma` at its base, thinning by `FOG_FALLOFF`) from a sun `sun_z` (the sine of its
+/// altitude) high: the layer's whole depth along the way, as the sky shader dims the
+/// sun's disc by it (`air_of` towards the sun).
+fn sun_through_fog(sigma: f32, sun_z: f32) -> f32 {
+    if sigma <= 0.0 {
+        return 1.0;
+    }
+    (-sigma / (FOG_FALLOFF * sun_z.max(0.02))).exp()
+}
+
+/// What the enhanced sky is computed from for this light, and how much of the sun the
+/// clouds let through (the sky shader's `lights.w`, which lights the clouds and the disc).
+fn enhanced_sky_input(lighting: &Lighting) -> (atmosphere::SkyInput, f32) {
+    let s = lighting.sun_dir.normalize_or_zero();
+    // haze: the weather's visibility below a few kilometres thickens the aerosol
+    let visibility = 2.3 / lighting.fog_density.max(1e-6);
+    let haze = (8000.0 / visibility).clamp(1.0, 6.0) + 2.0 * lighting.rain;
+    // rain and snow fall from a closed deck: whatever the cloud type says, the sun is
+    // gone and the sky is the grey dome (a low sun scattered orange in the snowfall)
+    let wet_cover = (lighting.rain * 1.5).clamp(0.0, 1.0);
+    let sun_visibility = lighting.sun_intensity.clamp(0.0, 1.0) * (1.0 - wet_cover);
+    // The sun the street gets: none from under an overcast deck (from a cover of 0.85 on
+    // the sky shader draws the closed grey dome, `closed` in `cloud_layer`), and in a
+    // weather fog only what the fog above lets through - its disc in the sky is dimmed by
+    // the same layer. With the whole of it, an overcast day lit the street with a sun no
+    // one saw, and a dense fog glowed white all round the sun (#1106).
+    let closed = atmosphere::smoothstep(0.85, 1.0, lighting.cloud_density);
+    let reaching = sun_visibility * (1.0 - closed) * sun_through_fog(enhanced_weather_fog(lighting), s.z);
+    let input = atmosphere::SkyInput {
+        sun_dir: s,
+        sun_visibility: reaching,
+        overcast: lighting.overcast.clamp(0.0, 1.0).max(wet_cover),
+        haze,
+        rain: lighting.rain.clamp(0.0, 1.0),
+        ground_albedo: 0.2 + 0.45 * lighting.snow.clamp(0.0, 1.0),
+        tint: lighting.envir_tint,
+    };
+    (input, sun_visibility)
+}
+
 /// Has the sky moved on far enough from `a` to be computed again? The sun by a tenth of a
 /// degree (half a minute of the day), the weather by a per cent.
 fn sky_input_differs(a: &atmosphere::SkyInput, b: &atmosphere::SkyInput) -> bool {
@@ -11459,6 +11493,35 @@ mod tests {
         assert_eq!(line[3] - line[1], 1.0);
         // (an empty rectangle stays empty)
         assert_eq!(snap_rect([5.2, 5.2, 5.2, 5.2]), [5.0, 5.0, 5.0, 5.0]);
+    }
+
+    /// The enhanced street is lit by the sun that gets through the weather: none from
+    /// under an overcast deck, next to none through a dense fog (which glowed white round
+    /// the sun), nearly all of it on a clear or a hazy summer's day (#1106).
+    #[test]
+    fn enhanced_sun_does_not_shine_through_overcast_or_dense_fog() {
+        // an evening sun 27 degrees high, a weather's visibility as the app turns it into
+        // a density (`lights::lighting_from`), the cover and the sun `apply_weather` leaves
+        let light = |visibility: f32, cloud_density: f32, sun_intensity: f32| Lighting {
+            sun_dir: Vec3::new(-0.89, 0.0, 0.454),
+            fog_density: (2.3 / visibility).max(0.00005),
+            cloud_density,
+            sun_intensity,
+            ..Default::default()
+        };
+        let reaching = |l: &Lighting| enhanced_sky_input(l).0.sun_visibility;
+        // #CAVOK, a cumulus sky, Sommerlich's summer haze of 2 km
+        assert!(reaching(&light(50_000.0, 0.0, 1.0)) > 0.99);
+        assert!(reaching(&light(50_000.0, 0.75, 0.54)) > 0.53);
+        assert!(reaching(&light(2_000.0, 0.35, 1.0)) > 0.4);
+        // Bodennebel's 75 m, Schmuddelwetter's 200 m: the sun is gone
+        assert!(reaching(&light(75.0, 0.0, 1.0)) < 1e-4);
+        assert!(reaching(&light(200.0, 0.0, 1.0)) < 1e-3);
+        // an Overcast cloud type (the 15 % of the sun `apply_weather` keeps): gone from the
+        // street, while the clouds keep their light from above
+        let (input, clouds) = enhanced_sky_input(&light(50_000.0, 1.0, 0.15));
+        assert_eq!(input.sun_visibility, 0.0);
+        assert!((clouds - 0.15).abs() < 1e-6);
     }
 
     #[test]
