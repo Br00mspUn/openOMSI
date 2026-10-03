@@ -2363,6 +2363,12 @@ impl App {
         // (in the driven vehicle's place, see `swap_pending`)
         let swap = std::mem::take(&mut self.swap_pending) && self.player.is_some();
         let name = self.vehicle_list.iter().find(|v| v.1 == bus).map(|v| v.0.clone()).unwrap_or_else(|| bus.to_string());
+        // (a server's own buses only - its `vehicles` list, #1183 - whoever asks: the lists,
+        // a plugin, the input script)
+        if crate::lan::server_offers().is_some_and(|o| !crate::lan::offers(&o, bus)) {
+            self.service_msg = Some((format!("The server does not offer {name}"), 4.0));
+            return;
+        }
         let bus = bus.to_string();
         let (Some(w), Some(r), Some(scene), Some(cam)) = (self.world.clone(), self.renderer.as_ref(), self.scene.as_mut(), self.camera.as_ref()) else { return };
         let (x, y, heading) = match (self.view.as_str(), self.player.as_ref()) {
@@ -2870,6 +2876,8 @@ impl App {
                 }
                 if self.vehicle_list.is_empty() {
                     self.service_msg = Some(("No vehicles found".into(), 3.0));
+                } else if crate::lan::server_offers().is_some_and(|o| !self.vehicle_list.iter().any(|v| crate::lan::offers(&o, &v.1))) {
+                    self.service_msg = Some(("The server offers none of the vehicles installed here".into(), 4.0));
                 } else {
                     // (as the launcher's bus step: the manufacturer, then the type)
                     self.open_list(crate::game_lists::ListKind::PlaceMaker);

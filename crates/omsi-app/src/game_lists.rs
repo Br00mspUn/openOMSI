@@ -204,10 +204,13 @@ fn bus_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-/// The vehicles of the place list as (manufacturer's key, manufacturer, type, path).
+/// The vehicles of the place list as (manufacturer's key, manufacturer, type, path): on a
+/// server only those it offers (#1183).
 fn place_vehicles(app: &App, unknown: &str) -> Vec<(String, String, String, String)> {
+    let offered = crate::lan::server_offers();
     app.vehicle_list
         .iter()
+        .filter(|(_, path)| offered.as_deref().is_none_or(|o| crate::lan::offers(o, path)))
         .map(|(name, path)| {
             let (maker, ty) = app.vehicle_meta.get(path).cloned().unwrap_or_default();
             let maker = bus_label(&maker);
