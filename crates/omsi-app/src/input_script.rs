@@ -372,6 +372,12 @@ impl App {
                         return;
                     }
 
+                    // the duty's next stop given up (#1015), as the game menu's line ("H" for
+                    // Haltestelle: Ctrl+Shift+N is the VR navigator's)
+                    KeyCode::KeyH if ctrl && shift_now && !alt && self.duty.is_some() && !self.chord_bound(code, shift_now, ctrl, alt) => {
+                        self.skip_next_stop();
+                        return;
+                    }
                     // the object editor (`crate::editor`)
                     KeyCode::KeyE if ctrl && shift_now => {
                         self.toggle_editor();
@@ -2797,6 +2803,10 @@ impl App {
                 self.close_game_menu();
                 self.take_screenshot();
             }
+            "skipstop" => {
+                self.close_game_menu();
+                self.skip_next_stop();
+            }
             // the route ends here: free drive, as the list of lines has it
             "endduty" => {
                 self.duty = None;
@@ -2824,6 +2834,23 @@ impl App {
                 self.page_action(other);
             }
         }
+    }
+
+    /// The duty gives up the stop it is due at and goes on with the one after it (the game
+    /// menu's "Skip the next stop", Ctrl+Shift+H): the IBIS moves on with it, as it does
+    /// when a bus page sets the next stop.
+    pub(crate) fn skip_next_stop(&mut self) {
+        let Some(d) = self.duty.as_mut() else { return };
+        let Some(name) = d.skip_next() else {
+            self.service_msg = Some(("The trip is over: no stop to skip".into(), 3.0));
+            return;
+        };
+        log::info!("duty: stop '{name}' skipped, next stop {}", d.next_stop);
+        if let Some(p) = self.player.as_mut() {
+            let (trip, k) = d.trip_for_ibis();
+            p.ibis_to_stop(trip, k);
+        }
+        self.service_msg = Some((format!("Stop skipped: {name}"), 3.0));
     }
 
     /// The actions of the vehicle and world pages (and of what the plugins and the input
@@ -4232,9 +4259,13 @@ impl crate::App {
         if self.player.is_none() {
             v.retain(|x| x.0 != "duty");
         }
-        // ending the route is offered only while there is one
+        // ending the route is offered only while there is one, skipping a stop while its
+        // trip still has one to come
         if self.duty.is_none() {
             v.retain(|x| x.0 != "endduty");
+        }
+        if !self.duty.as_ref().is_some_and(|d| d.stop_to_skip()) {
+            v.retain(|x| x.0 != "skipstop");
         }
         if self.navigator.is_none() {
             v.retain(|x| x.0 != "map");
@@ -4312,7 +4343,7 @@ pub(crate) const SAVES: &str = "Saves";
 
 /// The lines of the game menu: (what, label). What can be set is on the pages behind
 /// "Options", "Vehicle options" and "World options" (see `game_lists`).
-pub(crate) const GAME_MENU: [(&str, &str); 13] = [
+pub(crate) const GAME_MENU: [(&str, &str); 14] = [
     ("resume", "Resume"),
     ("options", "Options..."),
     // (the driver's view - seat, field of view, head movement - straight from the pause
@@ -4322,6 +4353,7 @@ pub(crate) const GAME_MENU: [(&str, &str); 13] = [
     ("world", "World options..."),
     ("map", "City map"),
     ("duty", "Line and tour..."),
+    ("skipstop", "Skip the next stop"),
     ("endduty", "End the tour"),
     ("save", "Save the situation"),
     ("saveslot", "Save to a new slot"),

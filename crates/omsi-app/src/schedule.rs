@@ -4447,6 +4447,31 @@ impl PlayerDuty {
         true
     }
 
+    /// Whether the trip still has a stop to come ([`PlayerDuty::skip_next`]).
+    pub fn stop_to_skip(&self) -> bool {
+        !self.done && !self.trip().stops.is_empty()
+    }
+
+    /// The game menu's "Skip the next stop" (#1015): the stop the duty is due at is given
+    /// up, not served, and the duty goes on with the one after it - for a stop the bus
+    /// cannot reach, or whose object stands too far from where buses stop for it to count.
+    /// The trip's last stop ends the trip: the tour's next one follows as usual. Returns the
+    /// name of the stop skipped; None once the trip is over.
+    pub fn skip_next(&mut self) -> Option<String> {
+        if self.done {
+            return None;
+        }
+        let last = self.trip().stops.len().checked_sub(1)?;
+        let name = self.trip().stops[self.next_stop.min(last)].name.trim().to_string();
+        if self.next_stop >= last {
+            self.at_stop = false;
+            self.arrived_late = None;
+            self.done = true;
+            return Some(name);
+        }
+        self.skip_to(self.next_stop + 1).then_some(name)
+    }
+
     fn set_trip(&mut self, index: usize) {
         self.trip_index = index;
         self.next_stop = 0;
@@ -5228,6 +5253,32 @@ mod tests {
         let mut d = PlayerDuty { line: "5".into(), tour: "1".into(), trips: vec![t1, t2], trip_index: 0, first_trip: 0, next_stop: 2, at_stop: false, arrived_late: None, done: false, left_late: Some(0.0), held_back: false, placed: true, trip_changed: false, picked: true, first_update: None, heading: 90.0 };
         d.advance(glam::DVec3::new(800.0, 0.0, 0.0), 345.0);
         assert_eq!(d.trip_index, 0);
+    }
+
+    /// #1015: the next stop given up from the menu, and at the trip's last one the trip.
+    #[test]
+    fn the_next_stop_can_be_skipped() {
+        let trip = planned(0.0, &[(0.0, 0.0, 0.0), (100.0, 60.0, 60.0), (500.0, 120.0, 120.0), (1000.0, 200.0, 200.0)]);
+        let next = planned(400.0, &[(1040.0, 400.0, 400.0), (1500.0, 500.0, 500.0)]);
+        let mut d = PlayerDuty { line: "5".into(), tour: "1".into(), trips: vec![trip, next], trip_index: 0, first_trip: 0, next_stop: 0, at_stop: false, arrived_late: None, done: false, left_late: None, held_back: false, placed: true, trip_changed: false, picked: true, first_update: None, heading: 90.0 };
+        // at the first stop and away from it: the next is s1
+        d.advance(glam::DVec3::new(0.0, 0.0, 0.0), 0.0);
+        d.advance(glam::DVec3::new(50.0, 0.0, 0.0), 10.0);
+        assert_eq!(d.next_stop, 1);
+        assert_eq!(d.skip_next().as_deref(), Some("s1"));
+        assert_eq!(d.next_stop, 2);
+        // passing s1 now serves nothing: s2 is still the one due
+        assert_eq!(d.advance(glam::DVec3::new(100.0, 0.0, 0.0), 60.0), None);
+        assert_eq!(d.next_stop, 2);
+        assert_eq!(d.skip_next().as_deref(), Some("s2"));
+        // the last stop skipped: the trip is over, and the tour's next trip follows
+        assert!(d.stop_to_skip());
+        assert_eq!(d.skip_next().as_deref(), Some("s3"));
+        assert!(!d.stop_to_skip());
+        assert_eq!(d.skip_next(), None);
+        d.advance(glam::DVec3::new(700.0, 0.0, 0.0), 345.0);
+        assert_eq!(d.trip_index, 1);
+        assert_eq!(d.next_stop, 0);
     }
 
     #[test]
