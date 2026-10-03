@@ -490,7 +490,10 @@ Animations of one mesh compose in file order, the first one innermost.
 `[matl_envmap] tex factor`: reflectivity = diffuse alpha × factor, the factor saturating at 1
 like a D3D texture factor (SD202 bodies write `10`, their paint alpha is 0.12-0.19 → a
 gloss, not a mirror; windows have alpha 0.5 with factor 1). The sphere map has the sky at
-the bottom.
+the bottom. It is read as Direct3D's `D3DTSS_TCI_SPHEREMAP` reads it, at the vertex, from the
+reflection R in camera space (x right, y up, z ahead): u = Rx/m + 0.5, v = Ry/m + 0.5 with
+m = 2|R - (0, 0, 1)|. The map's middle is what a face turned to the camera mirrors, and its
+rim the reflection running on away from the camera.
 
 ### Mirrors, shadows, parked cars, cabin paths, announcements
 

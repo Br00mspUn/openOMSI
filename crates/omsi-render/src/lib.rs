@@ -12039,6 +12039,69 @@ mod tests {
         }
     }
 
+    /// A `[matl_envmap]` reads its sphere map where Direct3D's D3DTSS_TCI_SPHEREMAP puts it
+    /// (u = Rx/m + 0.5, v = Ry/m + 0.5, m = 2|R - (0, 0, 1)| in camera space): a pane
+    /// turned 30 degrees from the view mirrors a ray 60 degrees off it, a quarter of the
+    /// way out from the map's middle (0.75), not near its rim (0.93) as the u = Rx/2 + 0.5
+    /// taken before had it; turned up, the same below the middle (the sky's half, #1193).
+    #[test]
+    #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
+    fn vanilla_sphere_map_is_read_where_direct3d_generates_it() {
+        let camera = Camera { position: DVec3::ZERO, yaw: 0.0, pitch: 0.0, roll: 0.0, fov_deg: 60.0, near: 0.1, far: 100.0 };
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let mut renderer = pollster::block_on(Renderer::new_with(
+            &instance,
+            None,
+            Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            RenderOptions { msaa: 1, ssao: false, shadow_size: 1024, fxaa: false, render_scale: 1.0, ..Default::default() },
+        ))
+        .expect("test renderer");
+        let mut scene = renderer.new_scene();
+        // the sphere map: red counts u, green v
+        let size = 64usize;
+        let mut rgba = Vec::with_capacity(size * size * 4);
+        for y in 0..size {
+            for x in 0..size {
+                let at = |i: usize| ((i as f32 + 0.5) / size as f32 * 255.0).round() as u8;
+                rgba.extend_from_slice(&[at(x), at(y), 0, 255]);
+            }
+        }
+        let env = renderer.add_texture(&mut scene, &omsi_texture::Image { width: size as u32, height: size as u32, rgba, has_alpha: false }, false);
+        let white = renderer.add_texture(&mut scene, &omsi_texture::Image { width: 1, height: 1, rgba: vec![255; 4], has_alpha: false }, false);
+        let paint = renderer.add_material_env(&mut scene, Some(white), AlphaMode::Opaque, [1.0; 4], false, None, None, None, Some((env, 1.0)));
+        // a pane 5 m ahead, its normal turned 30 degrees from the view: about z (a side
+        // to the right) or about x (the pane tipped back, mirroring the sky)
+        let pane = |renderer: &Renderer, scene: &mut Scene, n: Vec3, along: Vec3| {
+            let c = Vec3::new(0.0, 5.0, 0.0);
+            let across = n.cross(along);
+            let mesh = renderer.add_mesh(
+                scene,
+                &MeshData {
+                    positions: vec![c - along - across, c + along - across, c + along + across, c - along + across],
+                    normals: vec![n; 4],
+                    uvs: vec![glam::Vec2::splat(0.5); 4],
+                    ranges: vec![(0, 6, 0)],
+                    indices: vec![0, 1, 2, 0, 2, 3],
+                    one_sided: false,
+                },
+            );
+            renderer.add_instance(scene, mesh, DVec3::ZERO, Mat4::IDENTITY, vec![paint])
+        };
+        let (s, c) = 30f32.to_radians().sin_cos();
+        let lighting = Lighting { shadows: false, fog_density: 0.0, classic: true, ..Default::default() };
+        let mut read = |n: Vec3, along: Vec3| {
+            let id = pane(&renderer, &mut scene, n, along);
+            let rgba = renderer.render_to_image(&mut scene, 64, 64, &camera, &lighting).unwrap();
+            scene.instances[id].visible = false;
+            let p = &rgba[(32 * 64 + 32) * 4..(32 * 64 + 32) * 4 + 3];
+            (p[0] as f32 / 255.0, p[1] as f32 / 255.0)
+        };
+        let (u, v) = read(Vec3::new(s, -c, 0.0), Vec3::Z);
+        assert!((u - 0.75).abs() < 0.03 && (v - 0.5).abs() < 0.03, "turned to the side: ({u}, {v})");
+        let (u, v) = read(Vec3::new(0.0, -c, s), Vec3::X);
+        assert!((u - 0.5).abs() < 0.03 && (v - 0.75).abs() < 0.03, "tipped back: ({u}, {v})");
+    }
+
     /// A lamp's flare behind a window that writes its depth: seen from inside the vehicle
     /// it shows through the glass, which Omsi.exe draws after the flares (0x6f0430 after
     /// 0x6f0400/0x6f0418); seen from outside the vehicle, drawn before the flares, the
