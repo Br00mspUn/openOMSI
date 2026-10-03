@@ -610,6 +610,8 @@ struct BusNow {
     /// scripts' `target_index_int` names a hof terminus added with `[addterminus_allexit]`
     /// ("Nicht einsteigen", a works trip) - or none; no timetable target has it.
     terminus: Option<String>,
+    /// Whom it takes on at the stops.
+    takes: Takes,
 }
 
 /// What passengers feel stepping into a bus (OMSI reads the same fields: the vehicle's
@@ -1481,6 +1483,10 @@ pub struct Humans {
     /// The timetable's name of each stop object (`Schedule::stop_names`), the names the
     /// targets above are made of.
     pub stop_names: Option<HashMap<i64, String>>,
+    /// The player's duty (`set_duty`): its trip, the stop of it the duty is due at, and
+    /// whether the trip has reached its last stop. None: free drive, and nobody waiting
+    /// boards the player's bus.
+    duty: Option<(Arc<DutyTrip>, usize, bool)>,
     /// Buses whose validator somebody used since the app last looked (`take_stamped`).
     stamped: Vec<BusId>,
     /// Pedestrians to keep strolling near the player (scaled by `density`).
@@ -1712,6 +1718,7 @@ impl Humans {
             driver_away: false,
             stop_targets: None,
             stop_names: None,
+            duty: None,
             stamped: Vec::new(),
             pedestrians: 14,
             max_people: crate::settings::Settings::load().ai_max_humans.max(1) as usize,
@@ -2809,8 +2816,15 @@ impl Humans {
                     .map(|t| t.texture_id.trim().to_string()),
                 _ => None,
             };
+            // (on a duty the people its trip takes where they are going get on, however the
+            // depot file names the terminus; in free drive nobody)
+            let takes = match &self.duty {
+                Some((trip, next, done)) => Takes::Duty { trip: trip.clone(), next: *next, done: *done },
+                None => Takes::Nobody,
+            };
             out.push(BusNow {
                 terminus,
+                takes,
                 id: BusId::Player,
                 walk_open: None,
                 cabin,
@@ -2890,6 +2904,7 @@ impl Humans {
                 let trailers = part_frames(&c.vehicle, &cabin);
                 out.push(BusNow {
                     terminus: c.bus.as_ref().map(|b| b.terminus.trim().to_string()).filter(|t| !t.is_empty()),
+                    takes: Takes::Terminus,
                     id: BusId::Ai(c.id),
                     walk_open: None,
                     cabin,
@@ -2946,6 +2961,7 @@ impl Humans {
         let walk_open = Self::doors_open(v, cabin.entries.len(), cabin.exits.len());
         Some(BusNow {
             terminus: None,
+            takes: Takes::Nobody,
             id,
             entry_open: vec![false; cabin.entries.len()],
             exit_open: vec![false; cabin.exits.len()],
@@ -3050,6 +3066,7 @@ impl Humans {
             let walk_open = Self::doors_open(v, cabin.entries.len(), cabin.exits.len());
             out.push(BusNow {
                 terminus: None,
+                takes: Takes::Nobody,
                 id: BusId::Ai(remote_bus_id(player)),
                 entry_open: vec![false; cabin.entries.len()],
                 exit_open: vec![false; cabin.exits.len()],
@@ -3068,6 +3085,23 @@ impl Humans {
             });
         }
         self.remote_now = out;
+    }
+
+    /// The player's duty this frame; None in free drive, where the people waiting leave the
+    /// player's bus alone. (Set after `stop_names`: the trip's stops are named by it.)
+    pub fn set_duty(&mut self, duty: Option<&crate::schedule::PlayerDuty>) {
+        let Some(d) = duty else {
+            self.duty = None;
+            return;
+        };
+        // the trip the IBIS is given: on a works trip from the depot the next one with a line
+        let (t, next) = d.trip_for_ibis();
+        let done = std::ptr::eq(t, d.trip()) && d.trip_done();
+        let trip = match self.duty.take() {
+            Some((trip, ..)) if trip.name == t.name && trip.departure == t.departure => trip,
+            _ => Arc::new(DutyTrip::of(t, self.stop_names.as_ref())),
+        };
+        self.duty = Some((trip, next, done));
     }
 
     /// Is `bus` among the buses people can be in this frame (an AI bus, or another player's)?

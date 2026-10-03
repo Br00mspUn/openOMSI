@@ -1213,7 +1213,6 @@ impl ApplicationHandler for App {
                         .map(|p| p.vehicle.position)
                         .or(self.camera.as_ref().map(|c| c.position))
                         .unwrap_or(DVec3::ZERO);
-                    // (the riders leave a bus the driver has walked away from)
                     if h.stop_targets.is_none() {
                         h.stop_targets = self.schedule.as_ref().map(|s| s.stop_targets());
                         h.stop_names = self.schedule.as_ref().map(|s| s.stop_names());
@@ -1221,6 +1220,9 @@ impl ApplicationHandler for App {
                             log::info!("people: {} bus stops with timetable targets", t.len());
                         }
                     }
+                    // (whom the player's bus takes on: nobody waiting in free drive)
+                    h.set_duty(self.duty.as_ref());
+                    // (the riders leave a bus the driver has walked away from)
                     h.driver_away = self.on_foot.as_ref().is_some_and(|f| {
                         let own = Some(crate::humans::BusId::Player);
                         f.seat.map(|s| s.0) != own && f.inside.map(|i| i.0) != own
