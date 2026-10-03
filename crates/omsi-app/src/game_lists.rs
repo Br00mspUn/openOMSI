@@ -1791,7 +1791,7 @@ fn select_options(key: &str) -> Vec<(&'static str, &'static str)> {
         "graphics" => vec![("vanilla", "Vanilla (as OMSI 2)"), ("vanilla_plus", "Vanilla+"), ("enhanced", "Enhanced")],
         "msaa" => vec![("1", "Off"), ("2", "2x MSAA"), ("4", "4x MSAA"), ("8", "8x MSAA")],
         "render_scale" => vec![("auto", "Auto"), ("1", "100%"), ("0.85", "85%"), ("0.75", "75%"), ("0.67", "67%"), ("0.5", "50%")],
-        "anisotropy" => vec![("1", "Off"), ("2", "2x"), ("4", "4x"), ("8", "8x")],
+        "anisotropy" => vec![("1", "Off"), ("2", "2x"), ("4", "4x"), ("8", "8x"), ("16", "16x")],
         "shadow_size" => vec![("1024", "1024"), ("2048", "2048"), ("4096", "4096")],
         "shadow_casters" => vec![("all", "Every solid mesh"), ("omsi", "[shadow] meshes, as OMSI")],
         "max_fps" => vec![("0", "Screen refresh rate"), ("30", "30 fps"), ("45", "45 fps"), ("60", "60 fps"), ("120", "120 fps"), ("144", "144 fps"), ("1000", "Unlimited")],
@@ -2609,6 +2609,15 @@ mod tests {
         super::set_camera_fov(&mut settings, 0.0);
         assert_eq!(settings.triple.fov_deg, 0.0);
     }
+    /// The game menu offers the 16x anisotropic filtering the launcher does (#669): set
+    /// there, it showed as a bare "16" here and could not be chosen again.
+    #[test]
+    fn sixteen_x_anisotropy_can_be_chosen_in_the_game_menu() {
+        let file = serde_json::json!({ "anisotropy": 16 });
+        let (options, at, _) = super::select_state(&file, "anisotropy");
+        assert_eq!(at.map(|i| options[i]), Some(("16", "16x")));
+    }
+
     #[test]
     fn steps_wrap_round() {
         assert_eq!(super::next_step(&super::SPEEDS, 1.0), 2.0);
