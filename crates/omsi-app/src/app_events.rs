@@ -1934,6 +1934,8 @@ impl ApplicationHandler for App {
                         None => w.timetable_boards.lock().clock = Some(self.clock.clone()),
                     }
                     *self.profile.entry("scripted.boards").or_default() += __tb.elapsed().as_secs_f64();
+                    // the map's own route arrows, with OMSI 2's route arrows
+                    w.show_help_arrows(r, scene, self.settings.nav_arrows);
                     w.update_scripted(
                         r,
                         scene,

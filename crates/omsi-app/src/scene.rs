@@ -1948,6 +1948,11 @@ pub struct World {
     /// The parked cars of the loaded tiles by collision key, so that one can pull out into
     /// the traffic (see [`World::depart_parked`]). They leave with their tile.
     pub parked_objects: Mutex<HashMap<i64, ParkedObject>>,
+    /// The instances of the route arrows the map's author put up (`[helparrow]` objects) by
+    /// tile: drawn only while OMSI 2's route arrows are on (see [`World::show_help_arrows`]).
+    help_arrows: Mutex<HashMap<(i32, i32), Vec<usize>>>,
+    /// Whether they are drawn now.
+    help_arrows_shown: std::sync::atomic::AtomicBool,
     /// Parked cars that drove off in this run: their space stays empty when the tile comes
     /// back.
     departed: Mutex<std::collections::HashSet<i64>>,
@@ -2797,6 +2802,8 @@ impl World {
             poles: Mutex::new(HashMap::new()),
             fallen_poles: Mutex::new(HashMap::new()),
             parked_objects: Mutex::new(HashMap::new()),
+            help_arrows: Mutex::new(HashMap::new()),
+            help_arrows_shown: std::sync::atomic::AtomicBool::new(false),
             departed: Mutex::new(std::collections::HashSet::new()),
             departed_objects: Mutex::new(std::collections::HashMap::new()),
             edit_objects: Mutex::new(HashMap::new()),
@@ -4849,7 +4856,9 @@ impl World {
                     idx
                 }))
             };
-            if ot.sco.only_editor || ot.sco.is_help_arrow || ot.meshes.is_empty() {
+            // (a `[helparrow]` object goes on: it is put up hidden, and drawn while the route
+            // arrows are on - see `World::show_help_arrows`)
+            if ot.sco.only_editor || ot.meshes.is_empty() {
                 // invisible sound sources (ambient sound objects) still run their script
                 if let (Some(program), true) = (&ot.program, ot.sco.sound.is_some()) {
                     let inst = omsi_sim::scenery::SceneryInstance::new(
@@ -6303,6 +6312,7 @@ impl World {
         let mut freed = false;
         if let Some((tg, poles)) = orphan {
             self.poles.lock().retain(|k, _| !poles.contains(k));
+            self.help_arrows.lock().remove(&key);
             self.parked_objects.lock().retain(|_, p| p.tile != key);
             self.departed_objects.lock().retain(|_, (p, _, _)| p.tile != key);
             self.edit_objects.lock().retain(|_, o| o.tile != key);
@@ -7213,7 +7223,10 @@ impl World {
                                     // drawn as they are: the street name signs that seemed to want
                                     // their text turned by 180° were `.x` meshes whose frames were
                                     // read transposed (upside down), the stop name plates are not
-                                    let image = scenery_text_image(tt, atlas, &text);
+                                    // (a route arrow's name in letters its font lacks: as on the
+                                    // game's own arrows)
+                                    let helper = if ot.sco.is_help_arrow { helper_text_image(tt, atlas.as_deref(), &text) } else { None };
+                                    let image = helper.unwrap_or_else(|| scenery_text_image(tt, atlas, &text));
                                     let tex = gpu.add_image(renderer, scene, &image, true);
                                     // (lit like the rest of the object: Omsi.exe only swaps
                                     // the slot's texture, a sign does not shine at night)
@@ -7361,6 +7374,23 @@ impl World {
                             .lock()
                             .insert(collision_key, (pos, xf, instances));
                         pl.poles.push(collision_key);
+                    }
+                    if ot.sco.is_help_arrow {
+                        // A route arrow the map's author put up: Omsi.exe draws its `[helparrow]`
+                        // objects (type 8) only while its route arrows are on (0x78e4b8; the
+                        // game menu's button switches them, 0x686e3c). Left out for good, the
+                        // stock maps' arrows to Grundorf's hospital and round Spandau's
+                        // junctions never showed (#954).
+                        let instances: Vec<usize> = all_instances.iter().chain(&lod_instances).copied().collect();
+                        let shown = self.help_arrows_shown.load(std::sync::atomic::Ordering::Relaxed);
+                        for inst in &instances {
+                            // (no shadow, as the game's own arrows)
+                            renderer.set_casts_shadow(scene, *inst, false);
+                            if !shown {
+                                hide_instance(renderer, scene, *inst);
+                            }
+                        }
+                        self.help_arrows.lock().entry(key).or_default().extend(instances);
                     }
                     if parked {
                         let instances: Vec<usize> = all_instances.iter().chain(&lod_instances).copied().collect();
@@ -7555,6 +7585,20 @@ impl World {
             renderer.set_transform(scene, inst, pos, fallen);
         }
         Some(pos)
+    }
+
+    /// Draw the route arrows the map's author put up (`[helparrow]` objects) or hide them:
+    /// `on` is whether OMSI 2's route arrows are on (the `nav_arrows` setting). Nothing to
+    /// do when that has not changed; the tiles placed later follow it.
+    pub fn show_help_arrows(&self, renderer: &Renderer, scene: &mut Scene, on: bool) {
+        if self.help_arrows_shown.swap(on, std::sync::atomic::Ordering::Relaxed) == on {
+            return;
+        }
+        for inst in self.help_arrows.lock().values().flatten() {
+            let Some(i) = scene.instances.get(*inst) else { continue };
+            let (alpha, uv) = (i.slot_alpha.clone(), i.slot_uv.clone());
+            renderer.set_params(scene, *inst, &alpha, on, &uv);
+        }
     }
 
     /// Parked car `key` drives off: it is hidden, its box leaves the obstacles, and its space
@@ -7792,6 +7836,7 @@ impl World {
             return false;
         };
         let _ = self.parked_live.fetch_update(std::sync::atomic::Ordering::Relaxed, std::sync::atomic::Ordering::Relaxed, |n| Some(n.saturating_sub(state.parked_count)));
+        self.help_arrows.lock().remove(&key);
         self.parked_objects.lock().retain(|_, p| p.tile != key);
             self.departed_objects.lock().retain(|_, (p, _, _)| p.tile != key);
         self.edit_objects.lock().retain(|_, o| o.tile != key);
