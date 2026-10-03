@@ -40,6 +40,42 @@ fn is_manual_gate_action(name: &str) -> bool {
     gate.eq_ignore_ascii_case("r") || gate.eq_ignore_ascii_case("n") || gate.parse::<u32>().is_ok()
 }
 
+/// The vehicle actions of the keys held whose `Inputs/keyboard.cfg` entry has the "held"
+/// flag ([`omsi_content::input::KEY_HOLD`], the key list's " *"), by scan code: Omsi.exe
+/// (0x6466b8) gives the vehicle their action again every frame the key stays down, not
+/// only when it goes down. The stock roller blind turns while Page Up / Page Down are held
+/// (`bus_rollband_up`, `_dn`: its line or destination moves by the frame's time on each
+/// call); fired once, it moved by a frame's worth and no more (#1098, #1145).
+#[derive(Default)]
+pub(crate) struct HeldRepeat(hashbrown::HashMap<i32, (Vec<String>, bool)>);
+
+impl HeldRepeat {
+    /// The key went down with these actions (its press fires them itself).
+    fn press(&mut self, scan: i32, names: Vec<String>) {
+        if names.is_empty() {
+            self.0.remove(&scan);
+        } else {
+            self.0.insert(scan, (names, true));
+        }
+    }
+
+    fn release(&mut self, scan: i32) {
+        self.0.remove(&scan);
+    }
+
+    /// The actions to fire again this frame: those of every key still held, but not of one
+    /// that went down since the last frame - its press was this frame's call.
+    fn due(&mut self) -> Vec<String> {
+        let mut due = Vec::new();
+        for (names, fresh) in self.0.values_mut() {
+            if !std::mem::take(fresh) {
+                due.extend(names.iter().cloned());
+            }
+        }
+        due
+    }
+}
+
 /// Everything about the spawned player vehicle.
 pub(crate) struct Player {
     /// Which vehicle this is, for as long as the session runs (the people riding in one
@@ -97,6 +133,8 @@ pub(crate) struct Player {
     /// whatever modifier is held by then (L pressed, Ctrl held, L let go: the release went
     /// to Ctrl+L and the L action stayed held).
     pub(crate) held_keys: hashbrown::HashMap<i32, Vec<String>>,
+    /// The held ones of them that are told every frame (see [`HeldRepeat`]).
+    pub(crate) held_repeat: HeldRepeat,
     /// Where the driver's head is thrown by the bus's accelerations (vehicle frame, m):
     /// OMSI's `[driverview_moving]`.
     pub(crate) head: Vec3,
@@ -962,8 +1000,17 @@ impl Player {
                 .map(|b| b.action.clone())
                 .collect();
             self.held_keys.insert(scan, n.clone());
+            let repeat = self
+                .bindings
+                .iter()
+                .filter(|b| b.scan_code == scan && b.matches(modifiers) && b.modifier & omsi_content::input::KEY_HOLD != 0)
+                .filter(|b| omsi_sim::engine_action(&b.action).is_none())
+                .map(|b| b.action.clone())
+                .collect();
+            self.held_repeat.press(scan, repeat);
             n
         } else {
+            self.held_repeat.release(scan);
             match self.held_keys.remove(&scan) {
                 Some(n) => n,
                 None => self
@@ -1445,6 +1492,12 @@ impl Player {
     pub(crate) fn tick(&mut self, dt: f32, audio: Option<&omsi_audio::AudioEngine>, inside: bool, listener_follows_bus: bool) {
         self.tick_startup(dt);
         self.tick_auto_drag(dt);
+        // (the script's trigger only, as Omsi.exe calls it: no alias, no log line a frame)
+        for name in self.held_repeat.due() {
+            if self.vehicle.ty.program.trigger(&name).is_some() {
+                self.vehicle.trigger(&name);
+            }
+        }
         self.axes.speed_kmh = self.vehicle.physics.velocity_kmh();
         self.axes.lock_curvature = self.vehicle.ty.def.inv_min_turn_radius;
         self.axes.update(dt);
@@ -2598,6 +2651,29 @@ mod indicator_tests {
         assert_eq!(state, 3);
         assert_eq!(indicator_toggle_action(&mut state, Some(3), 3), "blinker_warn_toggle");
         assert_eq!(state, 0);
+    }
+}
+
+#[cfg(test)]
+mod held_repeat_tests {
+    use super::HeldRepeat;
+
+    /// Page Up held three frames turns the roller blind on each of them: once by the press,
+    /// twice from the list; let go, no more (#1098, #1145).
+    #[test]
+    fn a_held_key_is_told_every_frame_after_its_press_until_let_go() {
+        let mut r = HeldRepeat::default();
+        assert!(r.due().is_empty());
+        r.press(201, vec!["bus_rollband_up".into()]);
+        assert!(r.due().is_empty(), "the press itself was this frame's call");
+        assert_eq!(r.due(), vec!["bus_rollband_up".to_string()]);
+        assert_eq!(r.due(), vec!["bus_rollband_up".to_string()]);
+        r.release(201);
+        assert!(r.due().is_empty());
+        // a key without a held action is none of it
+        r.press(63, Vec::new());
+        r.due();
+        assert!(r.due().is_empty());
     }
 }
 

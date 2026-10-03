@@ -429,6 +429,7 @@ pub(crate) fn spawn_player(
         door_buttons: hashbrown::HashMap::new(),
         cam_before_special: None,
         held_keys: Default::default(),
+        held_repeat: Default::default(),
         hand_coupled: 0,
         rail_bound,
         rail: None,
