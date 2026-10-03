@@ -69,6 +69,10 @@ pub struct Wizard {
 impl PadsView {
     pub(super) fn cancel_feedback_test(&mut self) {
         release_feedback(&mut self.io, &mut self.feedback_test);
+        // The normal controller list also owns DirectInput devices. Do not leave those open
+        // after the Controls page loses focus or while a game starts: the game may need the
+        // same wheel exclusively for force feedback.
+        self.io = None;
         if let Some((_, test)) = self.wizard.as_mut().and_then(|w| w.calibration.as_mut()) {
             if test.result.is_none() {
                 test.fail("The test was interrupted. Please try again.");
