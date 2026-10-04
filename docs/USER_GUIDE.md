@@ -306,7 +306,8 @@ left by default), after the Route Advisor of Euro Truck Simulator 2: small, dark
 transparent, a tilted 3D map that turns with the bus and zooms out with speed - the roads
 of the lane network, the trip's route with arrows along it, coloured stretch by stretch by
 how busy the road is (blue empty, green light, yellow busy, red heavy, dark red jammed; it
-changes as the traffic does), the stops ahead, the other vehicles as blue dots, the next
+changes as the traffic does), the stops ahead, the other vehicles as blue dots, the other
+players of a LAN session or server as purple arrows with their names (on the city map too), the next
 turn with its distance and the street it turns into, and the street the bus is on. It
 routes on the whole map's road network, read from the tile files in the background at the
 start, so the way shows however far the route or the next stop is from the loaded tiles.

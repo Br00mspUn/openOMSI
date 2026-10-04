@@ -2086,6 +2086,7 @@ impl ApplicationHandler for App {
                         };
                         let frame = navigator::NavFrame {
                             traffic: self.traffic.as_ref(),
+                            players: self.lan.as_ref().map(|l| crate::lan::nav_players(&self.remotes, l.my_id)).unwrap_or_default(),
                             bus: at,
                             heading,
                             speed_kmh: p.vehicle.physics.velocity_kmh(),

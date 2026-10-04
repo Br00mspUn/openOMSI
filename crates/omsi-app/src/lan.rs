@@ -1581,6 +1581,31 @@ fn relative_position(me: &omsi_sim::VehicleInstance, pose: &Pose) -> String {
     }
 }
 
+/// The other players for the navigator and the city map (#1011, #1080); `my_id` is ours.
+pub fn nav_players(game: &LanGame, my_id: u32) -> Vec<crate::navigator::NavPlayer> {
+    let bus_of = |id: u32| game.remotes.get(&id).map(|r| (r.vehicle.position, r.vehicle.heading));
+    let mut out: Vec<_> = game.remotes.values().filter_map(|r| nav_player(&r.last, &r.name, (r.vehicle.position, r.vehicle.heading), my_id, bus_of)).collect();
+    // (always in the same order: the tags of two players close together do not swap)
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+/// A player as the maps show them: with the bus they drive (`bus`: as drawn here), else on
+/// foot where they walk - riding in a third player's bus, with that bus (`bus_of`; the
+/// walker's own point lags behind it), and not at all in ours, which is our own arrow.
+fn nav_player(pose: &Pose, name: &str, bus: (DVec3, f64), my_id: u32, bus_of: impl Fn(u32) -> Option<(DVec3, f64)>) -> Option<crate::navigator::NavPlayer> {
+    let (position, heading) = match pose.walker {
+        None => bus,
+        Some(w) => match w.aboard {
+            Some(a) if a.owner == my_id => return None,
+            Some(a) => bus_of(a.owner).unwrap_or((DVec3::new(w.x, w.y, w.z), w.heading as f64)),
+            None => (DVec3::new(w.x, w.y, w.z), w.heading as f64),
+        },
+    };
+    let name = if name.trim().is_empty() { format!("player {}", pose.id) } else { name.trim().to_string() };
+    Some(crate::navigator::NavPlayer { position, heading, name })
+}
+
 /// The other players' name tags, as ETS2 has them: the name over the bus's roof and a
 /// small line under it (line and destination, how far away), fading out beyond 300 m.
 /// Screen positions in physical pixels of a `width` x `height` picture (on a triple-screen
@@ -3603,6 +3628,24 @@ mod tests {
         // (the same file name in another folder is another bus)
         assert!(!offers(&list, "Vehicles/Mod_SD200/MAN_SD77.bus"));
         assert!(!offers(&offered_keys(&[]), "Vehicles/MAN_SD200/MAN_SD77.bus"));
+    }
+
+    /// The maps show another player with their bus, on foot where they walk, riding in a
+    /// third player's bus with that bus, and not at all riding in ours (#1011, #1080).
+    #[test]
+    fn the_maps_show_a_player_where_they_are() {
+        let bus = (DVec3::new(100.0, 200.0, 5.0), 90.0);
+        let third = |id: u32| (id == 7).then_some((DVec3::new(-50.0, 10.0, 0.0), 180.0));
+        let mut pose = Pose { id: 3, ..Default::default() };
+        let p = nav_player(&pose, " Anna ", bus, 2, third).unwrap();
+        assert_eq!((p.position, p.heading, p.name.as_str()), (bus.0, 90.0, "Anna"));
+        pose.walker = Some(omsi_net::Walker { x: 1.0, y: 2.0, z: 3.0, heading: 45.0, ..Default::default() });
+        let p = nav_player(&pose, "", bus, 2, third).unwrap();
+        assert_eq!((p.position, p.heading, p.name.as_str()), (DVec3::new(1.0, 2.0, 3.0), 45.0, "player 3"));
+        pose.walker.as_mut().unwrap().aboard = Some(omsi_net::Aboard { owner: 7, ..Default::default() });
+        assert_eq!(nav_player(&pose, "Anna", bus, 2, third).unwrap().position, DVec3::new(-50.0, 10.0, 0.0));
+        pose.walker.as_mut().unwrap().aboard = Some(omsi_net::Aboard { owner: 2, ..Default::default() });
+        assert!(nav_player(&pose, "Anna", bus, 2, third).is_none());
     }
 
     /// What is seen comes before what is heard in the capped values list: the AA-FR Agora

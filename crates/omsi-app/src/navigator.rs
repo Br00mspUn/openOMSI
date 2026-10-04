@@ -51,6 +51,8 @@ const TROLLEY: Color = Color::rgba(46, 184, 92, 1.0);
 const BUS: Color = Color::rgba(226, 58, 52, 1.0);
 const TRAM: Color = Color::rgba(240, 190, 30, 1.0);
 const LINE_TEXT: Color = Color::rgba(15, 15, 15, 1.0);
+/// The other players of a LAN session or server: an arrow the way they face, with their name.
+const PLAYER: Color = Color::rgba(190, 96, 255, 1.0);
 
 /// What a traffic vehicle is on the map: a trolleybus (its model has trolley poles to
 /// raise, `cp_SHTANGALEV` or `shtanga_lev_rot`), a tram, a bus (one on a timetable or
@@ -149,9 +151,21 @@ pub struct NavStop {
     pub arrival: f64,
 }
 
+/// Another player of the session as the maps show them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NavPlayer {
+    /// Where they are: their bus, or on foot where they walk (riding in someone's bus: that bus).
+    pub position: DVec3,
+    /// Compass heading (degrees, 0 = +y, clockwise).
+    pub heading: f64,
+    pub name: String,
+}
+
 /// What the navigator is told each frame.
 pub struct NavFrame<'a> {
     pub traffic: Option<&'a Traffic>,
+    /// The other players of a LAN session or server, on both maps (#1011, #1080).
+    pub players: Vec<NavPlayer>,
     pub bus: DVec3,
     /// Compass heading (degrees, 0 = +y, clockwise).
     pub heading: f64,
@@ -1135,6 +1149,23 @@ impl Navigator {
         // none on top of another)
         lines.sort_by(|a, b| (a.0 - f.bus).length().total_cmp(&(b.0 - f.bus).length()));
         let mut taken: Vec<Rect> = Vec::new();
+        // the other players: an arrow each, their name above it (before the lines' tags)
+        for pl in &f.players {
+            let Some(p) = project(vpm, vp, rel(pl.position)).filter(|p| map.contains(*p)) else { continue };
+            let a = (angle_diff(self.cam_heading, pl.heading) as f32).to_radians();
+            arrow(&mut ui, p, a, 7.5 * s, 1.25, Color::rgba(10, 10, 10, 0.8), PLAYER);
+            let px = 9.5 * s;
+            let name = self.fonts.fit(&pl.name, px, Weight::Bold, 90.0 * s);
+            let w = self.fonts.width(&name, px, Weight::Bold) + 8.0 * s;
+            let r = Rect::new(p.x - w * 0.5, p.y - 23.0 * s, w, 13.0 * s);
+            if taken.iter().any(|o| rects_overlap(o, &r)) {
+                continue;
+            }
+            taken.push(r);
+            ui.rounded(Rect::new(r.x - 1.0 * s, r.y - 1.0 * s, r.w + 2.0 * s, r.h + 2.0 * s), 4.0 * s, Color::rgba(10, 10, 10, 0.9));
+            ui.rounded(r, 3.5 * s, PLAYER);
+            ui.text_in(&mut self.atlas, &self.fonts, &name, px, Weight::Bold, r, Align::Center, LINE_TEXT);
+        }
         for (pos, color, l) in &lines {
             let Some(p) = project(vpm, vp, rel(*pos)).filter(|p| map.contains(*p)) else { continue };
             let px = 9.5 * s;
@@ -1152,18 +1183,7 @@ impl Navigator {
         // the bus: a plain white arrow
         if let Some(bp) = project(vpm, vp, rel(f.bus)) {
             let a = (angle_diff(self.cam_heading, f.heading) as f32).to_radians();
-            let rot = |v: Vec2| Vec2::new(v.x * a.cos() - v.y * a.sin(), v.x * a.sin() + v.y * a.cos());
-            let k = 9.0 * s;
-            let tip = bp + rot(Vec2::new(0.0, -1.0) * k);
-            let l = bp + rot(Vec2::new(-0.7, 0.8) * k);
-            let m = bp + rot(Vec2::new(0.0, 0.4) * k);
-            let r = bp + rot(Vec2::new(0.7, 0.8) * k);
-            let dark = Color::rgba(10, 10, 10, 0.8);
-            let grow = |p: Vec2| bp + (p - bp) * 1.25;
-            ui.tri(grow(tip), grow(l), grow(m), dark, dark, dark);
-            ui.tri(grow(tip), grow(m), grow(r), dark, dark, dark);
-            ui.tri(tip, l, m, TEXT, TEXT, TEXT);
-            ui.tri(tip, m, r, TEXT, TEXT, TEXT);
+            arrow(&mut ui, bp, a, 9.0 * s, 1.25, Color::rgba(10, 10, 10, 0.8), TEXT);
         }
 
         // top bar: speed (and the limit) · line ……… game time
@@ -1356,7 +1376,7 @@ fn congestion_on(net: &Network, traffic: &Network, c: &HashMap<usize, f32>) -> H
 
 impl<'a> NavFrame<'a> {
     fn clone_ref(&self) -> NavFrame<'a> {
-        NavFrame { traffic: self.traffic, bus: self.bus, heading: self.heading, speed_kmh: self.speed_kmh, outside_temp: self.outside_temp, inside_temp: self.inside_temp, line: self.line.clone(), terminus: self.terminus.clone(), stops: self.stops.clone(), delay: self.delay, passengers: self.passengers, time: self.time, weekday: self.weekday, language: self.language, screen: self.screen, ui_scale: self.ui_scale, follow_window: self.follow_window, dt: self.dt, stop_requested: self.stop_requested, info_rect: self.info_rect }
+        NavFrame { traffic: self.traffic, players: self.players.clone(), bus: self.bus, heading: self.heading, speed_kmh: self.speed_kmh, outside_temp: self.outside_temp, inside_temp: self.inside_temp, line: self.line.clone(), terminus: self.terminus.clone(), stops: self.stops.clone(), delay: self.delay, passengers: self.passengers, time: self.time, weekday: self.weekday, language: self.language, screen: self.screen, ui_scale: self.ui_scale, follow_window: self.follow_window, dt: self.dt, stop_requested: self.stop_requested, info_rect: self.info_rect }
     }
 }
 
@@ -1519,6 +1539,21 @@ fn road_geometry(net: &Network) -> Vec<MapRoad> {
         }
     }
     roads
+}
+
+/// An arrow at `at` pointing `angle` (radians, clockwise from up on the screen), `k` px from
+/// its middle to its tip, on a dark outline `grow` times its size: the bus and the players.
+fn arrow(ui: &mut Painter, at: Vec2, angle: f32, k: f32, grow: f32, dark: Color, fill: Color) {
+    let rot = |v: Vec2| Vec2::new(v.x * angle.cos() - v.y * angle.sin(), v.x * angle.sin() + v.y * angle.cos());
+    let tip = at + rot(Vec2::new(0.0, -1.0) * k);
+    let l = at + rot(Vec2::new(-0.7, 0.8) * k);
+    let m = at + rot(Vec2::new(0.0, 0.4) * k);
+    let r = at + rot(Vec2::new(0.7, 0.8) * k);
+    let g = |p: Vec2| at + (p - at) * grow;
+    ui.tri(g(tip), g(l), g(m), dark, dark, dark);
+    ui.tri(g(tip), g(m), g(r), dark, dark, dark);
+    ui.tri(tip, l, m, fill, fill, fill);
+    ui.tri(tip, m, r, fill, fill, fill);
 }
 
 fn rects_overlap(a: &Rect, b: &Rect) -> bool {
@@ -2517,22 +2552,26 @@ impl Navigator {
             ui.rounded(r, 4.0 * s, Color::rgba(12, 12, 12, 0.85));
             ui.text_in(&mut self.atlas, &self.fonts, &name, 12.5 * s, if k == 0 { Weight::Bold } else { Weight::Medium }, r.pad(6.0 * s, 0.0), Align::Left, if k == 0 { TEXT } else { TEXT_DIM });
         }
-        {
-            let bp = to_screen(f.bus);
-            let a = (f.heading as f32).to_radians();
-            let rot = |v: Vec2| Vec2::new(v.x * a.cos() - v.y * a.sin(), v.x * a.sin() + v.y * a.cos());
-            let k = 10.0 * s;
-            let tip = bp + rot(Vec2::new(0.0, -1.0) * k);
-            let l = bp + rot(Vec2::new(-0.7, 0.8) * k);
-            let m = bp + rot(Vec2::new(0.0, 0.4) * k);
-            let r = bp + rot(Vec2::new(0.7, 0.8) * k);
-            let dark = Color::rgba(10, 10, 10, 0.9);
-            let grow = |p: Vec2| bp + (p - bp) * 1.3;
-            ui.tri(grow(tip), grow(l), grow(m), dark, dark, dark);
-            ui.tri(grow(tip), grow(m), grow(r), dark, dark, dark);
-            ui.tri(tip, l, m, TEXT, TEXT, TEXT);
-            ui.tri(tip, m, r, TEXT, TEXT, TEXT);
+        // the other players: an arrow the way they face and their name (as on the small map)
+        for pl in &f.players {
+            let p = to_screen(pl.position);
+            if !win.contains(p) || p.y < 44.0 * s {
+                continue;
+            }
+            arrow(&mut ui, p, (pl.heading as f32).to_radians(), 8.5 * s, 1.3, Color::rgba(10, 10, 10, 0.9), PLAYER);
+            let px = 11.0 * s;
+            let name = self.fonts.fit(&pl.name, px, Weight::Bold, 140.0 * s);
+            let tw = self.fonts.width(&name, px, Weight::Bold) + 9.0 * s;
+            let r = Rect::new(p.x - tw * 0.5, p.y - 27.0 * s, tw, 15.0 * s);
+            if taken.iter().any(|o| rects_overlap(o, &r)) {
+                continue;
+            }
+            taken.push(r);
+            ui.rounded(Rect::new(r.x - 1.0 * s, r.y - 1.0 * s, r.w + 2.0 * s, r.h + 2.0 * s), 4.5 * s, Color::rgba(10, 10, 10, 0.9));
+            ui.rounded(r, 4.0 * s, PLAYER);
+            ui.text_in(&mut self.atlas, &self.fonts, &name, px, Weight::Bold, r, Align::Center, LINE_TEXT);
         }
+        arrow(&mut ui, to_screen(f.bus), (f.heading as f32).to_radians(), 10.0 * s, 1.3, Color::rgba(10, 10, 10, 0.9), TEXT);
         // header: the line and where it goes, the next stop; buttons on the right
         // (opaque: the route and the stops showed through behind its text)
         let head = Rect::new(0.0, 0.0, w, 44.0 * s);
