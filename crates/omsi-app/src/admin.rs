@@ -223,15 +223,7 @@ fn host_action(app: &mut App, action: &str, by: Option<u32>) {
             }
         }
         "traffic" if arg.trim() == "clear" => {
-            // every AI vehicle off the road (the random traffic comes back by itself, the
-            // timetable's buses with their next departures)
-            if let (Some(t), Some(w), Some(r), Some(scene)) = (app.traffic.as_mut(), app.world.as_ref(), app.renderer.as_ref(), app.scene.as_mut()) {
-                let ids: Vec<u64> = t.cars.iter().filter(|c| !c.is_bus()).map(|c| c.id).collect();
-                for id in &ids {
-                    t.remove_car(w, r, scene, *id);
-                }
-                app.service_msg = Some((format!("{} AI vehicles taken off the road", ids.len()), 3.0));
-            }
+            clear_ai_traffic(app);
         }
         "traffic" => {
             if let Some(t) = app.traffic.as_mut() {
@@ -241,6 +233,22 @@ fn host_action(app: &mut App, action: &str, by: Option<u32>) {
             }
         }
         _ => log::info!("admin: unknown action '{action}'"),
+    }
+}
+
+/// Take the current random AI traffic off the road. Timetable buses are kept, and the
+/// configured random traffic target will populate the roads again normally.
+pub(crate) fn clear_ai_traffic(app: &mut App) {
+    if app.lan.as_ref().is_some_and(|l| l.role == Role::Client) {
+        app.service_msg = Some(("In a LAN session only the host can clear AI traffic".into(), 3.0));
+        return;
+    }
+    if let (Some(t), Some(w), Some(r), Some(scene)) = (app.traffic.as_mut(), app.world.as_ref(), app.renderer.as_ref(), app.scene.as_mut()) {
+        let ids: Vec<u64> = t.cars.iter().filter(|c| !c.is_bus()).map(|c| c.id).collect();
+        for id in &ids {
+            t.remove_car(w, r, scene, *id);
+        }
+        app.service_msg = Some((format!("{} AI vehicles taken off the road", ids.len()), 3.0));
     }
 }
 

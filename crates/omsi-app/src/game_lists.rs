@@ -592,6 +592,9 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                         app.shift_clock(by);
                     }
                 }
+                "traffic_clear" if step => {
+                    crate::admin::clear_ai_traffic(app);
+                }
                 other if step => {
                     app.page_action(other);
                     return None;
@@ -2220,6 +2223,9 @@ fn world_pages(app: &App) -> Vec<Page> {
     }
     let mut people: Vec<(String, String)> = Vec::new();
     people.extend(slider_row(app, "traffic", "Traffic", "How many vehicles drive around the map.", &|v| format!("{} vehicles", v as i64)));
+    if !client && app.traffic.is_some() {
+        people.push(button("Clear AI traffic", "Clear", "Remove the current AI cars from the road; random traffic will return automatically.", "traffic_clear"));
+    }
     people.extend(slider_row(app, "pax", "Passengers", "How many passengers wait at the stops and ride.", &pct));
     vec![("Time", time), ("Weather", weather), ("Temperature and wind", climate), ("Traffic and people", people), ("Tools", tools)]
 }
