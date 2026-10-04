@@ -60,9 +60,31 @@ pub(crate) fn game_info(app: &crate::App) -> Vec<(&'static str, InfoValue)> {
     if let Some(t) = app.traffic.as_ref() {
         v.push(("traffic", Num(t.cars.len() as f64)));
     }
+    if let Some(w) = app.world.as_ref() {
+        v.push(("map_path", Text(w.global.path.to_string_lossy().into_owned())));
+    }
+    v.push(("version", Text(crate::startup::VERSION.to_string())));
     if let Some(p) = app.player.as_ref() {
-        v.push(("speed", Num(p.vehicle.physics.velocity_kmh().abs() as f64)));
-        v.push(("delay", Num(p.vehicle.host.tt_delay as f64)));
+        let veh = &p.vehicle;
+        v.push(("speed", Num(veh.physics.velocity_kmh().abs() as f64)));
+        v.push(("delay", Num(veh.host.tt_delay as f64)));
+        // Tile coordinates from global.cfg and metres within the tile (x east, y north).
+        let ((tx, ty), (lx, ly)) = omsi_map::world_to_tile_local(veh.position.x, veh.position.y);
+        v.push(("tile_x", Num(tx as f64)));
+        v.push(("tile_y", Num(ty as f64)));
+        v.push(("tile_pos_x", Num(lx)));
+        v.push(("tile_pos_y", Num(ly)));
+        v.push(("heading", Num(veh.heading.rem_euclid(360.0))));
+        v.push(("vehicle_manufacturer", Text(veh.ty.def.manufacturer.trim().to_string())));
+        v.push(("vehicle_type", Text(veh.ty.def.type_name.trim().to_string())));
+        // the terminus the bus shows (the hof entry its scripts chose; none for an
+        // `[addterminus_allexit]` one), which is not always the timetable's
+        let shown = match (veh.var("target_index_int"), veh.host.hof.as_ref()) {
+            (Some(i), Some(hof)) if i.is_finite() && i >= 0.0 => hof.termini.get(i.round() as usize).filter(|t| !t.all_exit).map(|t| t.texture_id.trim().to_string()),
+            _ => None,
+        };
+        v.push(("destination", Text(shown.unwrap_or_default())));
+        v.push(("passengers", Num(app.humans.as_ref().map(|h| h.riding()).unwrap_or(0) as f64)));
     }
     if let Some(d) = app.duty.as_ref() {
         v.push(("line", Text(d.line.trim().to_string())));
@@ -79,6 +101,30 @@ pub(crate) fn game_info(app: &crate::App) -> Vec<(&'static str, InfoValue)> {
         }
     }
     v
+}
+
+impl Io<'_> {
+    /// The value of `omsi.info()` an `.opl` list names as `openomsi_<key>` (any case).
+    fn game_value(&self, name: &str) -> Option<&InfoValue> {
+        let key = name.get(..9).filter(|p| p.eq_ignore_ascii_case("openomsi_")).map(|_| &name[9..])?;
+        self.info.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v)
+    }
+
+    fn game_number(&self, name: &str) -> Option<f32> {
+        let value = match self.game_value(name)? {
+            InfoValue::Num(n) => *n as f32,
+            InfoValue::Bool(b) => u8::from(*b) as f32,
+            InfoValue::Text(_) => return None,
+        };
+        value.is_finite().then_some(value)
+    }
+
+    fn game_string(&self, name: &str) -> Option<String> {
+        match self.game_value(name)? {
+            InfoValue::Text(t) => Some(t.clone()),
+            _ => None,
+        }
+    }
 }
 
 impl PluginIo for Io<'_> {
@@ -98,7 +144,11 @@ impl PluginIo for Io<'_> {
     }
 
     fn var(&mut self, name: &str) -> Option<f32> {
-        self.vehicle.as_ref()?.var(name)
+        if let Some(v) = self.vehicle.as_ref()?.var(name) {
+            return Some(v);
+        }
+        // A script variable takes precedence over the read-only game snapshot.
+        self.game_number(name)
     }
 
     fn set_var(&mut self, name: &str, v: f32) {
@@ -109,8 +159,10 @@ impl PluginIo for Io<'_> {
 
     fn string(&mut self, name: &str) -> Option<String> {
         let veh = self.vehicle.as_ref()?;
-        let i = veh.ty.program.str_var(name)?;
-        veh.state.str_vars.get(i as usize).cloned()
+        if let Some(i) = veh.ty.program.str_var(name) {
+            return veh.state.str_vars.get(i as usize).cloned();
+        }
+        self.game_string(name)
     }
 
     fn set_string(&mut self, name: &str, s: &str) {
@@ -197,5 +249,57 @@ impl PluginIo for Io<'_> {
 
     fn set_other_var(&mut self, id: u64, name: &str, v: f32) -> bool {
         self.others.iter_mut().find(|o| o.0 == id).is_some_and(|o| o.2.set_var(name, v))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snapshot(info: Vec<(&'static str, InfoValue)>) -> Io<'static> {
+        Io { vehicle: None, others: Vec::new(), dt: 0.0, message: None, info, commands: Vec::new(), keys: Vec::new() }
+    }
+
+    #[test]
+    fn game_info_names_require_prefix_and_ignore_ascii_case() {
+        let io = snapshot(vec![("heading", InfoValue::Num(93.0))]);
+        assert_eq!(io.game_number("OPENOMSI_Heading"), Some(93.0));
+        for name in ["heading", "openomsi", "openomsi_", "openomsi_unknown", "openomsí_heading", "💡💡💡heading"] {
+            assert_eq!(io.game_value(name), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn game_info_callbacks_keep_number_boolean_and_text_types() {
+        let io = snapshot(vec![
+            ("speed", InfoValue::Num(42.5)),
+            ("paused", InfoValue::Bool(true)),
+            ("on_foot", InfoValue::Bool(false)),
+            ("destination", InfoValue::Text("Žďár nad Sázavou".into())),
+            ("map_path", InfoValue::Text(String::new())),
+        ]);
+        assert_eq!(io.game_number("openomsi_speed"), Some(42.5));
+        assert_eq!(io.game_number("openomsi_paused"), Some(1.0));
+        assert_eq!(io.game_number("openomsi_on_foot"), Some(0.0));
+        assert_eq!(io.game_string("openomsi_destination").as_deref(), Some("Žďár nad Sázavou"));
+        assert_eq!(io.game_string("openomsi_map_path"), Some(String::new()));
+        assert_eq!(io.game_number("openomsi_destination"), None);
+        assert_eq!(io.game_string("openomsi_speed"), None);
+        assert_eq!(io.game_string("openomsi_paused"), None);
+    }
+
+    #[test]
+    fn game_info_numbers_reject_non_finite_values_and_float_overflow() {
+        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, f64::MAX] {
+            let io = snapshot(vec![("speed", InfoValue::Num(value))]);
+            assert_eq!(io.game_number("openomsi_speed"), None);
+        }
+    }
+
+    #[test]
+    fn legacy_vehicle_callbacks_still_require_a_player_vehicle() {
+        let mut io = snapshot(vec![("clock", InfoValue::Num(32400.0)), ("map_path", InfoValue::Text("maps/example/global.cfg".into()))]);
+        assert_eq!(io.var("openomsi_clock"), None);
+        assert_eq!(io.string("openomsi_map_path"), None);
     }
 }

@@ -97,7 +97,7 @@ have, reads give `nil` and writes do nothing.
 
 | Function | What it does |
 | --- | --- |
-| `omsi.info()` | a table of what the game is doing: `map`, `clock` (seconds since midnight), `day`, `year`, `view`, `paused`, `on_foot`, `multiplayer`, `traffic` (AI vehicles), `speed` (km/h), `delay` (s, late positive); on a duty also `line`, `tour`, `trip`, `trips`, `terminus`, `next_stop`, `next_stop_arrival`, `next_stop_departure` |
+| `omsi.info()` | a table of what the game is doing: `map`, `clock` (seconds since midnight), `day`, `year`, `view`, `paused`, `on_foot`, `multiplayer`, `traffic` (AI vehicles), `speed` (km/h), `delay` (s, late positive), `map_path` (the map's global.cfg), `version` (of openOMSI); with a bus also `tile_x`, `tile_y` (its tile, as global.cfg's `[map]` list numbers them), `tile_pos_x`, `tile_pos_y` (metres in that tile, x east, y north), `heading` (degrees, clockwise from north), `vehicle_manufacturer`, `vehicle_type`, `destination` (the terminus the bus shows), `passengers` (aboard); on a duty also `line`, `tour`, `trip`, `trips`, `terminus`, `next_stop`, `next_stop_arrival`, `next_stop_departure` |
 | `omsi.clock()` | the game's time of day as `"HH:MM:SS"` |
 | `omsi.speed()` | the bus's speed in km/h (0 on foot) |
 | `omsi.distance(x, y)` | metres from the bus to a map point, or `nil` on foot |
@@ -244,6 +244,19 @@ openOMSI does the same (`crates/omsi-plugin`, driven from `crates/omsi-app/src/p
     `OMSI_WINE`). The host is found next to the game (`OMSI_PLUGIN_HOST32` overrides).
 * The system variables are the scripts' (`omsi_script::SysVar`); a plugin's writes to
   them are not applied (the clock, weather and input stay the game's).
+* **`openomsi_<key>`** in a `[varlist]` or `[stringvarlist]` reads the value `<key>` of
+  `omsi.info()` (see above): numbers and booleans as variables, texts as string variables,
+  while the player drives a bus. A plugin that reads the bus's place, its type or the map
+  out of Omsi.exe's memory at fixed addresses - which cannot work here - lists
+  `openomsi_tile_x`, `openomsi_tile_pos_x`, `openomsi_heading`, `openomsi_map_path`... instead.
+  OMSI has no variables of these names and skips them, so one `.opl` serves both games.
+  Names are matched case-insensitively. Vehicle script variables take precedence over
+  this fallback. Game values are read-only: writing them does not change the game.
+  Boolean values are `0` or `1`; a text requested as a number (or the reverse), an
+  unknown key, or a number not representable as a finite `f32` is unavailable.
+  `destination` is the selected HOF terminus's texture identifier (empty for an all-exit
+  terminus); `passengers` is zero when no passenger simulation is active. `version` is
+  the game's displayed version, rather than the Cargo package version.
 * `OMSI_NO_PLUGINS=1` leaves every plugin out. A plugin whose host stops answering is
   left out for the rest of the session.
 * `PluginStart` gets a nil owner: there is no Delphi application object. Plugins that
