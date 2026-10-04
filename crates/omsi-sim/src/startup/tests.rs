@@ -557,3 +557,59 @@ fn scripted_ignition_bus_cancels_if_released_at_starter_rpm() {
     assert!(!power_on(&v));
     assert!(!starter_engaged(&v));
 }
+
+#[test]
+fn ignores_running_flag_written_only_by_an_uncalled_macro() {
+    let fixture = Fixture::new(
+        r#"
+{init} 1 (S.L.battery_on) 0 (S.L.engine_on) {end}
+{trigger:engine_start}
+1 (S.L.engine_starter)
+(L.L.presses) 1 + (S.L.presses)
+{end}
+{trigger:engine_start_off}
+0 (S.L.engine_starter)
+(L.L.releases) 1 + (S.L.releases)
+{end}
+{frame}
+(L.L.engine_starter) {if}
+    (L.L.elapsed) (L.S.Timegap) + (S.L.elapsed)
+    (L.L.elapsed) 0.7 > {if} 640 (S.L.engine_n) {endif}
+{endif}
+{end}
+{macro:unused_combustion}
+1 (S.L.engine_on)
+{end}
+"#,
+    );
+    let mut v = fixture.vehicle();
+    let mut start = StartUp::new(&v, &[]);
+    advance(&mut v, &mut start, 1.0 / 60.0, 8.0);
+    assert!(!start.running(), "{:?}", start.report);
+    assert!(engine_running(&v), "{:?}", start.report);
+    assert_eq!(v.var("engine_on"), Some(0.0));
+    assert_eq!(v.var("engine_starter"), Some(0.0));
+    assert_eq!(v.var("presses"), Some(1.0));
+    assert_eq!(v.var("releases"), Some(1.0));
+    assert!(start.report.iter().any(|s| s.contains("engine started")));
+}
+
+#[test]
+fn reachable_nested_running_flag_still_blocks_cranking_rpm() {
+    let fixture = Fixture::new(
+        r#"
+{init} 0 (S.L.engine_on) 640 (S.L.engine_n) {end}
+{frame} (M.L.outer) {end}
+{macro:outer} (M.L.combustion) {end}
+{macro:combustion}
+(L.L.fuel_available) {if} 1 (S.L.engine_on) {else} 0 (S.L.engine_on) {endif}
+{end}
+"#,
+    );
+    let mut v = fixture.vehicle();
+    v.update(1.0 / 60.0);
+    assert!(!engine_running(&v));
+    v.set_var("fuel_available", 1.0);
+    v.update(1.0 / 60.0);
+    assert!(engine_running(&v));
+}

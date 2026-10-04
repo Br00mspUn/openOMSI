@@ -382,15 +382,49 @@ fn engine_caught(v: &VehicleInstance) -> bool {
     engine_running(v) && engine_rpm(v).map(|n| n > 300.0).unwrap_or(true)
 }
 
-/// The engine runs. Script flags are authoritative; RPM is a fallback for scripts without
-/// one. A starter can turn the engine above 350 rpm before combustion begins.
+/// A false flag is still authoritative unless its only potential setters are unreachable.
+/// Some script sets include an unused engine macro alongside a different active drivetrain;
+/// its stale flag must not suppress the RPM fallback. Keep explicitly initialized flags
+/// with no enabling code, and follow macro calls from the active entry points.
+fn running_flag_is_authoritative(v: &VehicleInstance, name: &str) -> bool {
+    let p = &v.ty.program;
+    let Some(id) = p.var(name) else { return false };
+    if p.init
+        .iter()
+        .chain(&p.frame)
+        .chain(p.triggers.values())
+        .any(|b| p.block_sets(*b, id))
+    {
+        return true;
+    }
+    !(0..p.blocks.len()).any(|i| p.block_sets(i as omsi_script::BlockId, id))
+}
+
+/// The engine runs. Live script flags are authoritative; RPM is a fallback when flags
+/// are absent or only set by unreachable code. A starter can exceed 350 rpm without firing.
 pub fn engine_running(v: &VehicleInstance) -> bool {
-    any_flag(v, ["engine_on", "engine_running", "motor_on", "motor_running"])
-        .or_else(|| any_flag(v, custom_state_names(v, "engine")))
-        .unwrap_or_else(|| ["engine_n", "engine_rpm", "motor_n", "motor_rpm"]
+    let authoritative =
+        |name: &&str| flag(v, name) == Some(true) || running_flag_is_authoritative(v, name);
+    any_flag(
+        v,
+        ["engine_on", "engine_running", "motor_on", "motor_running"]
+            .into_iter()
+            .filter(authoritative),
+    )
+    .or_else(|| {
+        any_flag(
+            v,
+            custom_state_names(v, "engine")
+                .into_iter()
+                .filter(authoritative),
+        )
+    })
+    .unwrap_or_else(|| {
+        ["engine_n", "engine_rpm", "motor_n", "motor_rpm"]
             .into_iter()
             .filter_map(|n| v.var(n))
-            .any(|n| n > 350.0))
+            .any(|n| n > 350.0)
+    })
 }
 
 /// The engine has come to rest: by its speed where the bus has one (the flags of some
