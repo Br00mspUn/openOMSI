@@ -3523,6 +3523,9 @@ impl PlannedTrip {
 
 /// The bus is at a stop within this distance (m), and has left it beyond the second.
 const AT_STOP: f64 = 25.0;
+/// How long before its departure the next trip of a duty may begin when the bus leaves the
+/// terminus it has served (s).
+const EARLY_START: f64 = 300.0;
 const LEFT_STOP: f64 = 35.0;
 
 /// How far ahead (s) the departure displays look.
@@ -4663,7 +4666,11 @@ impl PlayerDuty {
         {
             self.served_terminus = self.trip().stops.last().and_then(|stop| stop.position);
         }
+        // (the next trip starts on leaving the terminus only when it is due within a few
+        // minutes: a bus moved to its layover or across to the departure stand well before
+        // then waits for it, instead of being hours early on a trip begun at once)
         if self.trip_index + 1 < self.trips.len()
+            && self.trips[self.trip_index + 1].departure - day_time <= EARLY_START
             && self
                 .served_terminus
                 .is_some_and(|stop| (bus.position - stop).length() >= 60.0)
@@ -4692,7 +4699,7 @@ impl PlayerDuty {
     fn doors_open(bus: &omsi_sim::VehicleInstance) -> bool {
         let mut reports_passenger_doors = false;
         let mut passenger_door_open = false;
-        for i in 0..8 {
+        for i in 0..16 {
             for kind in ["Entry", "Exit"] {
                 let name = format!("PAX_{kind}{i}_Open");
                 if bus.has_script_var(&name)
@@ -5523,19 +5530,21 @@ pub(crate) mod tests {
             assert_eq!(duty.trip_index, 0, "less than 60 m away");
             bus.position.x = 560.0;
             duty.update(&mut bus, 161.0);
+            assert_eq!(duty.trip_index, 0, "a trip due in more than five minutes waits (a bus moved to its layover)");
+            duty.update(&mut bus, 301.0);
             assert_eq!((duty.trip_index, duty.next_stop), (1, 1));
             assert_eq!(bus.host.tt_busstop_index, 1);
             assert_eq!(bus.host.tt_stops[0].1, 600.0);
-            assert_eq!(duty.delay(161.0), -439.0);
+            assert_eq!(duty.delay(301.0), -299.0);
             assert!(duty.take_trip_change());
-            duty.update(&mut bus, 162.0);
+            duty.update(&mut bus, 302.0);
             assert!(!duty.take_trip_change());
             assert_eq!(duty.trip_index, 1, "advance exactly one trip");
             // The previous trip's door opening cannot finish the next trip too.
             bus.position.x = 1000.0;
-            duty.update(&mut bus, 200.0);
+            duty.update(&mut bus, 400.0);
             bus.position.x = 1060.0;
-            duty.update(&mut bus, 210.0);
+            duty.update(&mut bus, 410.0);
             assert_eq!(duty.trip_index, 1);
         }
     }
