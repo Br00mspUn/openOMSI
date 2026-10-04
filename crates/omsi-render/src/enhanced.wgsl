@@ -345,6 +345,23 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     if (terrain) {
         duv = in.uv * material.extra.z;
     }
+    // (without the [texcoordtransX/Y] offset: the transmap, night map and light map stay
+    // in place, see fs_main)
+    let buv = tex_address(in.uv - in.params.zw);
+    let msk_lod = led_lod(buv, vec2<f32>(textureDimensions(t_trans)));
+    // Empty paint also needs no tiled diffuse or detail samples. Its brush mask
+    // replaces diffuse alpha, so coverage can be checked before those reads.
+    if (TERRAIN_PAINT && material.params.x > 1.5 && material.params.z > 0.5
+        && material.params.w > 0.5 && enh.debug.x <= 0.5 && material.ambient.w <= 1.5) {
+        var coverage = sample_transmap(buv).a;
+        if (material.emissive.w < -1.5 && enh.led.y < msk_lod) {
+            coverage = textureSampleLevel(t_trans, s_diffuse, buv, enh.led.y).a;
+        }
+        coverage = smoothstep(0.32, 0.68, coverage);
+        if (coverage * material.color.a * in.params.x == 0.0) {
+            discard;
+        }
+    }
     // An LED panel is sampled at the level its screen footprint asks for, held at
     // `enh.led.y` (`Led mip strength`): its dots keep their gaps much further out than the
     // full chain allows, and the shimmer is a fraction of a full-resolution sample's. The
@@ -359,10 +376,6 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         tex = diffuse_border(textureSampleLevel(t_diffuse, s_diffuse, duv, enh.led.y), duv);
     }
     let diffuse_a = tex.a;
-    // (without the [texcoordtransX/Y] offset: the transmap, night map and light map stay
-    // in place, see fs_main)
-    let buv = tex_address(in.uv - in.params.zw);
-    let msk_lod = led_lod(buv, vec2<f32>(textureDimensions(t_trans)));
     if (terrain && material.extra.y > 0.0) {
         let det = textureSample(t_light, s_diffuse, in.uv * material.extra.y);
         tex = vec4<f32>(clamp(tex.rgb * det.rgb, vec3<f32>(0.0), vec3<f32>(1.0)), tex.a);

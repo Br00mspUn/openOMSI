@@ -12030,9 +12030,16 @@ mod tests {
                 let diffuse = renderer.add_texture(
                     &mut scene,
                     &omsi_texture::Image {
-                        width: 1,
-                        height: 1,
-                        rgba: vec![rgb[0], rgb[1], rgb[2], 255],
+                        width: 4,
+                        height: 4,
+                        rgba: (0..16)
+                            .flat_map(|i| {
+                                let c = rgb.map(|v| {
+                                    if (i / 4 + i % 4) % 2 == 0 { v } else { v / 2 }
+                                });
+                                [c[0], c[1], c[2], 255]
+                            })
+                            .collect(),
                         has_alpha: false,
                     },
                     false,
@@ -12050,12 +12057,28 @@ mod tests {
                     },
                     false,
                 );
+                // Generated tiled detail exercises sampling beside empty mask pixels.
+                let detail = renderer.add_texture(
+                    &mut scene,
+                    &omsi_texture::Image {
+                        width: 4,
+                        height: 4,
+                        rgba: (0..16)
+                            .flat_map(|i| {
+                                let v = if (i / 4 + i % 4) % 2 == 0 { 160 } else { 255 };
+                                [v, v, v, 255]
+                            })
+                            .collect(),
+                        has_alpha: false,
+                    },
+                    false,
+                );
                 let mat = renderer.add_terrain_layer_material(
                     &mut scene,
                     Some(diffuse),
                     mask,
-                    None,
-                    1.0,
+                    Some((detail, 12.0)),
+                    8.0,
                     None,
                     1.0,
                 );
