@@ -1961,6 +1961,11 @@ impl ApplicationHandler for App {
                 *self.profile.entry("scripted").or_default() += __t.elapsed().as_secs_f64();
                 // (the game menu's lines, for the interface below)
                 let menu_lines = if self.game_menu.is_some() { self.game_menu_items() } else { Vec::new() };
+                // (the mirror editor's keys and the panel under the cursor, while it is on)
+                let mirror_help = match (self.player.as_ref(), self.mirror_hud_size()) {
+                    (Some(p), Some(size)) => self.mirror_hud.help_lines(p, self.hud_cursor(), size),
+                    _ => Vec::new(),
+                };
                 let vr_nav_display = self.vr_nav_display();
                 let vr_active = self.vr_active();
                 // the interface over the picture
@@ -1990,6 +1995,8 @@ impl ApplicationHandler for App {
                     // next to the cursor (`ui`), when the setting asks for it
                     let tooltip = self.hover.as_ref().map(|h| names.control(h));
                     // the object editor's keys, while it is on (one quiet line)
+                    // the mirror editor's keys and the panel under the cursor, while it is on
+                    lines.extend(mirror_help);
                     if self.editor.is_some() {
                         lines.push("Object editor: click picks · drag moves · wheel turns (Shift lifts) · Del · C copy · V variant · Backspace undo · Ctrl+S save · Esc".into());
                     }
@@ -2449,6 +2456,7 @@ impl ApplicationHandler for App {
                         // few milliseconds of the frame).
                         if let (Some(p), Some(w)) = (self.player.as_ref(), self.world.as_ref()) {
                             self.mirror_hud.set_aspects(w.mirror_aspect.lock().clone());
+                            self.mirror_hud.set_glass(w.mirror_glass.lock().clone());
                             self.mirror_hud.sync(p, self.settings.mirror_hud);
                         }
                         if self.settings.mirror_size == 0 {
@@ -2595,10 +2603,6 @@ impl ApplicationHandler for App {
                                     (self.cursor.0 - hud[0], self.cursor.1),
                                 );
                                 crate::ui::shift_overlays(scene, start, hud[0]);
-                            }
-                            // (the editor's keys, on screen as long as it is on)
-                            if self.mirror_hud.editing() && self.service_msg.is_none() {
-                                self.service_msg = Some((crate::mirror_hud::HINT.into(), 2.0));
                             }
                         }
                         if !mirrored
