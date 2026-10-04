@@ -664,11 +664,29 @@ fn driving_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
     toggle_setting(ui, s, dirty, c.row(), "Force feedback and vibration", "ff_enabled");
     toggle_setting(ui, s, dirty, c.row(), "Invert force feedback by default", "ff_invert");
     c.y += ui.paragraph("Wheels with a saved direction use their own setting under Controls → Game controllers.", Vec2::new(c.inner.x, c.y), c.inner.w, 12.5, Weight::Regular, TEXT_DIM) + 8.0;
+    toggle_setting(ui, s, dirty, c.row(), "Invert force feedback", "ff_invert");
+    // what the wheel feels all the time while the bus runs: the road's grain and the
+    // engine's buzz, and how long a jolt eases away once it is over
+    for (key, label, id) in [("ff_road_vib", "Road texture vibration", "s-ffroad"), ("ff_engine_vib", "Engine vibration", "s-ffeng")] {
+        let mut v = get(s, key).as_f64().unwrap_or(1.0) as f32;
+        if ui.slider(id, c.row(), &mut v, 0.0, 4.0, 0.05, label, &|v| if v < 0.01 { "Off".to_string() } else if (v - 1.0).abs() < 0.01 { "Normal".to_string() } else { format!("{:.0}%", v * 100.0) }) {
+            s[key] = json!((v * 20.0).round() / 20.0);
+            *dirty = 0.3;
+        }
+    }
+    let mut fade = get(s, "ff_fade").as_f64().unwrap_or(0.28) as f32;
+    if ui.slider("s-fffade", c.row(), &mut fade, 0.0, 1.5, 0.05, "Vibration fade-out", &|v| if v < 0.01 { "Off".to_string() } else { format!("{:.0} ms", (v * 1000.0).round() as i32) }) {
+        s["ff_fade"] = json!((fade * 100.0).round() / 100.0);
+        *dirty = 0.3;
+    }
     if ui.button("s-wreset", c.row(), "Reset wheel settings", Some("restart_alt"), ButtonKind::Normal) {
         s["wheel_range"] = json!(900.0);
         s["wheel_lock"] = json!(0.0);
         s["ff_invert"] = json!(false);
         s["ff_enabled"] = json!(true);
+        s["ff_road_vib"] = json!(1.0);
+        s["ff_engine_vib"] = json!(1.0);
+        s["ff_fade"] = json!(0.28);
         *dirty = 0.3;
     }
     if ui.button("s-go-pads", c.row(), "Set up a wheel or pedals", Some("sports_esports"), ButtonKind::Normal) {
@@ -681,6 +699,7 @@ fn driving_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
 fn camera_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, cols: [Rect; 2]) -> [f32; 2] {
     let mut c = Col::new(ui, cols[0], "Driver's view");
     // the driver's eye, moved from the bus's own camera
+    c.section(ui, "Seat position");
     for (key, label, id) in [("seat_y", "Seat forward / back", "s-seaty"), ("seat_z", "Seat up / down", "s-seatz"), ("seat_x", "Seat right / left", "s-seatx")] {
         let mut v = get(s, key).as_f64().unwrap_or(0.0) as f32;
         if ui.slider(id, c.row(), &mut v, -0.6, 0.6, 0.01, label, &|v| format!("{:+.0} cm", v * 100.0)) {
@@ -688,10 +707,16 @@ fn camera_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, co
             *dirty = 0.3;
         }
     }
+    let mut seat_pitch = get(s, "seat_pitch_deg").as_f64().unwrap_or(0.0) as f32;
+    if ui.slider("s-seat-pitch", c.row(), &mut seat_pitch, -45.0, 45.0, 1.0, "Head pitch", &|v| format!("{v:+.0}°")) {
+        s["seat_pitch_deg"] = json!(seat_pitch.round());
+        *dirty = 0.3;
+    }
     if ui.button("s-seatreset", c.row(), "Reset the seat position", Some("restart_alt"), ButtonKind::Normal) {
         for k in ["seat_x", "seat_y", "seat_z"] {
             s[k] = json!(0.0);
         }
+        s["seat_pitch_deg"] = json!(0.0);
         *dirty = 0.3;
     }
     let fov_key = if get(s, "triple_screen").as_bool().unwrap_or(false)
@@ -709,6 +734,23 @@ fn camera_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, co
     let mut look = get(s, "look_sens").as_f64().unwrap_or(1.0) as f32;
     if ui.slider("s-look-sens", c.row(), &mut look, 0.1, 2.0, 0.05, "Mouse look sensitivity", &|v| if (v - 1.0).abs() < 0.01 { "OMSI".to_string() } else { format!("{:.0}%", v * 100.0) }) {
         s["look_sens"] = json!((look * 100.0).round() / 100.0);
+        *dirty = 0.3;
+    }
+    toggle_setting(ui, s, dirty, c.row(), "Right stick turns the view", "right_stick_look");
+    let mut smooth = get(s, "look_smoothing_ms").as_f64().unwrap_or(0.0) as f32;
+    if ui.slider("s-look-smoothing", c.row(), &mut smooth, 0.0, 200.0, 10.0, "Smooth the mouse look", &|v| if v <= 0.0 { "Off".to_string() } else { format!("{v:.0} ms") }) {
+        s["look_smoothing_ms"] = json!(smooth.round());
+        *dirty = 0.3;
+    }
+    c.section(ui, "A head at rest");
+    let mut idle = get(s, "head_idle").as_f64().unwrap_or(0.0) as f32;
+    if ui.slider("s-head-idle", c.row(), &mut idle, 0.0, 1.0, 0.05, "Head sway at a standstill", &|v| if v <= 0.0 { "Off".to_string() } else { format!("{:.0}%", v * 100.0) }) {
+        s["head_idle"] = json!((idle * 100.0).round() / 100.0);
+        *dirty = 0.3;
+    }
+    let mut pace = get(s, "head_idle_pace").as_f64().unwrap_or(1.0) as f32;
+    if ui.slider("s-head-idle-pace", c.row(), &mut pace, 0.5, 2.0, 0.05, "Sway pace", &|v| format!("{:.0}%", v * 100.0)) {
+        s["head_idle_pace"] = json!((pace * 100.0).round() / 100.0);
         *dirty = 0.3;
     }
     toggle_setting(ui, s, dirty, c.row(), "Driver's view turns with the steering", "steer_look");
@@ -2589,15 +2631,20 @@ mod settings_tests {
         }
         let driving = vec![
             "s-keys", "set-steering_linear", "set-old_steering", "set-red_steer_spd", "s-mouse", "set-mouse_smooth", "set-mouse_right_off", "set-blinker_cancel", "set-brake_hold", "set-auto_clutch", "set-momentary_gears", "s-go-keys",
-            "s-wrange", "s-wlock", "s-pedt", "s-pedb", "set-ff_enabled", "set-ff_invert", "s-wreset", "s-go-pads",
+            "s-wrange", "s-wlock", "s-pedt", "s-pedb", "set-ff_enabled", "set-ff_invert", "s-ffroad", "s-ffeng", "s-fffade", "s-wreset", "s-go-pads",
         ];
         let mut camera = vec![
             "s-seaty",
             "s-seatz",
             "s-seatx",
+            "s-seat-pitch",
             "s-seatreset",
             "s-fov",
             "s-look-sens",
+            "set-right_stick_look",
+            "s-look-smoothing",
+            "s-head-idle",
+            "s-head-idle-pace",
             "set-steer_look",
             "s-steer-look-angle",
             "s-steer-look-response",
@@ -2692,6 +2739,23 @@ mod settings_tests {
             }
             assert_eq!(ui.drawn.len(), names.len(), "the {} tab has a clickable thing more than the list names", SETTINGS_TABS[tab]);
         }
+    }
+
+    #[test]
+    fn right_stick_look_switch_toggles_and_saves_from_the_camera_tab() {
+        let mut s = all_rows();
+        assert_eq!(s["right_stick_look"], json!(true));
+
+        click(2, "set-right_stick_look", &mut s);
+        assert_eq!(s["right_stick_look"], json!(false));
+        let saved = core::settings_to_text(&s, None);
+        assert_eq!(
+            core::settings_from_text(Some(&saved))["right_stick_look"],
+            json!(false)
+        );
+
+        click(2, "set-right_stick_look", &mut s);
+        assert_eq!(s["right_stick_look"], json!(true));
     }
 
     #[test]

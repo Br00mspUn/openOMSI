@@ -119,10 +119,15 @@ pub(crate) struct App {
     pub(crate) hover_part: Option<String>,
     /// A `[mouseevent]` mesh is under the cursor (named in `hover` or not): the hand cursor.
     pub(crate) hover_hand: bool,
+    /// The idle head sway waiting where it is while the cursor is on a control
+    /// (see `head_idle::Hold`).
+    pub(crate) head_idle_hold: crate::head_idle::Hold,
     /// `OMSI_INPUT` script: (seconds after start, command), in order.
     pub(crate) input_script: Vec<(f32, String)>,
-    /// `shot <file>` of the input script: the next frame is also rendered into this PNG.
-    pub(crate) shot: Option<PathBuf>,
+    /// A pending screenshot: its output path and whether touch controls are composited over it.
+    /// Scripted `shot <file>` captures keep the controls for visual tests; player screenshots
+    /// leave them out so the camera button produces a clean image.
+    pub(crate) shot: Option<(PathBuf, bool)>,
     /// The simulation stands still (OMSI's `sim_pause`, P, or the menu): nothing moves,
     /// the clock stops, the picture and the camera go on.
     pub(crate) paused: bool,
@@ -272,6 +277,11 @@ pub(crate) struct App {
     /// How far the player has turned the head (driver, passenger) or swung the outside
     /// camera around the bus, and how far that camera sits from it.
     pub(crate) look: (f32, f32),
+    /// Where the view is drawn between that angle and the one of the frame before: the way
+    /// the mouse (or the stick, or the keys) went is eased in, so the head glides to the
+    /// angle asked for rather than jumping to it (`look_smoothing_ms`; 0 keeps it equal to
+    /// `look`). Only the camera reads this - everything that turns the view writes `look`.
+    pub(crate) look_smooth: (f32, f32),
     /// Each view keeps its own `look` (as OMSI's cameras do): turning the outside camera
     /// (F3) leaves the driver's head (F1) where it was. `look_view` is the view `look`
     /// belongs to now; see `App::sync_view_look`.
@@ -282,6 +292,11 @@ pub(crate) struct App {
     /// The zoom of the views inside the bus (driver, passenger): their field of view is
     /// the camera's times this (the mouse wheel, + and -, a pinch), per view.
     pub(crate) view_zoom: std::collections::HashMap<String, f32>,
+    /// Eased Space return in flight (F1 only): ((look from), (zoom from), seconds in,
+    /// look key it started from). A hand on the view cancels it; other views reset
+    /// instantly. If the camera changes mid-glide, the originating camera is
+    /// finalized straight ahead instead of keeping a partial angle.
+    pub(crate) f1_reset: Option<((f32, f32), f32, f32, String)>,
     pub(crate) orbit: f32,
     pub(crate) frames: u32,
     pub(crate) fps_t: Instant,
@@ -1081,7 +1096,7 @@ pub(crate) fn report_missing_content(w: &World, msg: &mut Option<(String, f32)>)
 
 /// How long the glide between two cockpit cameras takes (seconds). The eye, the turn of the
 /// view and the field of view all follow the same curve over this time. 0 = hard cut.
-pub(crate) const CAM_BLEND_SECS: f32 = 0.6;
+pub(crate) const CAM_BLEND_SECS: f32 = 0.54;
 /// The longest step of time one frame adds to the glide (seconds): a frame that hitches at
 /// the start of a switch does not skip ahead in it.
 pub(crate) const CAM_BLEND_MAX_DT: f32 = 1.0 / 30.0;
@@ -1209,10 +1224,28 @@ impl CamCarry {
 }
 
 impl CamBlend {
-    /// How far along the way from the old camera to the new one: smootherstep of the time
-    /// (no jolt in speed or acceleration at either end).
+    /// How far along the way from the old camera to the new one: ease-out
+    /// `s = 1-(1-t)^3` — fast off the mark, settling softly, so adjacent
+    /// seats snap round without lagging behind the key.
     pub fn progress(&self) -> f32 {
         let t = self.t.clamp(0.0, 1.0);
-        t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+        1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t)
+    }
+}
+
+#[cfg(test)]
+mod cam_blend_tests {
+    use super::CamBlend;
+
+    fn blend(t: f32) -> f32 {
+        CamBlend { key: None, from: None, shown: None, entering: false, t, carry: None }.progress()
+    }
+
+    #[test]
+    fn glide_starts_fast_and_settles_softly() {
+        assert_eq!(blend(0.0), 0.0);
+        assert_eq!(blend(1.0), 1.0);
+        assert!((blend(0.5) - 0.875).abs() < 1e-6);
+        assert!(blend(0.2) > 0.4, "fast off the mark");
     }
 }

@@ -4,6 +4,31 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1512 - 2026-10-04
+
+### Merged pull requests
+- Mirror panels: only the player's bus notes its mirrors' glass, so the panels no longer take another bus's mirrors [#1171](https://github.com/openOMSI-Project/openOMSI/pull/1171).
+- Translations: Simplified Chinese numbers in their single-character forms [#1282](https://github.com/openOMSI-Project/openOMSI/pull/1282), Traditional Chinese labels refined [#1264](https://github.com/openOMSI-Project/openOMSI/pull/1264).
+
+## 0.1.1502 - 2026-10-04
+
+### Merged pull requests
+- Force feedback: the wheel vibrates with the road surface and the engine, and jolts fade out instead of stopping dead, with three new sliders in the driving settings [#867](https://github.com/openOMSI-Project/openOMSI/pull/867).
+- The navigator shows buses, trolleybuses and trams as pictograms pointing the way they go, not as dots [#1315](https://github.com/openOMSI-Project/openOMSI/pull/1315).
+- Camera: the driver's head pitch can be set (-45 to +45 degrees) under Camera → Seat position [#1179](https://github.com/openOMSI-Project/openOMSI/pull/1179); the view can glide to where the mouse turned it (Look smoothing, off by default) [#998](https://github.com/openOMSI-Project/openOMSI/pull/998); the head can sway a little while the bus waits (Head sway at a standstill, off by default) [#1204](https://github.com/openOMSI-Project/openOMSI/pull/1204); a snappier F1 camera switch and an eased Space return [#870](https://github.com/openOMSI-Project/openOMSI/pull/870).
+- Controllers: the gamepad's right stick turning the view can be switched off [#1170](https://github.com/openOMSI-Project/openOMSI/pull/1170), and an idle device nobody set up no longer stops the gamepad stick from steering [#1165](https://github.com/openOMSI-Project/openOMSI/pull/1165).
+- Mouse steering switched on with O starts from the centre of the window [#1301](https://github.com/openOMSI-Project/openOMSI/pull/1301).
+- Mirror panels (Ctrl+M) show each mirror as its glass does, and the panel editor lists its keys and resizes panels [#1171](https://github.com/openOMSI-Project/openOMSI/pull/1171).
+- Passengers press the stop button at a random distance before their stop instead of all at the same point [#1191](https://github.com/openOMSI-Project/openOMSI/pull/1191).
+- Timetable: after serving the terminus, driving off starts the next trip early when it is due within five minutes [#1199](https://github.com/openOMSI-Project/openOMSI/pull/1199).
+- Servers: the status page counts the shared world (AI cars, buses, people) and an admin can set the AI traffic [#1206](https://github.com/openOMSI-Project/openOMSI/pull/1206); the dispatch can take a player's duty back [#1207](https://github.com/openOMSI-Project/openOMSI/pull/1207); the world options have a button to clear the AI traffic [#1234](https://github.com/openOMSI-Project/openOMSI/pull/1234).
+- The launcher's Join can be told to connect over UDP or WebSocket [#958](https://github.com/openOMSI-Project/openOMSI/pull/958).
+- Lua plugins can see and drive the vehicles round the bus (omsi.others) [#894](https://github.com/openOMSI-Project/openOMSI/pull/894).
+- Player screenshots leave the touch controls out [#1188](https://github.com/openOMSI-Project/openOMSI/pull/1188).
+- Texture memory is no longer capped at 2 GB on cards with more, and the VRAM of AMD cards on Linux is read [#1137](https://github.com/openOMSI-Project/openOMSI/pull/1137).
+- Android: a black screen on Adreno 6xx, 7xx and 8xx chips is avoided by rebuilding their shader cache [#1310](https://github.com/openOMSI-Project/openOMSI/pull/1310).
+- Translations: Simplified Chinese [#1282](https://github.com/openOMSI-Project/openOMSI/pull/1282), Traditional Chinese [#1264](https://github.com/openOMSI-Project/openOMSI/pull/1264), Polish [#1262](https://github.com/openOMSI-Project/openOMSI/pull/1262) and French [#1251](https://github.com/openOMSI-Project/openOMSI/pull/1251).
+
 ## 0.1.1423 - 2026-10-04
 
 - Build: the small-BAR fix for NVIDIA cards ([#905](https://github.com/openOMSI-Project/openOMSI/pull/905)) now comes from the project's own copy of gpu-allocator, not a personal fork.

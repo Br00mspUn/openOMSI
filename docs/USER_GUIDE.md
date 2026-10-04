@@ -96,6 +96,12 @@ middle in a straight line, as in OMSI at the pace the keys turn it (never slower
 wheel comes back by itself). The clutch key works as in OMSI: the pedal goes down at once
 and comes up slowly (0.7 per second) when the key is released.
 
+On a force-feedback wheel the bus is felt all the time, not only when it hits something: the
+steady road under the tyres and the engine's buzz come up as a tremble that is strongest at
+speed and on a wet or snowy road, and the engine's is there even at a standstill, as a real
+one is. Settings → Driving turns each of them off or up to four times as strong, and sets how
+long a jolt or a scripted shake takes to ease away (off = it stops where it stands, as before).
+
 Left-click a cockpit switch to operate it, hold the button and move the mouse to turn a knob,
 or roll the mouse wheel over it (that is the `<event>_drag` OMSI fires); the name of the switch
 under the cursor is shown in the HUD.
@@ -181,7 +187,22 @@ again only when something changes; drag on it to turn the bus, scroll to zoom. I
   configured for steering. Force feedback needs a driver that supports constant force:
   parking resistance eases as the bus rolls, with centring and
   feedback from the bus's sideways acceleration, short bumps when the front wheels cross
-  an edge, plus the scripts' shaking, `FF_Vib_Amp`. A wheel nobody has set up steers with
+  an edge, plus the scripts' shaking, `FF_Vib_Amp`. Over the top of that the wheel keeps up
+   the road and the engine all the time. Most of it is the road itself, read from how far the
+   bus has driven rather than from the clock, so it is felt as the bus's own weight and not as
+   a rattle: waves a few metres long, under and over each other, arriving in the same order
+   every time the bus covers the same stretch. The rest is the fine grain of the surface, so a
+   wet or a snowy road hums louder than dry asphalt without losing that weight. Alongside it
+   comes the engine's buzz through the frame, which grows with the revs and with how hard the
+   engine is working and stays there at a standstill. It leads on the crankshaft turning (about
+   11.7 Hz at idle) with the firing pulses above it (23.3 Hz), which is the band a frame carries
+   and a driver hears; above the revs where the frame can no longer carry either, what is left
+   is the low rumble of the mass the frame works against. A jolt or a scripted shake eases away
+   over the fade time rather than stopping dead, so the wheel never clunks when it lets go.
+   Settings → Driving → *Road texture vibration*, *Engine vibration* and *Vibration fade-out*
+   set how strong the tremble is (off, normal, or up to 400 %) and how long the fade lasts
+   (off, or up to 1.5 s; 0 stops where it stands, as it always did). Both go to 400 % because
+   how much of this a wheel can show depends on its motor. A wheel nobody has set up steers with
   its X axis. A wheel that a community controller mapping also makes a gamepad (a
   Logitech G29) is listed once, and *Use this device* switches any device off
   (it is then neither read nor listed as steering); **Remove this device** (clicked twice) takes
@@ -253,7 +274,10 @@ and Right), `steering_linear` and `old_steering` (the two steering switches abov
 `ff_invert` (force feedback the other way round), `wheel_range` (the wheel's own rotation,
 lock to lock, 900° by default) and `wheel_lock` (how far it is turned for the bus's full
 lock; 0 = the whole wheel, as OMSI), `fov` (degrees for the views from the bus; 0 = the bus's
-own cameras), `collision_objects` (walls, poles and bridges stop the bus; off is OMSI's `no_collision`
+own cameras), `head_idle` (0..1, 0 by default: how far the view sways on its own - a head at
+rest breathes and shifts its weight, and 0 of it is exactly as OMSI; most of it is seen while
+the bus waits at a stop) and `head_idle_pace` (0.5..2: how fast that sway moves, 1 being the
+pace it is designed at), `collision_objects` (walls, poles and bridges stop the bus; off is OMSI's `no_collision`
 option and is taken from OMSI's options when openOMSI starts the first time), `graphics_api`
 (`auto`, `vulkan`, `dx12` on Windows, `gl`: which graphics interface the game asks first -
 with `auto` Vulkan, then DirectX 12, then OpenGL), `ctrl_off` (game controllers switched off
@@ -361,6 +385,18 @@ view into the steering direction, independently of the bus's head-motion simulat
 view response** sets the smoothing time (50–1000 ms, default 250 ms; larger values follow
 more slowly). Manual looking remains available. The automatic turn is suppressed while
 VR or an active head tracker controls the view. It is off by default.
+
+Under **Seat position**, **Head pitch** adjusts the driver's neutral view angle up or down
+(-45° to +45°). It applies to the driver's view with any display setup, not just triple
+screens, and is included when taking offscreen screenshots. Manual looking and head tracking
+remain relative to this setting; **Reset the seat position** resets it along with the seat
+offsets.
+
+In Settings → Camera, **Right stick turns the view** switches automatic gamepad
+camera movement on or off. It is on by default. Switch it off to keep using the
+Xbox controller for steering and pedals without the right stick moving the camera.
+The choice is saved as `right_stick_look=0` (off) or `right_stick_look=1` (on) in
+`settings.cfg`. Explicitly assigned look axes and camera buttons continue to work.
 
 ## Mods and the content folder
 
@@ -494,11 +530,14 @@ timetable are not part of it.
 Copies of the bus's mirrors can be laid over the picture, so that the street behind is in
 view without looking at the glass. In the cab **Ctrl+M** shows or hides them (the first time a
 panel appears for each bus); **Ctrl+Shift+M** starts and ends their editor. The panels are only
-pictures until the editor is on, so the mouse and the keys work as always. In the editor each
+pictures until the editor is on, so the mouse and the keys work as always. A panel shows its
+mirror as the glass in the bus's model does, however that glass lays the picture on (turned over,
+or on its side). In the editor each
 panel has a yellow frame, and:
 
-* the left button drags a panel, the wheel over it resizes it and **Shift+wheel** makes it wider
-  or narrower;
+* the left button drags a panel, the wheel over it makes it taller or shorter and **Shift+wheel**
+  wider or narrower; **[** and **]** make the panel under the cursor narrower and wider, **;**
+  and **'** shorter and taller (held, they repeat);
 * the arrows turn the mirror of the panel under the cursor (as Ctrl+Alt+arrows turns the one
   the driver looks at), **Alt+arrows** shift it across and up and **Page Up/Down** forward and
   back, **-** and **+** narrow and widen its field of view; **R** puts that mirror back as the

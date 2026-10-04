@@ -14,6 +14,7 @@ mod discord;
 #[cfg(steam)]
 mod steam;
 mod voice;
+mod head_idle;
 mod headtrack;
 #[cfg(windows)]
 mod openxr;
@@ -493,10 +494,12 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         mouse_look: false,
         buttons_held: (false, false),
         both_drag: None,
+        f1_reset: None,
         vr_zoom_active: false,
         hover: None,
         hover_part: None,
         hover_hand: false,
+        head_idle_hold: Default::default(),
         input_script: parse_input_script(),
         shot: None,
         paused: false,
@@ -560,6 +563,7 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         html_object_pressed: None,
         drag_delta: (0.0, 0.0),
         look: (0.0, 0.0),
+        look_smooth: (0.0, 0.0),
         view_looks: Default::default(),
         look_view: String::new(),
         cam_blend: Default::default(),

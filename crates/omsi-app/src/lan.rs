@@ -471,6 +471,11 @@ impl RemoteVehicle {
     pub fn vehicle(&self) -> &omsi_sim::VehicleInstance {
         &self.vehicle
     }
+
+    /// The same, for the plugins (`omsi.set_other_var`: their next state writes it again).
+    pub fn vehicle_mut(&mut self) -> &mut omsi_sim::VehicleInstance {
+        &mut self.vehicle
+    }
 }
 
 // The chat's keys are `chat_toggle` and `chat_open` of keyboard.cfg's [game]
@@ -933,6 +938,17 @@ pub fn update_server_info(players: usize, time: &str, weather: &str) {
                 if !weather.is_empty() {
                     i.weather = weather.to_string();
                 }
+            }
+        }
+    }
+}
+
+/// A server run: its shared world now, for `GET /status`.
+pub fn update_server_world(world: omsi_net::ws::WorldCounts) {
+    if let Ok(w) = WS_PATH.lock() {
+        if let Some(g) = w.as_ref().and_then(|w| w.gateway.as_ref()) {
+            if let Ok(mut i) = g.info.lock() {
+                i.world = Some(world);
             }
         }
     }
