@@ -422,6 +422,32 @@ useTextTexture alphascale matl_freetex matl_lightmap matl_nightmap matl_allcolor
 particle_emitter PS_attachTo; material manager: matl_alpha matl_noZwrite matl_noZcheck matl_Zbias
 matl_envmap matl_envmaprealtime matl_bumpmap matl_envmap_mask matl_transmap.
 
+**`[smoke]` particles (Omsi.exe, established Oct 2026).** Nineteen lines: position (3),
+direction (3), speed and its spread, frequency (a second), lifetime (s), brake factor,
+gravity, start size, growth (a second), initial alpha, a line Omsi.exe skips, red, green,
+blue; numbers or variable names (TRauch, read at 0x5f5e58; the final alpha stays 0, so a puff
+fades out over its life). Every frame (0x5a238c) a particle's velocity is multiplied by the
+brake factor raised to 20 x dt - 0x5a145c keeps 20 ln(max(brake, 0.1)) per emitter, so the
+factor is per twentieth of a second at any frame rate - its level speed is drawn towards the
+weather's wind (0x753428) by what that takes off (not yet in openOMSI, where it slows to a
+standstill), and 9.81 x gravity x dt is taken off its vertical speed (a negative gravity
+lifts it). Size and alpha go linearly with its age (0x5a183c).
+Nothing stops it at the ground: it falls on through the road until its life is over (the
+stock buses' and cars' wheel spray has gravity 1 and is under the road within a fifth of a
+second). It is drawn (0x5a47d4 -> 0x5a2b5c builds the quads per camera, 0x5a4180 draws them
+from the scene pass 0x6f1520 after the scenery and before the camera's own vehicle) as a
+square facing the screen, reaching `size / view depth` from its centre in projection space
+and turned by its own random angle (0x5a1d54), its depth moved 0.1 m towards the eye; with
+fog and lighting off, `ALPHABLENDENABLE` on, `ZWRITEENABLE` off but the depth test on,
+`SRCALPHA`/`INVSRCALPHA`, the colour the vertex colour alone (`COLOROP SELECTARG2`: the
+particle's colour lit by the weather's light and the one lamp of 0x858efc on the CPU, white
+for `--PS_emissive--`) and the alpha rauch.tga's times the vertex's (a `[particle_emitter]`
+whose `--PS_bitmap--` is not marked as alpha: `ONE`/`INVSRCCOLOR`, texture times vertex
+colour). So the road cuts every
+puff that sinks into it off in a straight line; openOMSI fades a puff out over the lowest
+6-25 cm above the ground it was set off over instead (the plane its vehicle's wheels stand on,
+an object's own z = 0), and leaves out one wholly under it (`omsi_render::SmokeParticle`).
+
 **Object visibility (OMSI 0x5fdc7c, established Sept 2026).** OMSI decides per *object*
 (scenery object, vehicle), never per mesh, with the model's radius R, `[detail_factor]` D
 (default 1; parsed into the model at +0xa8) and `[noDistanceCheck]` (+0xad, a flag of the whole

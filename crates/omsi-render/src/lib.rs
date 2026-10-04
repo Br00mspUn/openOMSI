@@ -298,13 +298,63 @@ pub enum LightMode {
 }
 
 /// One particle of a `[smoke]` system (exhaust, boiling coolant, wheel spray, chimneys).
-#[derive(Debug, Clone, Copy)]
+///
+/// Omsi.exe draws its puffs (0x5a4180: fog and lighting off, blended over the scene, depth
+/// tested but not written) as squares facing the screen, each turned by its own angle and
+/// moved a tenth of a metre towards the eye in depth (0x5a2b5c), and lets them sink on
+/// through the road, which cuts every one off in a straight line where it goes in. Under a
+/// wheel's spray - dozens of fresh puffs a second, falling in - that is a stack of bright
+/// bands across the road. Here a puff that knows its `ground` fades out over its lowest
+/// part into it instead (see `vs_main` in corona.wgsl).
+#[derive(Debug, Clone, Copy, Default)]
 pub struct SmokeParticle {
     pub position: DVec3,
     /// Half its width (m).
     pub size: f32,
     pub color: [f32; 3],
     pub alpha: f32,
+    /// The angle its picture is turned by about the line of sight (radians).
+    pub spin: f32,
+    /// How far its depth is moved towards the eye (m), its place and size on the screen
+    /// kept: Omsi.exe's 0.1 for every `[smoke]` particle (0x5a1d54 sets it, 0x5a2b5c
+    /// subtracts it from the view depth it projects the depth at).
+    pub z_offset: f32,
+    /// World z of the ground under it (the road its vehicle stands on): it fades out
+    /// towards it, and one wholly under it is left out. `None`: drawn as it is.
+    pub ground: Option<f64>,
+}
+
+/// How high over its ground a smoke puff of half width `size` fades out into it (m): a fifth
+/// of its drawn radius, between 6 and 25 cm - enough that no line shows where the road
+/// meets it, little enough that a wheel's spray, all but a few tens of centimetres of which
+/// is under the road, still shows as the mist round the tyres Omsi.exe draws.
+fn smoke_ground_fade(size: f32) -> f32 {
+    (0.2 * 0.9 * size).clamp(0.06, 0.25)
+}
+
+/// The corona shader's sprite for a smoke particle (`extra.w` 3: the smoke branch of
+/// `vs_main`): `dir` the cosine and sine of its spin, `up` its ground (relative to the
+/// render origin `ro`, `up.y` 1 when it has one), its z offset and how high the fade into
+/// the ground reaches. `None` for a puff too faint or small to draw, or wholly under its
+/// ground.
+fn smoke_sprite(p: &SmokeParticle, ro: DVec3) -> Option<GpuCorona> {
+    if !(p.alpha > 0.002 && p.size > 0.0) {
+        return None;
+    }
+    // (drawn at 0.9 of its size, see `vs_main`)
+    if p.ground.is_some_and(|g| p.position.z + (p.size * 0.9) as f64 <= g) {
+        return None;
+    }
+    let (sin, cos) = p.spin.sin_cos();
+    let ground = p.ground.filter(|g| g.is_finite());
+    Some(GpuCorona {
+        pos: (p.position - ro).as_vec3().to_array(),
+        size: p.size,
+        color: [p.color[0], p.color[1], p.color[2], p.alpha.clamp(0.0, 1.0)],
+        dir: [cos, sin, 0.0, 0.0],
+        up: [ground.map(|g| (g - ro.z) as f32).unwrap_or(0.0), if ground.is_some() { 1.0 } else { 0.0 }, p.z_offset.max(0.0), smoke_ground_fade(p.size)],
+        extra: [-2.0, 0.0, 0.0, 3.0],
+    })
 }
 
 /// The light map atlas: tiles a side and pixels a tile.
@@ -7111,31 +7161,13 @@ impl Renderer {
     /// Upload this frame's smoke particles, farthest first (they are blended over each other).
     fn prepare_smoke(&self, scene: &mut Scene, eye: DVec3) {
         let ro = scene.render_origin;
-        let mut order: Vec<(f64, usize)> = scene
+        let mut order: Vec<(f64, GpuCorona)> = scene
             .smoke
             .iter()
-            .enumerate()
-            .filter(|(_, p)| p.alpha > 0.002 && p.size > 0.0)
-            .map(|(i, p)| (-(p.position - eye).length_squared(), i))
+            .filter_map(|p| smoke_sprite(p, ro).map(|g| (-(p.position - eye).length_squared(), g)))
             .collect();
         order.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let data: Vec<GpuCorona> = order
-            .iter()
-            .map(|&(_, i)| {
-                let p = &scene.smoke[i];
-                GpuCorona {
-                    pos: (p.position - ro).as_vec3().to_array(),
-                    size: p.size,
-                    color: [p.color[0], p.color[1], p.color[2], p.alpha.clamp(0.0, 1.0)],
-                    dir: [0.0, 0.0, 0.0, -1.0],
-                    up: [0.0, 0.0, 1.0, 2.0],
-                    // (a plain sprite, w 0: with 1, the mark of a lamp's cone in the fog,
-                    // the shader laid every puff out as a fan along an axis of zero length
-                    // - nowhere, no exhaust, steam or spray was ever seen)
-                    extra: [-2.0, 0.0, 0.0, 0.0],
-                }
-            })
-            .collect();
+        let data: Vec<GpuCorona> = order.into_iter().map(|(_, g)| g).collect();
         scene.smoke_count = data.len() as u32;
         if data.is_empty() {
             return;
@@ -12230,12 +12262,111 @@ mod tests {
         renderer.set_smoke_texture(&omsi_texture::Image { width: 4, height: 4, rgba: vec![255; 64], has_alpha: true });
         let mut scene = renderer.new_scene();
         for (classic, enhanced) in [(true, false), (false, false), (false, true)] {
-            scene.smoke = vec![SmokeParticle { position: DVec3::new(0.0, 5.0, 0.0), size: 1.0, color: [1.0, 0.0, 0.0], alpha: 1.0 }];
+            scene.smoke = vec![SmokeParticle { position: DVec3::new(0.0, 5.0, 0.0), size: 1.0, color: [1.0, 0.0, 0.0], alpha: 1.0, ..Default::default() }];
             let lighting = Lighting { shadows: false, fog_density: 0.0, classic, enhanced, ..Default::default() };
             let rgba = renderer.render_to_image(&mut scene, 64, 64, &camera, &lighting).unwrap();
             let c = &rgba[(32 * 64 + 32) * 4..(32 * 64 + 32) * 4 + 3];
             assert!(c[0] > 120 && c[1] < 60 && c[2] < 60, "a red puff 5 m ahead (classic {classic}, enhanced {enhanced}): {c:?}");
         }
+    }
+
+    fn smoke_test_renderer() -> Renderer {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        pollster::block_on(Renderer::new_with(
+            &instance,
+            None,
+            Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            RenderOptions { msaa: 1, ssao: false, shadow_size: 1024, fxaa: false, render_scale: 1.0, ..Default::default() },
+        ))
+        .expect("test renderer")
+    }
+
+    /// A puff that knows the ground under it fades out into it over its lowest part - no
+    /// line where the road would cut it off - and keeps its colour higher up, in every
+    /// graphics mode; one wholly under its ground is not drawn.
+    #[test]
+    #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
+    fn a_smoke_puff_fades_into_its_ground() {
+        let camera = Camera { position: DVec3::ZERO, yaw: 0.0, pitch: 0.0, roll: 0.0, fov_deg: 60.0, near: 0.1, far: 100.0 };
+        let mut renderer = smoke_test_renderer();
+        renderer.set_smoke_texture(&omsi_texture::Image { width: 4, height: 4, rgba: vec![255; 64], has_alpha: true });
+        let mut scene = renderer.new_scene();
+        let red = |row: usize, rgba: &[u8]| rgba[(row * 64 + 32) * 4] as i32;
+        for (classic, enhanced) in [(true, false), (false, false), (false, true)] {
+            let lighting = Lighting { shadows: false, fog_density: 0.0, classic, enhanced, ..Default::default() };
+            // 5 m ahead with the ground at its middle: drawn 0.9 m round, a pixel row 9 cm
+            // there (60 degrees over 64 rows); the fade reaches 0.18 m up
+            let profile = |scene: &mut Scene, renderer: &mut Renderer| -> Vec<i32> {
+                let rgba = renderer.render_to_image(scene, 64, 64, &camera, &lighting).unwrap();
+                let bg = red(56, &rgba);
+                (24..=40).map(|row| red(row, &rgba) - bg).collect()
+            };
+            scene.smoke = vec![SmokeParticle { position: DVec3::new(0.0, 5.0, 0.0), size: 1.0, color: [1.0, 0.0, 0.0], alpha: 1.0, ..Default::default() }];
+            let plain = profile(&mut scene, &mut renderer);
+            scene.smoke[0].ground = Some(0.0);
+            let faded = profile(&mut scene, &mut renderer);
+            let (at, full) = (|row: usize| faded[row - 24], |row: usize| plain[row - 24]);
+            let mode = format!("classic {classic}, enhanced {enhanced}: {faded:?} against {plain:?}");
+            assert!(full(25) > 30 && full(33) > 30, "the plain puff is drawn ({mode})");
+            assert!(at(34).abs() < 4 && at(38).abs() < 4, "under its ground ({mode})");
+            assert!(at(31) * 2 < full(31), "a few centimetres over the ground it is all but gone ({mode})");
+            assert!((at(28) - full(28)).abs() <= 3 && (at(25) - full(25)).abs() <= 3, "30 cm up it is as it was ({mode})");
+            for row in 28..31 {
+                assert!(at(row) >= at(row + 1) - 2, "fading down into the ground, no step ({mode})");
+            }
+            // and one sunk wholly into its ground is left out
+            scene.smoke[0].ground = Some(0.95);
+            let rgba = renderer.render_to_image(&mut scene, 64, 64, &camera, &lighting).unwrap();
+            assert!((red(30, &rgba) - red(56, &rgba)).abs() < 6, "a puff under its ground drawn (classic {classic}, enhanced {enhanced})");
+        }
+    }
+
+    /// A puff's picture is turned by its spin about the line of sight (Omsi.exe turns every
+    /// one its own way): the top half of rauch.tga comes to the bottom at half a turn.
+    #[test]
+    #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
+    fn a_smoke_puffs_picture_turns_with_its_spin() {
+        let camera = Camera { position: DVec3::ZERO, yaw: 0.0, pitch: 0.0, roll: 0.0, fov_deg: 60.0, near: 0.1, far: 100.0 };
+        let mut renderer = smoke_test_renderer();
+        let mut rgba = vec![255u8; 64];
+        for px in 8..16 {
+            rgba[px * 4 + 3] = 0;
+        }
+        renderer.set_smoke_texture(&omsi_texture::Image { width: 4, height: 4, rgba, has_alpha: true });
+        let mut scene = renderer.new_scene();
+        let red = |row: usize, rgba: &[u8]| rgba[(row * 64 + 32) * 4] as i32;
+        let lighting = Lighting { shadows: false, fog_density: 0.0, classic: true, ..Default::default() };
+        for (spin, top) in [(0.0, true), (std::f32::consts::PI, false)] {
+            scene.smoke = vec![SmokeParticle { position: DVec3::new(0.0, 5.0, 0.0), size: 1.0, color: [1.0, 0.0, 0.0], alpha: 1.0, spin, ..Default::default() }];
+            let rgba = renderer.render_to_image(&mut scene, 64, 64, &camera, &lighting).unwrap();
+            let bg = red(56, &rgba);
+            let (up, down) = (red(25, &rgba) - bg, red(39, &rgba) - bg);
+            assert_eq!((up > 60, down > 60), (top, !top), "spin {spin}: above {up}, below {down}");
+        }
+    }
+
+    /// A smoke particle's sprite: its spin, its ground relative to the render origin and its
+    /// z offset where the smoke branch of the shader reads them; none when it is too faint or
+    /// wholly under its ground.
+    #[test]
+    fn a_smoke_sprite_carries_its_spin_ground_and_z_offset() {
+        let ro = DVec3::new(1000.0, 2000.0, 30.0);
+        let p = SmokeParticle { position: ro + DVec3::new(1.0, 2.0, 3.5), size: 1.0, color: [0.5; 3], alpha: 0.8, spin: std::f32::consts::FRAC_PI_2, z_offset: 0.1, ground: Some(33.0) };
+        let g = smoke_sprite(&p, ro).unwrap();
+        assert_eq!(g.pos, [1.0, 2.0, 3.5]);
+        assert_eq!(g.extra[3], 3.0);
+        assert!(g.dir[0].abs() < 1e-6 && (g.dir[1] - 1.0).abs() < 1e-6, "{:?}", g.dir);
+        assert_eq!(g.up[..3], [3.0, 1.0, 0.1]);
+        assert!((g.up[3] - 0.18).abs() < 1e-6, "fade {}", g.up[3]);
+        // the fade into the ground: a fifth of the drawn radius, 6 to 25 cm
+        assert_eq!((smoke_ground_fade(0.1), smoke_ground_fade(5.0)), (0.06, 0.25));
+        // no ground: not faded
+        let free = smoke_sprite(&SmokeParticle { ground: None, ..p }, ro).unwrap();
+        assert_eq!(free.up[1], 0.0);
+        // its top (drawn at 0.9 of its half width) under the ground: left out
+        assert!(smoke_sprite(&SmokeParticle { ground: Some(30.0 + 3.5 + 0.91), ..p }, ro).is_none());
+        assert!(smoke_sprite(&SmokeParticle { ground: Some(30.0 + 3.5 + 0.89), ..p }, ro).is_some());
+        assert!(smoke_sprite(&SmokeParticle { alpha: 0.0, ..p }, ro).is_none());
     }
 
     #[test]
@@ -12604,6 +12735,41 @@ mod tests {
                     .unwrap_or_else(|e| panic!("{version:?} {}: {e:?}", entry.name));
                 assert!(!out.contains("invariant gl_FragCoord"), "{version:?} {}", entry.name);
             }
+        }
+    }
+
+    /// The corona and smoke module (its smoke branch with the fade into the ground among
+    /// them) translates to the GLSL of the oldest OpenGL chips the renderer runs on, GLES 3.0
+    /// and GL 3.3, as to GLES 3.1 and GL 4.3.
+    #[test]
+    fn the_corona_shader_translates_to_glsl() {
+        use wgpu::naga;
+        use wgpu::naga::back::glsl;
+        let src = corona_shader_source();
+        let module = naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&src)));
+        let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())
+            .validate(&module)
+            .expect("validate");
+        let (module, info) =
+            naga::back::pipeline_constants::process_overrides(&module, &info, None, &Default::default()).expect("overrides");
+        let versions = [
+            glsl::Version::Embedded { version: 300, is_webgl: false },
+            glsl::Version::Desktop(330),
+            glsl::Version::Embedded { version: 310, is_webgl: false },
+            glsl::Version::Desktop(430),
+        ];
+        for version in versions {
+            let options = glsl::Options { version, ..Default::default() };
+            let mut done = 0;
+            for entry in module.entry_points.iter().filter(|e| ["vs_main", "fs_main", "fs_smoke", "fs_smoke_enhanced"].contains(&e.name.as_str())) {
+                let pipeline = glsl::PipelineOptions { shader_stage: entry.stage, entry_point: entry.name.clone(), multiview: None };
+                let mut out = String::new();
+                glsl::Writer::new(&mut out, &module, &info, &options, &pipeline, Default::default())
+                    .and_then(|mut w| w.write())
+                    .unwrap_or_else(|e| panic!("{version:?} {}: {e:?}", entry.name));
+                done += 1;
+            }
+            assert_eq!(done, 4, "{version:?}");
         }
     }
 

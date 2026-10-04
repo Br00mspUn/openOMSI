@@ -623,7 +623,8 @@ impl Spray {
             if alpha <= 0.012 {
                 continue;
             }
-            out.push(SmokeParticle { position: p.pos, size, color, alpha: alpha * strength });
+            // (it keeps its own way of lying on the road, see `age`: no fade into the ground)
+            out.push(SmokeParticle { position: p.pos, size, color, alpha: alpha * strength, ..Default::default() });
         }
     }
 }

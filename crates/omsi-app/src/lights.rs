@@ -569,6 +569,11 @@ pub fn collect(
     scene.lights.sort_by(|a, b| (a.position - camera_pos).length_squared().total_cmp(&(b.position - camera_pos).length_squared()));
 }
 
+/// How far Omsi.exe moves every `[smoke]` and `[particle_emitter]` puff towards the eye in
+/// depth (m): 0x5a1d54 gives each particle 0.1, which 0x5a2b5c takes off the view depth it
+/// projects the puff's depth at.
+const SMOKE_Z_OFFSET: f32 = 0.1;
+
 /// The particles of a particle set as the renderer draws them: smoke blended over the scene,
 /// and the glowing ones (`--PS_emissive--`: sparks, rockets, a flame) as coronas.
 pub fn particle_sprites(set: &omsi_sim::particles::ParticleSet, smoke: &mut Vec<omsi_render::SmokeParticle>, coronas: &mut Vec<Corona>) {
@@ -589,7 +594,16 @@ pub fn particle_sprites(set: &omsi_sim::particles::ParticleSet, smoke: &mut Vec<
                 ..Default::default()
             });
         } else {
-            smoke.push(omsi_render::SmokeParticle { position: p.pos, size: p.size() * 0.5, color: p.color, alpha });
+            smoke.push(omsi_render::SmokeParticle {
+                position: p.pos,
+                size: p.size() * 0.5,
+                color: p.color,
+                alpha,
+                spin: p.spin,
+                z_offset: SMOKE_Z_OFFSET,
+                // (to fade into, where Omsi.exe lets the road cut it off)
+                ground: p.ground.is_finite().then_some(p.ground),
+            });
         }
     }
 }

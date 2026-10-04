@@ -2703,10 +2703,12 @@ impl VehicleInstance {
             let mut ps = std::mem::take(&mut self.particles);
             let mut parts: Vec<ParticleSet> = self.trailers.iter_mut().map(|t| std::mem::take(&mut t.particles)).collect();
             {
+                // (each puff keeps the height of the road under it - the plane the wheels
+                // stand on - for the renderer to fade it out into, see `particles`)
                 let value = |n: &str| self.var(n).unwrap_or(0.0);
-                ps.update(dt, self.position, self.body_rotation(), &value);
+                ps.update_over(dt, self.position, self.body_rotation(), &|| self.particle_ground(), &value);
                 for (t, set) in self.trailers.iter().zip(parts.iter_mut()) {
-                    set.update(dt, t.position, t.body_rotation(), &value);
+                    set.update_over(dt, t.position, t.body_rotation(), &|| [-t.ground_lift(), 0.0, 0.0], &value);
                 }
             }
             self.particles = ps;
@@ -4045,6 +4047,18 @@ impl VehicleInstance {
             return [-self.ai_rest_offset().0, 0.0, 0.0];
         }
         fit_plane(&points)
+    }
+
+    /// The ground its `[smoke]` puffs are set off over, as a plane of the body frame (see
+    /// `contact_plane`): the driven one's where its tyres touch the road; an AI copy's the
+    /// plane it is placed `ai_rest_offset` over (the road its axles were set on), without
+    /// asking the ground under every wheel again for the exhaust of every car on the map.
+    fn particle_ground(&self) -> [f32; 3] {
+        if self.rigid.is_some() {
+            self.contact_plane()
+        } else {
+            [-self.ai_rest_offset().0, 0.0, 0.0]
+        }
     }
 
     /// Position/direction of a `.bus` camera in world space: (eye, yaw, pitch).
