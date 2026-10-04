@@ -1,6 +1,6 @@
 # Dependency updates, once a week. Minor and patch versions of the crates come together in
-# one pull request so they do not flood the list; a new major version (wgpu, winit...) comes
-# on its own, as it usually needs code changes. Security fixes come whenever an advisory is
+# one pull request so they do not flood the list; a new major version (winit...) comes on
+# its own, as it usually needs code changes. Security fixes come whenever an advisory is
 # published, whatever the schedule.
 version: 2
 updates:
@@ -11,6 +11,15 @@ updates:
       day: monday
     open-pull-requests-limit: 5
     groups:
+      # wgpu, wgpu-hal and naga are released together and must stay on one version (the
+      # game hands wgpu-hal's and naga's types to wgpu): every update of them, major ones
+      # too, comes as one pull request. A dependency goes into the first group that takes
+      # it, so this one comes before `crates`.
+      wgpu:
+        patterns:
+          - "wgpu"
+          - "wgpu-*"
+          - "naga"
       crates:
         update-types:
           - minor
