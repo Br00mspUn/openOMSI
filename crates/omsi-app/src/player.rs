@@ -2302,10 +2302,10 @@ pub(crate) fn orbit_pivot(position: DVec3, heading_deg: f64, center: [f32; 3]) -
             .as_dvec3()
 }
 
-/// The driver's eye sits a touch forward of the authored seat point (bus frame:
-/// x right, y forward, z up): without it, turning the head shows the inside
-/// of the driver's seat mesh (stock and mod buses alike; OMSI 2 never shows it).
-pub(crate) const EYE_NUDGE: Vec3 = Vec3::new(0.0, 0.12, 0.0);
+/// Driver eye forward offset, currently zeroed: how OMSI 2 keeps the turning
+/// head from clipping inside the seat mesh still needs figuring out (per-bus
+/// mesh handling), so no global offset until then. Kept as the single knob.
+pub(crate) const EYE_NUDGE: Vec3 = Vec3::ZERO;
 
 /// Put a vehicle's meshes where its state says (animations, visibility, lights, the
 /// matrix textures) - the player's bus, and the launcher's showroom bus.
