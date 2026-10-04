@@ -2,10 +2,12 @@
 //! OMSI runs them (TRauch / TRauchInst: the original emits, the original sets a particle
 //! off, the original moves it). An emitter keeps at most 100 particles. A particle leaves along
 //! the emitter's direction at its speed plus a random spread; every frame its velocity is
-//! multiplied by the brake factor (per frame, not per second: taken at OMSI's default 30 fps
-//! here) and gravity pulls it down (a negative factor makes it rise); it grows from its start
-//! size by `size_grow` a second, and its alpha goes linearly from the initial value at
-//! birth to the final one at the end of its life.
+//! multiplied by the brake factor raised to 20 times the frame's seconds (Omsi.exe keeps
+//! 20 ln(brake) per emitter, 0x5a145c, and takes e to that times dt, 0x5a238c: the factor
+//! is per twentieth of a second, whatever the frame rate) and gravity pulls it down (a
+//! negative factor makes it rise); it grows from its start size by `size_grow` a second, and
+//! its alpha goes linearly from the initial value at birth to the final one at the end of
+//! its life (0x5a183c).
 
 use glam::{DVec3, Mat4, Vec3};
 use omsi_model::{ParticleSystemDef, PsRange, PsValue};
@@ -13,8 +15,11 @@ use std::sync::RwLock;
 
 /// Particles an emitter keeps at most (OMSI's 100).
 pub const MAX_PER_EMITTER: usize = 100;
-/// The frame rate a brake factor is written for.
-const FRAME_RATE: f32 = 30.0;
+/// How many times a second a particle's brake factor slows it (Omsi.exe 0x5a145c keeps
+/// 20 ln(brake), of a brake no lower than 0.1).
+const BRAKE_RATE: f32 = 20.0;
+/// The lowest brake factor Omsi.exe takes (0x5a145c).
+const BRAKE_MIN: f32 = 0.1;
 
 /// Where the camera is: emitters farther than their `calc_dist` send no new particles.
 static EYE: RwLock<Option<DVec3>> = RwLock::new(None);
@@ -133,7 +138,7 @@ impl ParticleSet {
                         ended.push((p.pos, p.vel));
                         return false;
                     }
-                    p.vel *= p.brake.clamp(0.0, 1.5).powf(dt * FRAME_RATE);
+                    p.vel *= p.brake.clamp(BRAKE_MIN, 1.5).powf(dt * BRAKE_RATE);
                     p.vel.z -= 9.81 * p.gravity * dt;
                     p.pos += p.vel.as_dvec3() * dt as f64;
                     true
@@ -250,6 +255,34 @@ mod tests {
         assert!(oldest.size() > 2.5, "grown to {}", oldest.size());
         assert!(oldest.alpha() < 0.5, "faded to {}", oldest.alpha());
         assert!(oldest.vel.length() < 2.0, "slowed to {}", oldest.vel.length());
+    }
+
+    /// One puff of `def` set off on the first frame (its frequency read from `f`), then
+    /// `frames` more of `dt`.
+    fn one_puff(mut def: ParticleSystemDef, dt: f32, frames: usize) -> Particle {
+        def.freq.0 = PsValue::Var("f".into());
+        let mut s = ParticleSet::new(vec![def], 11);
+        s.update(dt, DVec3::ZERO, Mat4::IDENTITY, &|_| 1.01 / dt);
+        for _ in 0..frames {
+            s.update(dt, DVec3::ZERO, Mat4::IDENTITY, &|_| 0.0);
+        }
+        let ps: Vec<&Particle> = s.particles().map(|(p, _)| p).collect();
+        assert_eq!(ps.len(), 1);
+        ps[0].clone()
+    }
+
+    /// Omsi.exe brakes a particle by its factor every twentieth of a second (0x5a145c keeps
+    /// 20 ln(brake), 0x5a238c takes e to that times dt), whatever the frame rate.
+    #[test]
+    fn a_brake_factor_is_per_twentieth_of_a_second() {
+        let mut def = smoke(0.0);
+        def.brake = (PsValue::Const(0.5), PsValue::Const(0.0));
+        def.gravity = (PsValue::Const(0.0), PsValue::Const(0.0));
+        def.velocity = (PsValue::Const(2.0), PsValue::Const(0.0));
+        let at_60 = one_puff(def.clone(), 1.0 / 60.0, 30).vel.length();
+        let at_30 = one_puff(def, 1.0 / 30.0, 15).vel.length();
+        let want = 2.0 * 0.5f32.powi(10);
+        assert!((at_60 - want).abs() < want * 0.01 && (at_30 - want).abs() < want * 0.01, "half a second at 60 fps {at_60}, at 30 fps {at_30}, want {want}");
     }
 
     #[test]
