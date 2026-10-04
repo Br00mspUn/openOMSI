@@ -4363,7 +4363,7 @@ impl Renderer {
     pub fn set_instance_mesh(&self, scene: &mut Scene, instance: usize, mesh: MeshId) {
         if scene.instances[instance].mesh != mesh {
             scene.instances[instance].mesh = mesh;
-            scene.dirty = true;
+            Self::mark_changed(scene, instance);
         }
     }
 
