@@ -121,6 +121,13 @@ impl App {
                 }
                 return;
             }
+            if self.mirror_hud.editing() && matches!(code, KeyCode::BracketLeft | KeyCode::BracketRight | KeyCode::Semicolon | KeyCode::Quote) {
+                if pressed {
+                    let size = self.hud_size();
+                    self.mirror_hud.size_key(code, self.hud_cursor(), size);
+                }
+                return;
+            }
             if self.mirror_hud.editing() && matches!(code, KeyCode::Insert | KeyCode::Delete | KeyCode::Backspace | KeyCode::KeyC | KeyCode::Escape) {
                 if pressed && !repeat {
                     let size = self.hud_size();

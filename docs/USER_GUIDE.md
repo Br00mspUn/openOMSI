@@ -464,8 +464,9 @@ mirror as the glass in the bus's model does, however that glass lays the picture
 or on its side). In the editor each
 panel has a yellow frame, and:
 
-* the left button drags a panel, the wheel over it resizes it and **Shift+wheel** makes it wider
-  or narrower;
+* the left button drags a panel, the wheel over it makes it taller or shorter and **Shift+wheel**
+  wider or narrower; **[** and **]** make the panel under the cursor narrower and wider, **;**
+  and **'** shorter and taller (held, they repeat);
 * the arrows turn the mirror of the panel under the cursor (as Ctrl+Alt+arrows turns the one
   the driver looks at), **Alt+arrows** shift it across and up and **Page Up/Down** forward and
   back, **-** and **+** narrow and widen its field of view; **R** puts that mirror back as the

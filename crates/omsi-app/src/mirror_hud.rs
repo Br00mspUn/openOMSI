@@ -23,7 +23,7 @@ use winit::keyboard::KeyCode;
 pub(crate) const RIGHT: u8 = 1;
 pub(crate) const LEFT: u8 = 2;
 
-pub(crate) const HINT: &str = "Mirror editor: drag/wheel = move/size, arrows = aim, Alt+arrows and PgUp/PgDn = shift the mirror, -/+ = field of view, R = reset (Shift+R: all), Insert/Delete/C = add/remove/other, Ctrl+Shift+M = done";
+pub(crate) const HINT: &str = "Mirror editor on: its keys are listed top left";
 
 const MIN_H: f32 = 0.08;
 const MAX_H: f32 = 0.70;
@@ -385,19 +385,58 @@ impl MirrorHud {
             return false;
         }
         let Some(i) = self.hit(cursor.0, cursor.1, size.0, size.1) else { return false };
+        self.resize(i, if shift { amount } else { 0.0 }, if shift { 0.0 } else { amount }, size);
+        true
+    }
+
+    /// Make panel `i` wider (`dw` > 0) or narrower and taller or shorter (`dh`), by 6 % a step,
+    /// and keep it inside the window.
+    fn resize(&mut self, i: usize, dw: f32, dh: f32, size: (f32, f32)) {
         let q = &mut self.panels[i];
-        if shift {
-            q.aspect = (q.aspect * (1.0 + 0.06 * amount)).clamp(MIN_ASPECT, MAX_ASPECT);
-        } else {
-            q.h = (q.h * (1.0 + 0.06 * amount)).clamp(MIN_H, MAX_H);
-        }
-        // stays inside the window
+        q.aspect = (q.aspect * (1.0 + 0.06 * dw)).clamp(MIN_ASPECT, MAX_ASPECT);
+        q.h = (q.h * (1.0 + 0.06 * dh)).clamp(MIN_H, MAX_H);
         let ph = q.h * size.1;
         let pw = ph * q.aspect;
         q.x = q.x.clamp(0.0, ((size.0 - pw) / size.0).max(0.0));
         q.y = q.y.clamp(0.0, ((size.1 - ph) / size.1).max(0.0));
         self.save();
+    }
+
+    /// `[` `]` make the panel under the cursor (else the last one) narrower and wider, `;` `'`
+    /// shorter and taller; true when the key was one of them (it repeats while held).
+    pub fn size_key(&mut self, code: KeyCode, cursor: (f32, f32), size: (f32, f32)) -> bool {
+        let (dw, dh) = match code {
+            KeyCode::BracketLeft => (-1.0, 0.0),
+            KeyCode::BracketRight => (1.0, 0.0),
+            KeyCode::Semicolon => (0.0, -1.0),
+            KeyCode::Quote => (0.0, 1.0),
+            _ => return false,
+        };
+        if !self.editing() {
+            return false;
+        }
+        if let Some(i) = self.hit(cursor.0, cursor.1, size.0, size.1).or(self.panels.len().checked_sub(1)) {
+            self.resize(i, dw, dh, size);
+        }
         true
+    }
+
+    /// What the editor shows on screen as long as it is on: its keys, and which mirror and how
+    /// large the panel under the cursor is.
+    pub fn help_lines(&self, p: &Player, cursor: (f32, f32), size: (f32, f32)) -> Vec<String> {
+        let mut out = vec!["Mirror editor (Ctrl+Shift+M or Esc: done)".to_string()];
+        let mirrors = &p.vehicle.ty.def.cameras_reflexion;
+        if let Some(i) = self.hit(cursor.0, cursor.1, size.0, size.1) {
+            let q = &self.panels[i];
+            let r = Self::rect(q, size.0, size.1);
+            let x = mirrors.get(q.cam).map(|c| c.pos[0]).unwrap_or(0.0);
+            let side = if x > 0.3 { "right" } else if x < -0.3 { "left" } else { "inside" };
+            out.push(format!("Panel under the cursor: mirror {} of {} ({side}), {:.0} x {:.0} px", q.cam + 1, mirrors.len(), r[2] - r[0], r[3] - r[1]));
+        }
+        out.push("Drag: move - wheel: height - Shift+wheel: width - [ ]: narrower, wider - ; ': shorter, taller".into());
+        out.push("Arrows: aim the mirror - Alt+arrows, PgUp/PgDn: shift it - - +: field of view - R: reset (Shift+R: all)".into());
+        out.push("Insert: new panel - Delete: remove it - C: show another mirror".into());
+        out
     }
 
     /// The editor's frame colour, made once.
@@ -591,6 +630,22 @@ mod tests {
         ]);
         assert!(m.press(true, (150.0, 150.0), (1000.0, 1000.0)));
         assert_eq!(m.panels.last().map(|q| q.cam), Some(0));
+    }
+
+    #[test]
+    fn the_size_keys_change_the_panel_under_the_cursor() {
+        let mut m = editing(vec![Panel { cam: 0, x: 0.1, y: 0.1, h: 0.3, aspect: 1.0 }]);
+        let at = (0.1 * 1600.0 + 5.0, 0.1 * 900.0 + 5.0);
+        assert!(m.size_key(KeyCode::BracketRight, at, (1600.0, 900.0)), "] widens");
+        assert!(m.panels[0].aspect > 1.0 && m.panels[0].h == 0.3);
+        assert!(m.size_key(KeyCode::Quote, at, (1600.0, 900.0)), "' makes it taller");
+        assert!(m.panels[0].h > 0.3);
+        assert!(m.size_key(KeyCode::Semicolon, at, (1600.0, 900.0)));
+        assert!(m.size_key(KeyCode::BracketLeft, at, (1600.0, 900.0)));
+        assert!((m.panels[0].h - 0.3).abs() < 0.01 && (m.panels[0].aspect - 1.0).abs() < 0.01, "a step each way ends about where it began");
+        assert!(!m.size_key(KeyCode::KeyA, at, (1600.0, 900.0)));
+        let mut off = MirrorHud { enabled: true, panels: m.panels.clone(), ..Default::default() };
+        assert!(!off.size_key(KeyCode::BracketRight, at, (1600.0, 900.0)), "outside the editor the key is the game's");
     }
 
     #[test]
