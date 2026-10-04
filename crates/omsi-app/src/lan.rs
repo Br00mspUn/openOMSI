@@ -1634,8 +1634,10 @@ fn line_and_destination(p: &Player, duty: Option<(&str, &str)>) -> (String, Stri
             .get(i as usize)
             .filter(|t| t.code != 0)
             .map(|t| {
+                // (its sign's first line; a blank one names nothing on the others' side)
                 t.strings
-                    .first()
+                    .iter()
+                    .find(|s| !s.trim().is_empty())
                     .cloned()
                     .unwrap_or_else(|| t.texture_id.clone())
             })

@@ -3100,22 +3100,27 @@ pub struct IbisCodes {
 /// destination/texture name for the same stop (Berlin 5E: `Spektefeld
 /// Schulzentrum` vs. `Spektefeld`).  Exact matches remain preferred; the
 /// boundary-aware prefix fallback handles those stock abbreviations without
-/// making unrelated destinations match.
+/// making unrelated destinations match. The name a row goes by (its ident, its stop, the
+/// first line of its sign) counts before another of its lines that reads the same: the
+/// district line of Spandau's Machandelweg reads RUHLEBEN, the sign of U Ruhleben, and
+/// U Ruhleben by its sign text (what a LAN player's bus says it shows) was Machandelweg.
 fn terminus_match_score(t: &omsi_vehicle::hof::Terminus, wanted: &str) -> u8 {
     let wanted = wanted.split_whitespace().collect::<Vec<_>>().join(" ");
     if wanted.is_empty() {
         return 0;
     }
+    let shown = t.strings.iter().position(|s| !s.trim().is_empty());
     let mut score = 0;
-    for candidate in std::iter::once(t.texture_id.as_str())
+    for (k, candidate) in std::iter::once(t.texture_id.as_str())
         .chain(std::iter::once(t.terminus_stop.as_deref().unwrap_or("")))
         .chain(t.strings.iter().map(String::as_str))
+        .enumerate()
     {
         let candidate = candidate.split_whitespace().collect::<Vec<_>>().join(" ");
         let candidate_lower = candidate.to_lowercase();
         let wanted_lower = wanted.to_lowercase();
         if candidate_lower == wanted_lower {
-            score = score.max(2);
+            score = score.max(if k < 2 || Some(k - 2) == shown { 3 } else { 2 });
         } else if wanted_lower.starts_with(&(candidate_lower.clone() + " ")) {
             score = score.max(1);
         } else if candidate_lower.starts_with(&(wanted_lower + " ")) {
@@ -4839,6 +4844,37 @@ pub(crate) mod tests {
         assert_eq!(super::find_terminus(&hof, "  61-MaoFangChang "), Some(3));
         let hof = omsi_vehicle::Hof { termini: vec![t(0, "A", &["Wickenberg"]), t(1, "B", &["Wickenberg"])], ..Default::default() };
         assert_eq!(super::find_terminus(&hof, "wickenberg"), Some(0));
+    }
+
+    /// By its sign text a row is the one whose sign reads so, not an earlier one whose
+    /// second line does (Spandau's Machandelweg, district RUHLEBEN, before U Ruhleben).
+    #[test]
+    fn a_terminus_is_found_by_its_own_sign_before_another_signs_second_line() {
+        let t = |code: i32, id: &str, s: &[&str]| omsi_vehicle::hof::Terminus { code, texture_id: id.into(), terminus_stop: Some(id.into()), strings: s.iter().map(|x| x.to_string()).collect(), ..Default::default() };
+        let hof = omsi_vehicle::Hof {
+            termini: vec![t(0, "Empty", &[""]), t(194, "Machandelweg", &["MACHANDELWEG", "RUHLEBEN", "MACHANDELWEG"]), t(282, "U Ruhleben", &["RUHLEBEN", "U-BAHNHOF"]), t(5, "Boerse", &["BOERSE", "RATHAUSMARKT"]), t(555, "RMarkt", &["", "RATHAUSMARKT"])],
+            ..Default::default()
+        };
+        assert_eq!(super::find_terminus(&hof, "RUHLEBEN"), Some(2));
+        assert_eq!(super::find_terminus(&hof, "Ruhleben"), Some(2));
+        // (a sign whose first line is blank goes by the next)
+        assert_eq!(super::find_terminus(&hof, "RATHAUSMARKT"), Some(4));
+        // the ident first, as before
+        assert_eq!(super::find_terminus(&hof, "Machandelweg"), Some(1));
+        // another bus showing it (a LAN player's: its sign text): the same row
+        let mut v = ibis_test_vehicle();
+        set_ai_destination(&mut v, Some(&hof), "5", "RUHLEBEN", &[]);
+        assert_eq!(v.var("IBIS_TerminusCode"), Some(282.0));
+        // every row of the stock Spandau and Grundorf depot files by its sign text
+        for file in ["Spandau 86.hof", "Grundorf.hof"] {
+            let path = std::path::Path::new("../../../OMSI 2 Original/Vehicles/MAN_SD200").join(file);
+            let Ok(hof) = omsi_vehicle::Hof::load(&path) else { continue };
+            for (i, row) in hof.termini.iter().enumerate() {
+                let Some(sign) = row.strings.iter().find(|s| !s.trim().is_empty()) else { continue };
+                let found = super::find_terminus(&hof, sign).map(|k| hof.termini[k].code);
+                assert_eq!(found, Some(row.code), "{file} row {i} {} '{}'", row.code, sign.trim());
+            }
+        }
     }
 
     #[test]
