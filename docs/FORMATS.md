@@ -785,6 +785,12 @@ weights it never shipped and lost its line number). `TextLength(font, "text")` =
 channels with alpha 0 (the Krüger matrix draws `STSetColor(0, 0, 255, 0, 0)`), the LED
 textures in alpha only (`[matl_transmap] \S:n`, one texture per LED colour).
 Glyph pixels of an .oft `[char] c x0 x1 y` sit in columns x0..x1 (x1 exclusive as drawn).
+In colour mode a glyph pixel takes the colour bitmap's pixel at the same row and column as
+its alpha pixel (0x5d67bc), whatever size the colour bitmap has: often a small swatch of one
+colour (stock `EFADfont.bmp`, 128×128 under a 128×200 alpha). For a row past the colour
+bitmap's height Omsi.exe's `TBitmap.ScanLine` raises a range error (0x4763b0) and the text
+stops being drawn there; a column past its width reads into the neighbouring scanline's
+bytes. openOMSI repeats the colour bitmap in both cases instead.
 `NrSpecRandom(seed)` = stable pseudo random in [0, 1).
 
 Depot (.hof) callbacks: `GetRouteIndex(code)` (code = line×100 + route → `[infosystem_trip]`
