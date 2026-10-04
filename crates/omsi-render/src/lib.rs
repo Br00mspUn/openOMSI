@@ -932,6 +932,9 @@ impl InstanceBounds {
     }
 }
 
+const CULL_BLOCK: usize = 128;
+const CULL_BLOCK_REBUILDS: usize = 8;
+
 fn transform_scale(transform: Mat4) -> f32 {
     transform.x_axis.truncate().length_squared()
         .max(transform.y_axis.truncate().length_squared())
@@ -1121,8 +1124,12 @@ pub struct Scene {
     /// because one bus moved was the biggest single CPU cost of a frame.
     changed: Vec<usize>,
     changed_mark: Vec<bool>,
+    origin_moved: bool,
     cache_bounds: bool,
     bounds_meshes: Vec<bool>,
+    block_bounds: Vec<(DVec3, DVec3)>,
+    block_dirty: Vec<bool>,
+    block_cursor: usize,
     bounds_dirty: bool,
     /// What the per-draw buffers hold, kept on the CPU: changed entries are written here
     /// and uploaded as a few merged ranges. Every `write_buffer` makes a new staging buffer
@@ -4343,9 +4350,13 @@ impl Renderer {
             dirty: true,
             changed: Vec::new(),
             changed_mark: Vec::new(),
+            origin_moved: false,
             cache_bounds: omsi_cfg::env::var_os("OMSI_NO_BOUNDS_CACHE").is_none(),
             bounds_meshes: Vec::new(),
             bounds_dirty: false,
+            block_bounds: Vec::new(),
+            block_dirty: Vec::new(),
+            block_cursor: 0,
             uploaded_instances: 0,
             uploaded_entries: 0,
             cpu_models: Vec::new(),
@@ -4363,7 +4374,7 @@ impl Renderer {
     pub fn set_instance_mesh(&self, scene: &mut Scene, instance: usize, mesh: MeshId) {
         if scene.instances[instance].mesh != mesh {
             scene.instances[instance].mesh = mesh;
-            scene.dirty = true;
+            Self::mark_changed(scene, instance);
         }
     }
 
@@ -6035,8 +6046,12 @@ impl Renderer {
     /// Choose the render origin. Everything is re-uploaded when it moves.
     pub fn set_render_origin(&self, scene: &mut Scene, origin: DVec3) {
         if scene.render_origin != origin {
+            if origin.z != scene.render_origin.z || scene.model_buf.is_none() {
+                scene.dirty = true;
+            } else {
+                scene.origin_moved = true;
+            }
             scene.render_origin = origin;
-            scene.dirty = true;
         }
     }
 
@@ -6060,25 +6075,41 @@ impl Renderer {
 
     fn prepare_bounds(scene: &mut Scene) {
         if !scene.cache_bounds { return; }
+        let blocks = scene.instances.len().div_ceil(CULL_BLOCK);
+        let all = scene.dirty || scene.block_bounds.len() != blocks;
+        scene.block_bounds.resize(blocks, (DVec3::splat(f64::MAX), DVec3::splat(f64::MIN)));
+        scene.block_dirty.resize(blocks, false);
+        let grow = |bb: &mut (DVec3, DVec3), i: &Instance| {
+            let c = i.origin + i.bounds.centre.as_dvec3();
+            let r = i.bounds.radius as f64;
+            bb.0 = bb.0.min(c - r);
+            bb.1 = bb.1.max(c + r);
+        };
         if scene.dirty {
             for i in &mut scene.instances {
                 i.bounds = InstanceBounds::new(&scene.meshes[i.mesh], i.transform);
             }
         } else {
-            for i in &mut scene.instances[scene.uploaded_instances..] {
+            for k in scene.uploaded_instances..scene.instances.len() {
+                let i = &mut scene.instances[k];
                 i.bounds = InstanceBounds::new(&scene.meshes[i.mesh], i.transform);
+                grow(&mut scene.block_bounds[k / CULL_BLOCK], i);
             }
             for &idx in &scene.changed {
                 if let Some(i) = scene.instances.get_mut(idx) {
                     i.bounds = InstanceBounds::new(&scene.meshes[i.mesh], i.transform);
+                    grow(&mut scene.block_bounds[idx / CULL_BLOCK], i);
+                    scene.block_dirty[idx / CULL_BLOCK] = true;
                 }
             }
             if scene.bounds_dirty {
                 // Skinning can alter a shared mesh without changing any model matrix.
                 // Scan once per pose update, rather than once per shadow/mirror view.
-                for i in &mut scene.instances {
+                for (k, i) in scene.instances.iter_mut().enumerate() {
                     if scene.bounds_meshes.get(i.mesh).copied().unwrap_or(false) {
                         i.bounds = InstanceBounds::new(&scene.meshes[i.mesh], i.transform);
+                        grow(&mut scene.block_bounds[k / CULL_BLOCK], i);
+                        scene.block_dirty[k / CULL_BLOCK] = true;
                     }
                 }
             }
@@ -6087,6 +6118,47 @@ impl Renderer {
             scene.bounds_meshes.fill(false);
             scene.bounds_dirty = false;
         }
+        let rebuild = |scene: &mut Scene, b: usize| {
+            let mut bb = (DVec3::splat(f64::MAX), DVec3::splat(f64::MIN));
+            for i in &scene.instances[b * CULL_BLOCK..((b + 1) * CULL_BLOCK).min(scene.instances.len())] {
+                grow(&mut bb, i);
+            }
+            scene.block_bounds[b] = bb;
+            scene.block_dirty[b] = false;
+        };
+        if all {
+            for b in 0..blocks {
+                rebuild(scene, b);
+            }
+            return;
+        }
+        let mut left = CULL_BLOCK_REBUILDS;
+        for _ in 0..blocks {
+            if left == 0 {
+                break;
+            }
+            scene.block_cursor = (scene.block_cursor + 1) % blocks.max(1);
+            if scene.block_dirty[scene.block_cursor] {
+                rebuild(scene, scene.block_cursor);
+                left -= 1;
+            }
+        }
+    }
+
+    fn cull_blocks(scene: &Scene) -> Option<Vec<(Vec3, f32)>> {
+        (scene.cache_bounds && scene.block_bounds.len() == scene.instances.len().div_ceil(CULL_BLOCK)).then(|| {
+            scene
+                .block_bounds
+                .iter()
+                .map(|&(lo, hi)| {
+                    if lo.x > hi.x {
+                        (Vec3::ZERO, 0.0)
+                    } else {
+                        (((lo + hi) * 0.5 - scene.render_origin).as_vec3(), ((hi - lo).length() * 0.5) as f32)
+                    }
+                })
+                .collect()
+        })
     }
 
     /// A dynamic alpha value is never allowed to fade an opaque body panel; only
@@ -6661,6 +6733,25 @@ impl Renderer {
     pub fn prepare(&self, scene: &mut Scene) {
         Self::prepare_bounds(scene);
         scene.bind_groups.clear();
+        if std::mem::take(&mut scene.origin_moved) && !scene.dirty {
+            let ro = scene.render_origin;
+            let n = scene.uploaded_entries as usize;
+            for i in &scene.instances[..scene.uploaded_instances] {
+                let t = (Mat4::from_translation((i.origin - ro).as_vec3()) * i.transform).w_axis.to_array();
+                let (b, k) = (i.base as usize, i.slot_alpha.len());
+                if b + k <= n.min(scene.cpu_models.len()) {
+                    for m in &mut scene.cpu_models[b..b + k] {
+                        m[3] = t;
+                    }
+                }
+            }
+            match scene.model_buf.as_ref() {
+                Some(buf) if (n * 64) as u64 <= buf.size() && n <= scene.cpu_models.len() => {
+                    buf.write(&self.queue, 0, bytemuck::cast_slice(&scene.cpu_models[..n]));
+                }
+                _ => scene.dirty = true,
+            }
+        }
         if !scene.dirty
             && scene.instances.len() > scene.uploaded_instances
             && scene.model_buf.is_some()
@@ -8220,9 +8311,34 @@ impl Renderer {
         if active.iter().any(|a| *a) {
             let n = scene.instances.len();
             let parts = (n / 8192).clamp(1, self.encoding_pool.as_ref().map_or(3, |p| p.current_num_threads()) + 1);
-            let chunk = n.div_ceil(parts);
+            let chunk = n.div_ceil(parts).div_ceil(CULL_BLOCK) * CULL_BLOCK;
+            let blocks = Self::cull_blocks(scene);
+            let lit = |b: usize| {
+                blocks.as_ref().is_none_or(|bl| {
+                    let (c, r) = bl[b];
+                    boxes.iter().enumerate().any(|(k, &(range, lvp, _))| {
+                        let lc = lvp.project_point3(c);
+                        let rr = r / range;
+                        active[k] && lc.x.abs() <= 1.0 + rr && lc.y.abs() <= 1.0 + rr
+                    })
+                })
+            };
             let mut found: [Vec<DrawItem>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-            for part in run_parts(self.encoding_pool.as_ref(), parts, |p| casters(p * chunk..((p + 1) * chunk).min(n))) {
+            for part in run_parts(self.encoding_pool.as_ref(), parts, |p| {
+                let mut out: [Vec<DrawItem>; 3] = [Vec::new(), Vec::new(), Vec::new()];
+                let end = ((p + 1) * chunk).min(n);
+                let mut b = p * chunk;
+                while b < end {
+                    let next = (b + CULL_BLOCK).min(end);
+                    if lit(b / CULL_BLOCK) {
+                        for (a, x) in out.iter_mut().zip(casters(b..next)) {
+                            a.extend(x);
+                        }
+                    }
+                    b = next;
+                }
+                out
+            }) {
                 for (a, b) in found.iter_mut().zip(part) {
                     a.extend(b);
                 }
@@ -8437,11 +8553,34 @@ impl Renderer {
         };
         let n = scene.instances.len();
         let parts = (n / 8192).clamp(1, self.encoding_pool.as_ref().map_or(3, |p| p.current_num_threads()) + 1);
-        let chunk = n.div_ceil(parts);
+        let chunk = n.div_ceil(parts).div_ceil(CULL_BLOCK) * CULL_BLOCK;
+        let blocks = Self::cull_blocks(scene);
+        let block_seen = |b: usize| {
+            let Some(bl) = blocks.as_ref() else { return true };
+            let (c, r) = bl[b];
+            let v = view.transform_point3(c);
+            let z = -v.z;
+            if v.length() <= r {
+                return true;
+            }
+            !(z + r < camera.near
+                || (!enhanced_frame && z - r > fog_far)
+                || v.x.abs() > z * tan_x + r / cos_x
+                || v.y.abs() > z * tan_y + r / cos_y)
+        };
         let (mut visible, mut found): (Vec<(usize, f32, bool)>, Vec<([u64; 4], f32)>) = (Vec::new(), Vec::new());
         for (v, sizes) in run_parts(self.encoding_pool.as_ref(), parts, |p| {
             let mut sizes = Vec::new();
-            let v: Vec<_> = (p * chunk..((p + 1) * chunk).min(n)).filter_map(|i| cull_one(i, &mut sizes)).collect();
+            let mut v = Vec::new();
+            let end = ((p + 1) * chunk).min(n);
+            let mut b = p * chunk;
+            while b < end {
+                let next = (b + CULL_BLOCK).min(end);
+                if block_seen(b / CULL_BLOCK) {
+                    v.extend((b..next).filter_map(|i| cull_one(i, &mut sizes)));
+                }
+                b = next;
+            }
             (v, sizes)
         }) {
             visible.extend(v);

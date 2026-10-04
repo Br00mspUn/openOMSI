@@ -4,6 +4,24 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1423 - 2026-10-04
+
+- Build: the small-BAR fix for NVIDIA cards ([#905](https://github.com/openOMSI-Project/openOMSI/pull/905)) now comes from the project's own copy of gpu-allocator, not a personal fork.
+
+## 0.1.1422 - 2026-10-04
+
+### Merged pull requests
+- Performance: script names are looked up without allocating and debug switches read once [#1292](https://github.com/openOMSI-Project/openOMSI/pull/1292), a wheel's ground probe walks its cell's faces once [#1287](https://github.com/openOMSI-Project/openOMSI/pull/1287), a render origin moved sideways rewrites only the models' translations [#1283](https://github.com/openOMSI-Project/openOMSI/pull/1283), an instance given another mesh is updated alone [#1280](https://github.com/openOMSI-Project/openOMSI/pull/1280), the AI vehicles' heaviest scripts each get a job of their own [#1260](https://github.com/openOMSI-Project/openOMSI/pull/1260), traffic light lamps are set again only when what they show changed [#1259](https://github.com/openOMSI-Project/openOMSI/pull/1259), and the instances are culled by blocks of 128 before one by one [#1256](https://github.com/openOMSI-Project/openOMSI/pull/1256).
+- AI cars no longer drive through red lights, and a car put on the road in front of a red light comes in slowly enough to stop [#1253](https://github.com/openOMSI-Project/openOMSI/pull/1253).
+- The outside camera is no longer trapped under buses whose orbit centre lies below the ground clearance [#1246](https://github.com/openOMSI-Project/openOMSI/pull/1246).
+- Crash reports carry the computer, its graphics card and the map, and their title is the error alone [#1225](https://github.com/openOMSI-Project/openOMSI/pull/1225).
+- Dedicated servers: a player who drives a bus the `vehicles` list of `server.cfg` does not allow is sent away and told which buses the server has [#1222](https://github.com/openOMSI-Project/openOMSI/pull/1222) (the vehicle menu offers only those since 0.1.1382).
+- Bus stops put on splines are placed right in the map index before their tiles load, so a duty's stops and the announcements are right from the start [#1208](https://github.com/openOMSI-Project/openOMSI/pull/1208).
+- Terrain holes: the ground's exposed edges along spline and object cuts are closed by walls textured like the ground around them [#1069](https://github.com/openOMSI-Project/openOMSI/pull/1069).
+- Linux: a gear shifter or a button box (a device with buttons only) can be set up [#1059](https://github.com/openOMSI-Project/openOMSI/pull/1059).
+- NVIDIA cards without Resizable BAR (Vulkan): uploads no longer go to the small BAR heap, which made loading take minutes and the game run at a few fps [#905](https://github.com/openOMSI-Project/openOMSI/pull/905).
+- [#1223](https://github.com/openOMSI-Project/openOMSI/pull/1223): the same OpenGL fix (Intel HD 2500, Mali) was already in 0.1.1382.
+
 ## 0.1.1382 - 2026-10-04
 
 Bug Fixes & Improvements

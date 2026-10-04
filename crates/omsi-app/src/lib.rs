@@ -32,6 +32,7 @@ mod career;
 mod describe;
 mod editor;
 mod game_lists;
+mod game_controller_menu;
 mod rail_drive;
 mod driver;
 mod export;
@@ -73,6 +74,8 @@ mod controllers;
 mod ffb_calibration;
 #[cfg(windows)]
 mod dinput;
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+mod evdev_buttons;
 #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 mod evdev_ff;
 mod cli;

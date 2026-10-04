@@ -18,6 +18,10 @@ pub(crate) enum ListKind {
     World(usize),
     /// Keyboard bindings while the game is running.
     Controls,
+    ControllerDevices,
+    Controller(String),
+    ControllerButton(String, usize),
+    ControllerCapture(String),
     /// OMSI's KY_ vehicle events that can be added to the keyboard.
     Events,
     Lines,
@@ -264,6 +268,11 @@ pub(crate) const HEADING: &str = "#";
 /// it as it is on Enter (see `App::chooser_adjust`).
 pub(crate) const ADJUST: &str = " ±";
 
+pub(crate) fn keyboard_actions(app: &App) -> Vec<String> {
+    let cfg = keyboard_cfg(app);
+    cfg.vehicles.into_iter().chain(cfg.game).map(|b| b.action).collect()
+}
+
 fn keyboard_cfg(app: &App) -> omsi_content::KeyboardCfg {
     omsi_content::KeyboardCfg::load(&crate::startup::keyboard_cfg(&app.args.root))
         .unwrap_or_default()
@@ -368,7 +377,9 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Vec<(String, String)> {
             }
             return pages.swap_remove(tab).1;
         }
+        ListKind::ControllerDevices | ListKind::Controller(_) | ListKind::ControllerButton(..) | ListKind::ControllerCapture(_) => return crate::game_controller_menu::items(app, kind),
         ListKind::Controls => {
+            out.push(opens("Game controllers…", "Set up wheels, pedals, gamepads and force feedback", "controllers"));
             let cfg = keyboard_cfg(app);
             let names = crate::describe::names(&app.args.root, &app.settings.language);
             out.push(opens("Add event…", "Choose an OMSI KY_ vehicle event, including events supplied by mods.", "key_events"));
@@ -603,7 +614,11 @@ pub(crate) fn menu_extras(
         ListKind::Options(_) => (MenuKind::Options, head("Options..."), None),
         ListKind::Vehicle(_) => (MenuKind::Options, head("Vehicle options..."), None),
         ListKind::World(_) => (MenuKind::Options, head("World options..."), None),
-        ListKind::Controls => (MenuKind::List, head("Controls..."), None),
+        ListKind::Controls => (MenuKind::Options, head("Controls..."), None),
+        ListKind::ControllerDevices => (MenuKind::Options, head("Game controllers"), None),
+        ListKind::Controller(name) => (MenuKind::Options, Some((name.clone(), String::new())), None),
+        ListKind::ControllerButton(_, b) => (MenuKind::List, Some((format!("Button {}: choose an action", b + 1), String::new())), None),
+        ListKind::ControllerCapture(_) => (MenuKind::List, head("Assign a physical button"), None),
         ListKind::Events => (MenuKind::List, Some((tr("Add event"), String::new())), None),
         ListKind::Lines => {
             let preview = action.strip_prefix("line ").and_then(|name| {
@@ -685,6 +700,9 @@ pub(crate) fn run(app: &mut App, kind: &ListKind, action: &str) -> Option<ListKi
 /// Do a line of the list, a setting changed as `mv` says (Enter and a click on a line are
 /// `Move::Next`; the arrows and a click on a slider or a stepper the others).
 pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -> Option<ListKind> {
+    if crate::game_controller_menu::is_controller_list(Some(kind)) {
+        return crate::game_controller_menu::run(app, kind, action, mv);
+    }
     if action == "back" {
         return match kind {
             ListKind::Tours(..) => Some(ListKind::Lines),
@@ -695,6 +713,7 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
     }
     let (verb, arg) = action.split_once(' ').unwrap_or((action, ""));
     match kind {
+        ListKind::ControllerDevices | ListKind::Controller(_) | ListKind::ControllerButton(..) | ListKind::ControllerCapture(_) => unreachable!("controller lists handled above"),
         ListKind::Admin => {
             crate::admin::run(app, action);
             Some(ListKind::Admin)
@@ -777,6 +796,7 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                 return Some(ListKind::Controls);
             }
             match verb {
+                "controllers" => Some(ListKind::ControllerDevices),
                 "key_events" => Some(ListKind::Events),
                 "keybind" => {
                     let mut p = arg.split_whitespace();
@@ -943,28 +963,28 @@ pub(crate) enum Move {
 type Page = (&'static str, Vec<(String, String)>);
 
 /// A row of a settings window (see `ui::MenuKind::Options` for the format).
-fn row(name: &str, kind: char, value: &str, desc: &str, frac: Option<f32>) -> String {
+pub(crate) fn row(name: &str, kind: char, value: &str, desc: &str, frac: Option<f32>) -> String {
     format!("{name}\u{1f}{kind}\u{1f}{value}\u{1f}{desc}\u{1f}{}", frac.map(|f| format!("{f:.3}")).unwrap_or_default())
 }
 
 /// A row that opens another list.
-fn opens(name: &str, desc: &str, id: &str) -> (String, String) {
+pub(crate) fn opens(name: &str, desc: &str, id: &str) -> (String, String) {
     (row(name, 'o', "", desc, None), id.to_string())
 }
 
 /// A row with a button that does something.
-fn button(name: &str, text: &str, desc: &str, id: &str) -> (String, String) {
+pub(crate) fn button(name: &str, text: &str, desc: &str, id: &str) -> (String, String) {
     (row(name, 'a', text, desc, None), id.to_string())
 }
 
 /// A switch row, if the setting `id` is one.
-fn switch_row(app: &App, id: &str, name: &str, desc: &str) -> Option<(String, String)> {
+pub(crate) fn switch_row(app: &App, id: &str, name: &str, desc: &str) -> Option<(String, String)> {
     let on = toggle_now(app, id)?;
     Some((row(name, 's', if on { "on" } else { "off" }, desc, None), id.to_string()))
 }
 
 /// A slider row for the setting `id` ("verb" or "verb arg"); `fmt` writes its value.
-fn slider_row(app: &App, id: &str, name: &str, desc: &str, fmt: &dyn Fn(f32) -> String) -> Option<(String, String)> {
+pub(crate) fn slider_row(app: &App, id: &str, name: &str, desc: &str, fmt: &dyn Fn(f32) -> String) -> Option<(String, String)> {
     let (verb, arg) = id.split_once(' ').unwrap_or((id, ""));
     let steps = steps_of(verb)?;
     let now = option_now(app, verb, arg)?;
@@ -1001,6 +1021,7 @@ fn steps_of(verb: &str) -> Option<Vec<f32>> {
         "steer_look_angle" => (0..=60).map(|v| v as f32).collect(),
         "steer_look_response" => (1..=20).map(|v| v as f32 * 0.05).collect(),
         "pedal_t" | "pedal_b" => PEDAL.to_vec(),
+        "ctrl_deadzone" => (0..=30).map(|v| v as f32 * 0.01).collect(),
         "mouse_sens" => (10..=300).map(|v| v as f32 / 100.0).collect(),
         "look_sens" => (2..=40).map(|v| v as f32 * 0.05).collect(),
         "seat" => (-50..=50).map(|v| v as f32 / 100.0).collect(),
@@ -1123,6 +1144,7 @@ fn option_now(app: &App, verb: &str, arg: &str) -> Option<f32> {
         "volume" => s.volume,
         "led_glow" => s.led_glow as f32,
         "led_mips" => s.led_mips,
+        "ctrl_deadzone" => s.ctrl_deadzone,
         "pedal_t" => s.pedal_throttle,
         "pedal_b" => s.pedal_brake,
         "mouse_sens" => s.mouse_sens,
@@ -1199,6 +1221,10 @@ fn option_set(app: &mut App, verb: &str, arg: &str, v: f32) -> Option<(&'static 
         "led_mips" => {
             app.settings.led_mips = v.clamp(0.0, 4.0);
             Some(("led_mips", app.settings.led_mips.to_string()))
+        }
+        "ctrl_deadzone" => {
+            app.settings.ctrl_deadzone = v.clamp(0.0, 0.3);
+            Some(("ctrl_deadzone", app.settings.ctrl_deadzone.to_string()))
         }
         "pedal_t" => {
             app.settings.pedal_throttle = v;
@@ -1689,7 +1715,7 @@ fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String
 pub(crate) static LIST_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Change the setting `verb` (a switch or a slider) as `mv` says; false when it is neither.
-fn option_do(app: &mut App, verb: &str, arg: &str, mv: Move) -> bool {
+pub(crate) fn option_do(app: &mut App, verb: &str, arg: &str, mv: Move) -> bool {
     // (the weather is the METAR report's while the sync is on)
     if app.metar_locked() && matches!(verb, "visibility" | "rain_amt" | "wet" | "brightness" | "humidity" | "temp" | "wind_speed" | "wind_dir" | "snow_cover" | "snow_road") {
         app.service_msg = Some(("The weather cannot be changed while the METAR sync is on".into(), 3.0));
@@ -2426,6 +2452,8 @@ fn pages_of(app: &App, kind: &ListKind) -> Option<(Vec<Page>, usize)> {
         ListKind::Options(t) => (options_pages(app), *t),
         ListKind::Vehicle(t) => (vehicle_pages(app), *t),
         ListKind::World(t) => (world_pages(app), *t),
+        ListKind::Controls => (vec![("Keyboard", items(app, kind))], 0),
+        ListKind::ControllerDevices | ListKind::Controller(_) => (vec![("Game controllers", items(app, kind))], 0),
         _ => return None,
     };
     let pages: Vec<Page> = pages.into_iter().filter(|p| !p.1.is_empty()).collect();
