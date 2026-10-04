@@ -324,9 +324,9 @@ impl App {
         let hold = binding.modifier & omsi_content::input::KEY_HOLD;
         binding.scan_code = scan.unwrap_or(0);
         binding.modifier = if scan.is_some() { hold | chord } else { hold };
+        let action = binding.action.clone();
         match write_keyboard_cfg(self, &cfg) {
             Ok(()) => {
-                let action = binding.action.clone();
                 self.key_capture = None;
                 self.install_keyboard_cfg(cfg);
                 let key = scan.map(|s| crate::keys::key_name(s as i64, (hold | chord) as i64)).unwrap_or_else(|| "(unbound)".into());
