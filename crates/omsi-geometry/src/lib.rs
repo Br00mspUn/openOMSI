@@ -2096,6 +2096,7 @@ impl DriveGrid {
         self.probe_kind(x, y, z_top, true)
     }
 
+    /// The road heights over (x, y) into `road` (their count), the highest wall top into `walls`.
     pub fn heights(&self, x: f32, y: f32, road: &mut [f32], walls: &mut Option<f32>) -> usize {
         if self.cells == 0 || x < 0.0 || y < 0.0 {
             return 0;
