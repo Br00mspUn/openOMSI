@@ -155,6 +155,7 @@ pub(crate) fn run_offscreen(
         p.vehicle.host.schedule_active = active;
         p.vehicle.set_var("schedule_active", active);
     }
+    let mut journey = None;
     let mut career = args
         .driver
         .as_deref()
@@ -614,11 +615,12 @@ pub(crate) fn run_offscreen(
                         player.ibis_to_stop(trip, k);
                     }
                 }
-                if let Some((arrival, departure)) =
-                    d.update(&mut player.vehicle, parse_time(&args.time) + t_s as f64)
-                {
+                let due = (d.trip_index, d.next_stop);
+                let served = d.update(&mut player.vehicle, parse_time(&args.time) + t_s as f64);
+                if let Some((arrival, departure)) = served {
                     career.stop_served(arrival, departure);
                 }
+                crate::journey::note(&mut journey, d, due, served, &args.root, || crate::journey::head(&career, &world.global.name, &player.vehicle, &player.vehicle.host.clock));
                 if d.take_trip_change() && player.duty_typed {
                     let (trip, stop) = d.trip_for_ibis();
                     player.set_duty_destination(trip, stop);

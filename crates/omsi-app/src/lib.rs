@@ -37,6 +37,7 @@ mod driver;
 mod export;
 mod hud;
 mod humans;
+mod journey;
 mod keys;
 mod lan;
 mod lan_world;
@@ -567,6 +568,7 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         log_state: Default::default(),
         plugins: None,
         career: Default::default(),
+        journey: None,
         wetness: 0.0,
         cloud_drift: [0.0; 2],
         menu_edit: None,

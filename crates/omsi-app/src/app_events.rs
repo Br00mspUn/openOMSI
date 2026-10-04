@@ -1324,9 +1324,12 @@ impl ApplicationHandler for App {
                         }
                     }
                     d.learn_loaded(&w.object_positions.lock());
-                    if let Some((arrival, departure)) = d.update(&mut p.vehicle, self.clock.time) {
+                    let due = (d.trip_index, d.next_stop);
+                    let served = d.update(&mut p.vehicle, self.clock.time);
+                    if let Some((arrival, departure)) = served {
                         self.career.stop_served(arrival, departure);
                     }
+                    crate::journey::note(&mut self.journey, d, due, served, &self.args.root, || crate::journey::head(&self.career, &w.global.name, &p.vehicle, &self.clock));
                     if d.take_trip_change() && p.duty_typed {
                         let (trip, stop) = d.trip_for_ibis();
                         p.set_duty_destination(trip, stop);

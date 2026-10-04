@@ -128,6 +128,13 @@ shows time, speed, line, next stop, delay and what the workshop just did (and wh
 stands: the parking brake, low air pressure, a line the date's chrono takes off), and the
 controls for the first seconds.
 
+On a duty the game keeps a **journey log** in the content folder's `Journeys` (one text file
+a duty, named by the real date and time it began and the line and tour): each trip driven
+with its stops, their planned and actual arrival and departure and how far off those were,
+and whether the bus came late (over 3 minutes), left early (over 2 minutes, as the personnel
+file counts them) or missed a stop. It is written again at every stop, so a crash loses
+nothing - what virtual bus companies ask their drivers for.
+
 ## The launcher
 
 The launcher is the game's own window (`crates/omsi-app/src/launcher`): `omsi` started

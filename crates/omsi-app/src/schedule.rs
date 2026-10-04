@@ -4332,6 +4332,12 @@ impl PlayerDuty {
         std::mem::take(&mut self.trip_changed)
     }
 
+    /// How late the bus arrived at the stop it stands at (s; negative: early), None while it
+    /// stands at none: the journey's log notes the arrival (`journey`).
+    pub fn arrived(&self) -> Option<f64> {
+        self.arrived_late.filter(|_| self.at_stop)
+    }
+
     /// Places of stops the timetable did not know (their tiles were not loaded when the duty
     /// was made): the navigator reads the whole map.
     pub fn learn_places(&mut self, places: &HashMap<i64, glam::DVec3>) {

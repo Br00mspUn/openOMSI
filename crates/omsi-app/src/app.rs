@@ -290,6 +290,8 @@ pub(crate) struct App {
     pub(crate) log_state: crate::applog::LogState,
     /// The driver's personnel file and this session's statistics.
     pub(crate) career: career::Career,
+    /// The duty's stops with their times as driven, kept in a file (`journey`).
+    pub(crate) journey: Option<crate::journey::Journey>,
     /// How wet the roads are (0..1), built up by rain and dried by the sun.
     pub(crate) wetness: f32,
     /// How far the cloud cover has drifted with the wind (fractions of its tiling), summed
