@@ -2042,7 +2042,7 @@ impl App {
     /// A settings window (options, vehicle, world) is open.
     fn settings_list(&self) -> bool {
         use crate::game_lists::ListKind;
-        self.chooser.is_some() && matches!(self.list_kind, Some(ListKind::Options(_) | ListKind::Vehicle(_) | ListKind::World(_) | ListKind::Controls | ListKind::ControllerDevices | ListKind::Controller(_)))
+        self.chooser.is_some() && matches!(self.list_kind, Some(ListKind::Options(_) | ListKind::Vehicle(_) | ListKind::World(_) | ListKind::Controls | ListKind::Keyboard(_) | ListKind::ControllerDevices(_) | ListKind::Controller(..) | ListKind::ControllerAxis(..) | ListKind::ControllerButtonSettings(..)))
     }
 
     /// The open list is closed: back to the game menu.
@@ -2061,14 +2061,18 @@ impl App {
     /// Show page `i` of the open settings window.
     pub(crate) fn settings_tab(&mut self, i: usize) {
         use crate::game_lists::ListKind;
-        let next = match self.list_kind {
+        let next = match self.list_kind.as_ref() {
             Some(ListKind::Options(_)) => ListKind::Options(i),
             Some(ListKind::Vehicle(_)) => ListKind::Vehicle(i),
             Some(ListKind::World(_)) => ListKind::World(i),
+            Some(ListKind::Keyboard(_)) => ListKind::Keyboard(i.min(1)),
+            Some(ListKind::ControllerDevices(_)) => ListKind::ControllerDevices(i.min(2)),
+            Some(ListKind::Controller(name, _)) => ListKind::Controller(name.clone(), i.min(3)),
             _ => return,
         };
         self.menu_top = None;
         self.menu_edit = None;
+        self.key_capture = None;
         self.open_list(next);
     }
 
@@ -2087,7 +2091,13 @@ impl App {
         if i < n {
             self.settings_tab(i);
         } else {
-            self.close_list();
+            self.key_capture = None;
+            if let Some(parent) = crate::game_lists::run(self, &kind, "back") {
+                self.menu_top = None;
+                self.open_list(parent);
+            } else {
+                self.close_list();
+            }
         }
     }
 
@@ -2095,7 +2105,7 @@ impl App {
     pub(crate) fn list_adjust(&mut self, k: usize, mv: crate::game_lists::Move) {
         use crate::game_lists::ListKind;
         let Some(kind) = self.list_kind.clone() else { return };
-        if !matches!(kind, ListKind::Options(_) | ListKind::World(_) | ListKind::ControllerDevices | ListKind::Controller(_)) {
+        if !matches!(kind, ListKind::Options(_) | ListKind::World(_) | ListKind::ControllerDevices(_) | ListKind::Controller(..) | ListKind::ControllerAxis(..) | ListKind::ControllerButtonSettings(..)) {
             return;
         }
         let Some(action) = self.admin_list.as_ref().and_then(|l| l.get(k)).map(|x| x.1.clone()) else { return };
@@ -2152,7 +2162,7 @@ impl App {
         let sel = self.chooser.unwrap_or(0);
         self.menu_top = None;
         match code {
-            KeyCode::Escape if crate::game_controller_menu::is_controller_list(self.list_kind.as_ref()) || matches!(self.list_kind, Some(crate::game_lists::ListKind::Events)) => {
+            KeyCode::Escape if crate::game_controller_menu::is_controller_list(self.list_kind.as_ref()) || matches!(self.list_kind, Some(crate::game_lists::ListKind::Events | crate::game_lists::ListKind::Keyboard(_))) => {
                 if let Some(kind) = self.list_kind.clone() {
                     if let Some(back) = crate::game_lists::run(self, &kind, "back") {
                         self.open_list(back);

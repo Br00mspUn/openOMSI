@@ -16,10 +16,15 @@ pub(crate) enum ListKind {
     Vehicle(usize),
     /// The clock, the weather and the traffic, on this page.
     World(usize),
-    /// Keyboard bindings while the game is running.
+    /// Entry points for keyboard and game controller configuration.
     Controls,
-    ControllerDevices,
-    Controller(String),
+    /// Vehicle bindings and game/camera bindings on separate pages.
+    Keyboard(usize),
+    ControllerDevices(usize),
+    Controller(String, usize),
+    ControllerAxis(String, usize),
+    ControllerButtons(String),
+    ControllerButtonSettings(String, usize),
     ControllerButton(String, usize),
     ControllerCapture(String),
     /// OMSI's KY_ vehicle events that can be added to the keyboard.
@@ -365,6 +370,24 @@ impl App {
     }
 }
 
+fn keyboard_pages(app: &App) -> Vec<Page> {
+    let cfg = keyboard_cfg(app);
+    let names = crate::describe::names(&app.args.root, &app.settings.language);
+    let mut vehicle = vec![opens("Add a vehicle event…", "Choose a control supplied by the bus or its mods", "key_events")];
+    let mut game = Vec::new();
+    for (is_game, bindings, rows) in [(false, &cfg.vehicles, &mut vehicle), (true, &cfg.game, &mut game)] {
+        let mut bindings: Vec<_> = bindings.iter().enumerate().collect();
+        bindings.sort_by_key(|(_, b)| names.control(&b.action).to_lowercase());
+        for (i, b) in bindings {
+            let key = if app.key_capture == Some((is_game, i)) { "press a key…".into() }
+                else { crate::keys::key_name(b.scan_code as i64, b.modifier as i64) };
+            rows.push((row(&names.control(&b.action), 'a', &key, "Enter to change; Delete clears; Esc cancels", None),
+                format!("keybind {} {i}", if is_game { "g" } else { "v" })));
+        }
+    }
+    vec![("Driving and bus", vehicle), ("Game and camera", game)]
+}
+
 pub(crate) fn items(app: &App, kind: &ListKind) -> Vec<(String, String)> {
     let tr = |t: &str| omsi_ui::tr(t).into_owned();
     let mut out: Vec<(String, String)> = Vec::new();
@@ -377,25 +400,15 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Vec<(String, String)> {
             }
             return pages.swap_remove(tab).1;
         }
-        ListKind::ControllerDevices | ListKind::Controller(_) | ListKind::ControllerButton(..) | ListKind::ControllerCapture(_) => return crate::game_controller_menu::items(app, kind),
+        ListKind::ControllerDevices(_) | ListKind::Controller(..) | ListKind::ControllerAxis(..) | ListKind::ControllerButtons(_) | ListKind::ControllerButtonSettings(..) | ListKind::ControllerButton(..) | ListKind::ControllerCapture(_) => return crate::game_controller_menu::items(app, kind),
         ListKind::Controls => {
-            out.push(opens("Game controllers…", "Set up wheels, pedals, gamepads and force feedback", "controllers"));
-            let cfg = keyboard_cfg(app);
-            let names = crate::describe::names(&app.args.root, &app.settings.language);
-            out.push(opens("Add event…", "Choose an OMSI KY_ vehicle event, including events supplied by mods.", "key_events"));
-            out.push(("Driving & the bus".into(), HEADING.into()));
-            for (i, b) in cfg.vehicles.iter().enumerate() {
-                let waiting = app.key_capture == Some((false, i));
-                let key = if waiting { "press a key…".into() } else { crate::keys::key_name(b.scan_code as i64, b.modifier as i64) };
-                out.push((row(&names.control(&b.action), 'a', &key, &format!("KY_{} · Enter to change", b.action), None), format!("keybind v {i}")));
-            }
-            out.push(("The game".into(), HEADING.into()));
-            for (i, b) in cfg.game.iter().enumerate() {
-                let waiting = app.key_capture == Some((true, i));
-                let key = if waiting { "press a key…".into() } else { crate::keys::key_name(b.scan_code as i64, b.modifier as i64) };
-                out.push((row(&names.control(&b.action), 'a', &key, "Enter to change this key", None), format!("keybind g {i}")));
-            }
-            return out;
+            return vec![
+                opens("Keyboard", "Change driving, vehicle, game and camera key bindings", "keyboard"),
+                opens("Game controllers", "Configure wheels, pedals, gamepads and force feedback", "controllers"),
+            ];
+        }
+        ListKind::Keyboard(tab) => {
+            return keyboard_pages(app).swap_remove((*tab).min(1)).1;
         }
         ListKind::Events => {
             let names = crate::describe::names(&app.args.root, &app.settings.language);
@@ -615,9 +628,13 @@ pub(crate) fn menu_extras(
         ListKind::Vehicle(_) => (MenuKind::Options, head("Vehicle options..."), None),
         ListKind::World(_) => (MenuKind::Options, head("World options..."), None),
         ListKind::Controls => (MenuKind::Options, head("Controls..."), None),
-        ListKind::ControllerDevices => (MenuKind::Options, head("Game controllers"), None),
-        ListKind::Controller(name) => (MenuKind::Options, Some((name.clone(), String::new())), None),
-        ListKind::ControllerButton(_, b) => (MenuKind::List, Some((format!("Button {}: choose an action", b + 1), String::new())), None),
+        ListKind::Keyboard(_) => (MenuKind::Options, head("Keyboard"), None),
+        ListKind::ControllerDevices(_) => (MenuKind::Options, head("Game controllers"), None),
+        ListKind::Controller(name, _) => (MenuKind::Options, Some((name.clone(), String::new())), None),
+        ListKind::ControllerAxis(name, a) => (MenuKind::Options, Some((format!("{} · Axis {}", name, a + 1), String::new())), None),
+        ListKind::ControllerButtons(name) => (MenuKind::List, Some(("Choose a button".into(), name.clone())), None),
+        ListKind::ControllerButtonSettings(name, b) => (MenuKind::Options, Some((crate::game_controller_menu::button_label(*b), name.clone())), None),
+        ListKind::ControllerButton(_, b) => (MenuKind::List, Some((format!("{}: choose an action", crate::game_controller_menu::button_label(*b)), String::new())), None),
         ListKind::ControllerCapture(_) => (MenuKind::List, head("Assign a physical button"), None),
         ListKind::Events => (MenuKind::List, Some((tr("Add event"), String::new())), None),
         ListKind::Lines => {
@@ -706,14 +723,15 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
     if action == "back" {
         return match kind {
             ListKind::Tours(..) => Some(ListKind::Lines),
-            ListKind::Events => Some(ListKind::Controls),
+            ListKind::Events => Some(ListKind::Keyboard(0)),
+            ListKind::Keyboard(_) => Some(ListKind::Controls),
             ListKind::PlaceType(_) | ListKind::PlaceLivery(_) | ListKind::PlaceHof(..) => Some(ListKind::PlaceMaker),
             _ => None,
         };
     }
     let (verb, arg) = action.split_once(' ').unwrap_or((action, ""));
     match kind {
-        ListKind::ControllerDevices | ListKind::Controller(_) | ListKind::ControllerButton(..) | ListKind::ControllerCapture(_) => unreachable!("controller lists handled above"),
+        ListKind::ControllerDevices(_) | ListKind::Controller(..) | ListKind::ControllerAxis(..) | ListKind::ControllerButtons(_) | ListKind::ControllerButtonSettings(..) | ListKind::ControllerButton(..) | ListKind::ControllerCapture(_) => unreachable!("controller lists handled above"),
         ListKind::Admin => {
             crate::admin::run(app, action);
             Some(ListKind::Admin)
@@ -797,11 +815,16 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
             Some(kind.clone())
         }
         ListKind::Controls => {
-            if !matches!(mv, Move::Next) {
-                return Some(ListKind::Controls);
-            }
+            if !matches!(mv, Move::Next) { return Some(kind.clone()); }
             match verb {
-                "controllers" => Some(ListKind::ControllerDevices),
+                "keyboard" => Some(ListKind::Keyboard(0)),
+                "controllers" => Some(ListKind::ControllerDevices(0)),
+                _ => Some(kind.clone()),
+            }
+        }
+        ListKind::Keyboard(_) => {
+            if !matches!(mv, Move::Next) { return Some(kind.clone()); }
+            match verb {
                 "key_events" => Some(ListKind::Events),
                 "keybind" => {
                     let mut p = arg.split_whitespace();
@@ -809,15 +832,15 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                     if let Some(index) = p.next().and_then(|n| n.parse::<usize>().ok()) {
                         app.begin_key_capture(game, index);
                     }
-                    Some(ListKind::Controls)
+                    Some(kind.clone())
                 }
-                _ => Some(ListKind::Controls),
+                _ => Some(kind.clone()),
             }
         }
         ListKind::Events => {
             if matches!(mv, Move::Next) && verb == "key_event" {
                 app.add_key_event(arg);
-                Some(ListKind::Controls)
+                Some(ListKind::Keyboard(0))
             } else {
                 Some(ListKind::Events)
             }
@@ -2488,8 +2511,9 @@ fn pages_of(app: &App, kind: &ListKind) -> Option<(Vec<Page>, usize)> {
         ListKind::Options(t) => (options_pages(app), *t),
         ListKind::Vehicle(t) => (vehicle_pages(app), *t),
         ListKind::World(t) => (world_pages(app), *t),
-        ListKind::Controls => (vec![("Keyboard", items(app, kind))], 0),
-        ListKind::ControllerDevices | ListKind::Controller(_) => (vec![("Game controllers", items(app, kind))], 0),
+        ListKind::Controls => (vec![("Controls", items(app, kind))], 0),
+        ListKind::Keyboard(tab) => (keyboard_pages(app), *tab),
+        ListKind::ControllerDevices(_) | ListKind::Controller(..) | ListKind::ControllerAxis(..) | ListKind::ControllerButtonSettings(..) => crate::game_controller_menu::pages(app, kind)?,
         _ => return None,
     };
     let pages: Vec<Page> = pages.into_iter().filter(|p| !p.1.is_empty()).collect();
