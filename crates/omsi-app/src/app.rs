@@ -106,6 +106,8 @@ pub(crate) struct App {
     pub(crate) mouse_look: bool,
     /// The left and right mouse buttons held.
     pub(crate) buttons_held: (bool, bool),
+    /// The middle button held (looks round; the right button zooms).
+    pub(crate) mmb_held: bool,
     /// The right button (or both) held: OMSI's mouse zoom (0x82c5f8) - moving the mouse up
     /// widens the view in the bus or takes the outside camera further away, by the value at
     /// the press over 500 pixels: (the cursor's height then, the zoom or distance then).
@@ -304,6 +306,10 @@ pub(crate) struct App {
     pub(crate) service_msg: Option<(String, f32)>,
     /// The server's notifications on the screen (`notify`), oldest first.
     pub(crate) notices: Vec<crate::ui::Notice>,
+    /// The look for a newer release during the session (cards over the navigator).
+    pub(crate) update_watch: crate::update_watch::UpdateWatch,
+    /// "Playing now" on the website (None: not counted, setting `presence`).
+    pub(crate) presence: Option<crate::presence::Presence>,
     /// What the log has said (see applog.rs).
     pub(crate) log_state: crate::applog::LogState,
     /// The driver's personnel file and this session's statistics.

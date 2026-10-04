@@ -224,6 +224,7 @@ impl ApplicationHandler for App {
                     return;
                 }
                 self.mouse_look = state == ElementState::Pressed;
+                self.mmb_held = state == ElementState::Pressed;
                 self.update_hover();
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -2112,6 +2113,7 @@ impl ApplicationHandler for App {
                         }
                     }
                     self.service_msg = self.service_msg.take().filter(|(_, l)| *l > 0.0);
+                    self.update_watch.tick(&mut self.notices);
                     for n in self.notices.iter_mut() {
                         n.left -= dt;
                     }
@@ -2356,6 +2358,7 @@ impl ApplicationHandler for App {
                             info_room: self.touch.info_room.filter(|_| self.touch.enabled),
                             tutorial: self.tutorial.as_ref().filter(|t| !t.hidden && self.game_menu.is_none()).and_then(|t| t.page().map(|p| (p.title.as_str(), p.text.as_str(), p.image.as_deref(), t.at, t.pages.len()))),
                             chat,
+                            chat_size: self.settings.chat_size,
                             tags,
                             notices: &self.notices,
                             notice_anchor: self.navigator.as_ref().and_then(|n| n.screen_rect()),
@@ -2971,6 +2974,8 @@ impl ApplicationHandler for App {
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         crate::game_lists::flush_settings(true);
         self.finish_session();
+        // ("playing now" ends with the game)
+        self.presence = None;
         if let Some(lan) = self.lan.take() {
             // dropping the session says goodbye (BYE) to the host or the players
             drop(lan);
@@ -3031,6 +3036,13 @@ impl App {
         // the wheel over the chat (or while typing) scrolls its history
         if let Some(ui) = self.ui.as_mut() {
             if self.lan.is_some() && (ui.chat.hovered || lan::chat_open(&self.remotes)) {
+                // Ctrl + the wheel makes the chat larger or smaller (kept for the next game)
+                if self.keys.contains(&KeyCode::ControlLeft) || self.keys.contains(&KeyCode::ControlRight) {
+                    let to = ((self.settings.chat_size + amount.signum() * 0.1) * 10.0).round() / 10.0;
+                    self.settings.chat_size = to.clamp(0.5, 3.0);
+                    crate::game_lists::remember_setting("chat_size", &self.settings.chat_size.to_string());
+                    return;
+                }
                 ui.chat.wheel(self.remotes.chat.lines.len(), amount);
                 return;
             }

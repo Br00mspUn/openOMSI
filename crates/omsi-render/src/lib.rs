@@ -1733,7 +1733,7 @@ fn gl_worker_turn() -> Option<std::sync::MutexGuard<'static, ()>> {
 
 /// The card's own memory in MB where the system tells it: Windows, through DXGI, for
 /// whichever backend draws; Linux, through the DRM driver's sysfs (amdgpu; not
-/// NVIDIA's own driver) - wgpu does not say.
+/// NVIDIA's own driver, whose memory [`vulkan_vram_mb`] reads from Vulkan instead).
 fn dedicated_vram_mb(info: &wgpu::AdapterInfo) -> Option<u64> {
     #[cfg(windows)]
     unsafe {
@@ -1780,6 +1780,25 @@ fn dedicated_vram_mb(info: &wgpu::AdapterInfo) -> Option<u64> {
         let _ = info;
         None
     }
+}
+
+/// The largest device-local memory heap of a Vulkan adapter (MB).
+#[cfg(target_os = "linux")]
+fn vulkan_vram_mb(adapter: &wgpu::Adapter) -> Option<u64> {
+    // SAFETY: the adapter outlives the borrow, and only its memory properties are read
+    let hal = unsafe { adapter.as_hal::<wgpu::hal::api::Vulkan>() }?;
+    // SAFETY: the physical device belongs to this instance
+    let props = unsafe { hal.shared_instance().raw_instance().get_physical_device_memory_properties(hal.raw_physical_device()) };
+    props.memory_heaps[..props.memory_heap_count as usize]
+        .iter()
+        .filter(|h| h.flags.contains(ash::vk::MemoryHeapFlags::DEVICE_LOCAL))
+        .map(|h| h.size >> 20)
+        .max()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn vulkan_vram_mb(_adapter: &wgpu::Adapter) -> Option<u64> {
+    None
 }
 
 pub struct Renderer {
@@ -2179,13 +2198,13 @@ impl Renderer {
         // a discrete card is taken for one of 2-4 GB, whose rest the pictures (the render
         // targets, the shadow maps) and the driver need; an integrated one shares the
         // system's memory, Apple's generously
-        let vram = dedicated_vram_mb(&info);
+        let vram = dedicated_vram_mb(&info).or_else(|| vulkan_vram_mb(&adapter));
         let guess_mb: u64 = match info.device_type {
             // (a card of 2 or 3 GB, where Windows says: half of it - 1600 MB of a GTX 1050's
             // 2 GB left too little for the rest, and its Vulkan device was lost at the start;
             // a card of 2 GB a third of it - with half, 4x MSAA, SSAO and the shadows its
             // DirectX 12 device still ran out of memory on Grundorf within seconds, #114)
-            wgpu::DeviceType::DiscreteGpu => vram.filter(|v| *v >= 512).map_or(1600, |v| if v <= 2560 { v * 35 / 100 } else { (v / 2).min(1600) }),
+            wgpu::DeviceType::DiscreteGpu => vram.filter(|v| *v >= 512).map_or(1600, |v| if v <= 2560 { v * 35 / 100 } else if v <= 6144 { (v / 2).min(1600) } else { v * 3 / 10 }),
             wgpu::DeviceType::IntegratedGpu if info.backend == wgpu::Backend::Metal => 3000,
             wgpu::DeviceType::IntegratedGpu | wgpu::DeviceType::VirtualGpu => 1000,
             _ => 800,

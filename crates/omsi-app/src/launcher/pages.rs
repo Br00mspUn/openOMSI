@@ -768,6 +768,7 @@ fn camera_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, co
     toggle_setting(ui, s, dirty, c.row(), "Camera glides between viewpoints", "driverview_smooth");
     toggle_setting(ui, s, dirty, c.row(), "Driver's hands in the cab view", "hands_in_cab");
     toggle_setting(ui, s, dirty, c.row(), "Right mouse button turns the view, Shift+right zooms (off: right zooms as in OMSI, the wheel button turns)", "alt_view");
+    toggle_setting(ui, s, dirty, c.row(), "Precision mouse zoom (FOV curve instead of the linear way)", "precision_zoom");
     let left = c.used();
     let mut c = Col::new(ui, cols[1], "Outside views");
     toggle_setting(ui, s, dirty, c.row(), "Camera collisions (outside view)", "camera_collision");
@@ -1063,6 +1064,12 @@ fn general_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
     toggle_setting(ui, s, dirty, c.row(), "Frame rate in the corner", "show_fps");
     toggle_setting(ui, s, dirty, c.row(), "Notes in the top-left corner", "notes");
     toggle_setting(ui, s, dirty, c.row(), "Chat in online games", "chat");
+    // (the chat's own size on top of the interface's; Ctrl + the wheel over it in the game)
+    let mut chat = get(s, "chat_size").as_f64().unwrap_or(1.0) as f32;
+    if ui.slider("s-chatsize", c.row(), &mut chat, 0.5, 3.0, 0.1, "Chat size", &|v| format!("{:.0}%", v * 100.0)) {
+        s["chat_size"] = json!((chat * 10.0).round() / 10.0);
+        *dirty = 0.3;
+    }
     toggle_setting(ui, s, dirty, c.row(), "Other players' names above their buses", "name_tags");
     c.section(ui, "Navigator");
     toggle_setting(ui, s, dirty, c.row(), "Navigator (Shift+N: map, schedule, off)", "navigator");
@@ -1097,6 +1104,8 @@ fn general_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
     let mut c = Col::new(ui, cols[1], "Updates");
     toggle_setting(ui, s, dirty, c.row(), "Look for updates when the launcher starts", "update_check");
     toggle_setting(ui, s, dirty, c.row(), "Install updates without asking", "update_auto");
+    toggle_setting(ui, s, dirty, c.row(), "Tell me about a new version during a session", "update_notify");
+    toggle_setting(ui, s, dirty, c.row(), "Count me in the website's \"playing now\" (anonymous)", "presence");
     {
         use crate::updater::Status;
         let r = c.row();
@@ -2652,6 +2661,7 @@ mod settings_tests {
             "set-driverview_smooth",
             "set-hands_in_cab",
             "set-alt_view",
+            "set-precision_zoom",
             "set-camera_collision",
             "set-driver",
             "set-head_tracking",
@@ -2675,9 +2685,9 @@ mod settings_tests {
             "s-maint", "set-collision_vehicles", "set-collision_objects", "set-collision_pedestrians", "set-use_real_time", "set-use_real_date", "set-time_sync", "set-metar_sync", "s-timespeed",
         ];
         let general = vec![
-            "s-lang", "set-machine_translation", "set-launcher_rest", "set-discord_status", "set-voice_chat", "s-uiscale", "set-ui_scale_window", "s-uiop", "set-tooltips", "set-show_fps", "set-notes", "set-chat", "set-name_tags",
+            "s-lang", "set-machine_translation", "set-launcher_rest", "set-discord_status", "set-voice_chat", "s-uiscale", "set-ui_scale_window", "s-uiop", "set-tooltips", "set-show_fps", "set-notes", "set-chat", "s-chatsize", "set-name_tags",
             "set-navigator", "set-nav_arrows", "set-nav_ai", "corner-top-left", "corner-top-right", "corner-bottom-left", "corner-bottom-right",
-            "set-update_check", "set-update_auto", "s-upd-check", "s-upd-github", "s-reset",
+            "set-update_check", "set-update_auto", "set-update_notify", "set-presence", "s-upd-check", "s-upd-github", "s-reset",
         ];
         vec![graphics, driving, camera, sound, gameplay, general]
     }

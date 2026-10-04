@@ -1041,6 +1041,7 @@ fn steps_of(verb: &str) -> Option<Vec<f32>> {
         "led_glow" => (0..16).map(|v| v as f32).collect(),
         "led_mips" => (0..=80).map(|v| v as f32 * 0.05).collect(),
         "ui_scale" => (10..=40).map(|v| v as f32 * 0.05).collect(),
+        "chat_size" => (5..=30).map(|v| v as f32 * 0.1).collect(),
         "ui_opacity" => (4..=20).map(|v| v as f32 * 0.05).collect(),
         "vol_ai" | "vol_scenery" => (0..=20).map(|v| v as f32 * 0.05).collect(),
         "wheel_range" => (6..=60).map(|v| v as f32 * 30.0).collect(),
@@ -1183,6 +1184,7 @@ fn option_now(app: &App, verb: &str, arg: &str) -> Option<f32> {
         "look_sens" => s.look_sens,
         "look_smoothing_ms" => s.look_smoothing_ms,
         "ui_scale" => s.ui_scale,
+        "chat_size" => s.chat_size,
         "ui_opacity" => s.ui_opacity,
         "vol_ai" => s.vol_ai,
         "vol_scenery" => s.vol_scenery,
@@ -1285,6 +1287,10 @@ fn option_set(app: &mut App, verb: &str, arg: &str, v: f32) -> Option<(&'static 
         "ui_scale" => {
             app.settings.ui_scale = (v * 100.0).round() / 100.0;
             Some(("ui_scale", app.settings.ui_scale.to_string()))
+        }
+        "chat_size" => {
+            app.settings.chat_size = ((v * 10.0).round() / 10.0).clamp(0.5, 3.0);
+            Some(("chat_size", app.settings.chat_size.to_string()))
         }
         "ui_opacity" => {
             app.settings.ui_opacity = (v * 100.0).round() / 100.0;
@@ -1464,6 +1470,7 @@ fn toggle_now(app: &App, id: &str) -> Option<bool> {
         "texture_compression" => s.texture_compression,
         "driver" => s.driver,
         "alt_view" => s.alt_view,
+        "precision_zoom" => s.precision_zoom,
         "triple_screen" => s.triple.enabled,
         "triple_hud_center" => s.triple_hud_center,
         "triple_span" => s.triple_span,
@@ -1678,6 +1685,10 @@ fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String
         "alt_view" => {
             app.settings.alt_view = on;
             Some(("alt_view", bit))
+        }
+        "precision_zoom" => {
+            app.settings.precision_zoom = on;
+            Some(("precision_zoom", bit))
         }
         "triple_screen" => {
             app.settings.triple.enabled = on;
@@ -2285,6 +2296,7 @@ fn options_pages(app: &App) -> Vec<Page> {
         slider_row(app, "look_sens", "Mouse look sensitivity", "How fast the view turns when looking round with the mouse (100% is OMSI's)", &pct),
         slider_row(app, "look_smoothing_ms", "Smooth the mouse look", "How long the view takes to come round to where the mouse or the stick turned it (off: at once, as OMSI)", &|v| if v <= 0.0 { "Off".to_string() } else { format!("{v:.0} ms") }),
         switch_row(app, "alt_view", "Right mouse button turns the view", "Shift+right zooms; off: right zooms as in OMSI, the wheel button turns"),
+        switch_row(app, "precision_zoom", "Precision mouse zoom", "The mouse zoom follows the FOV curve instead of OMSI's linear way"),
         slider_row(app, "fov", "Field of view", "Vertical field of view; in triple screen Default uses physical measurements, an override moves the virtual eye", &|v| if v < 20.0 { "Default".to_string() } else { format!("{v:.0}°") }),
         slider_row(app, "seat 1", "Seat forward and back", "Adjust the driver's seat position forward or backward", &cm),
         slider_row(app, "seat 2", "Seat height", "Adjust the driver's seat height", &cm),
@@ -2341,6 +2353,7 @@ fn options_pages(app: &App) -> Vec<Page> {
         switch_row(app, "tooltips", "Name of the button under the mouse", "Shows the name of what the cursor points at"),
         switch_row(app, "notes", "Notes in the top-left corner", "Why the vehicle does not move, the change due, what a service did"),
         switch_row(app, "chat", "Chat in online games", "Shows the chat of a LAN session"),
+        slider_row(app, "chat_size", "Chat size", "The chat's texts on top of the interface size (also Ctrl + the mouse wheel over the chat)", &pct),
         switch_row(app, "name_tags", "Other players' names above their buses", "Shows the names of the other players"),
         Some(opens("Reset all settings...", "Everything but the language, the key bindings and the game folder goes back to how it came", "reset")),
     ]

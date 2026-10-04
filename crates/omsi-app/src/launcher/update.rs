@@ -19,17 +19,48 @@ impl Launcher {
     /// one when that is what the player chose, and on a computer hand over to the new
     /// launcher once it is in place.
     pub(super) fn update_tick(&mut self, event_loop: &ActiveEventLoop) {
+        let looking = self.setting("update_check", true) && omsi_cfg::env::var_os("OMSI_NO_UPDATE").is_none();
         if !self.update.checked_once && self.started.elapsed().as_secs_f32() > 1.0 {
-            if self.setting("update_check", true) && omsi_cfg::env::var_os("OMSI_NO_UPDATE").is_none() {
+            if looking {
                 self.update.check();
             } else {
                 self.update.checked_once = true;
             }
         }
+        // (a game started from here is a program of its own on a computer: nothing is put in
+        // its place while it runs - once it ends, the update the game downloaded in the
+        // background goes in, without a wait)
+        let game_running = !omsi_launcher_lib::IN_PROCESS_GAMES && self.state.instances.iter().any(|i| i.running);
+        if self.update.game_was_running && !game_running && looking {
+            log::info!("update: the game has ended - looking for an update");
+            self.update.dismissed_version = None;
+            self.update.auto_started = false;
+            if let Status::Failed(_) | Status::UpToDate = self.update.status() {
+                self.update.dismiss();
+            }
+            self.update.check();
+        }
+        self.update.game_was_running = game_running;
+        // and every half hour while the launcher stays open, not only when it starts
+        let idle = matches!(self.update.status(), Status::Idle | Status::UpToDate) || (matches!(self.update.status(), Status::Failed(_)) && self.update.dismissed);
+        if looking && idle && self.update.last_check.is_some_and(|t| t.elapsed() > std::time::Duration::from_secs(30 * 60)) {
+            if let Status::Failed(_) | Status::UpToDate = self.update.status() {
+                self.update.dismiss();
+            }
+            self.update.check();
+        }
         self.update.poll();
+        // (an offer put aside comes back for a newer version only)
+        if let Status::Available(r) = self.update.status() {
+            if self.update.dismissed && self.update.dismissed_version.as_deref() != Some(r.version.as_str()) {
+                self.update.dismissed = false;
+            } else if !self.update.dismissed && self.update.dismissed_version.as_deref() == Some(r.version.as_str()) {
+                self.update.dismissed = true;
+            }
+        }
         match self.update.status() {
-            // "install updates without asking"
-            Status::Available(r) if self.setting("update_auto", false) && !self.update.dismissed && !self.update.auto_started => {
+            // "install updates without asking" (not while a game runs)
+            Status::Available(r) if self.setting("update_auto", false) && !self.update.dismissed && !self.update.auto_started && !game_running => {
                 self.update.auto_started = true;
                 log::info!("update: installing {} by itself (update_auto)", r.version);
                 self.update.install(r);
@@ -52,6 +83,10 @@ impl Launcher {
 
     /// Whether the update dialog lies over the page this frame.
     pub(super) fn update_dialog_open(&self) -> bool {
+        // (the launcher rests while a game runs: the offer waits for the session's end)
+        if self.update.game_was_running {
+            return false;
+        }
         match self.update.status() {
             Status::Available(_) | Status::Failed(_) => !self.update.dismissed,
             Status::Downloading { .. } | Status::Installing(_) | Status::WaitingForInstaller(_) | Status::Restarting(_) => true,

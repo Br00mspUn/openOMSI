@@ -4,6 +4,38 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1541 - 2026-10-04
+
+### Merged pull requests
+- Performance: vehicle scripts run about a quarter faster [#1328](https://github.com/openOMSI-Project/openOMSI/pull/1328), and finding the ground under the wheels costs about a quarter less CPU [#1334](https://github.com/openOMSI-Project/openOMSI/pull/1334), with the same results.
+- Texture memory: on Linux with NVIDIA's driver the card's memory is read from Vulkan, and cards over 6 GB get more automatic texture memory [#1320](https://github.com/openOMSI-Project/openOMSI/pull/1320).
+- Automatic start-up no longer releases the starter too early (Volvo 7900H, HH109, WSW C2), the stock buses unchanged [#1147](https://github.com/openOMSI-Project/openOMSI/pull/1147).
+- Trains: cars whose bogies are declared reversed face the right way, and cars are spaced by their declared couplings as in OMSI 2 [#1186](https://github.com/openOMSI-Project/openOMSI/pull/1186).
+- Camera: an optional precision curve for zooming with both mouse buttons, and a zoom cursor while the right button zooms [#903](https://github.com/openOMSI-Project/openOMSI/pull/903); the driver's eye is back on the authored seat point [#1337](https://github.com/openOMSI-Project/openOMSI/pull/1337).
+- Repository: new issues are sorted by topic and milestone, repeated crash reports point to the existing issue, and pull requests get translation and file size checks; dependency updates and a weekly security audit [#1329](https://github.com/openOMSI-Project/openOMSI/pull/1329).
+- Code clean-ups after review [#1322](https://github.com/openOMSI-Project/openOMSI/pull/1322).
+
+## 0.1.1518 - 2026-10-04
+
+### New
+- The chat has a size of its own: Ctrl + the mouse wheel over it, or Settings → General → Chat size (50-300 %), for large and 4K screens.
+
+## 0.1.1517 - 2026-10-04
+
+### Fixes
+- The README's "playing now" badge keeps its label while the counter cannot be reached.
+
+## 0.1.1515 - 2026-10-04
+
+### New
+- Multiplayer: every variable of the other players' buses (floats and strings: gearbox, displays, IBIS, ticket printer, plugin values) is synced, so their buses look and behave as they do for their drivers.
+- Updates during a session: the game looks for a new version, downloads it in the background and says so over the navigator; it is installed when the session ends. The cards can be switched off (Settings → General → "Tell me about a new version during a session").
+- The launcher looks for updates again every 30 minutes while it is open and after a game ends, not only when it starts.
+- "Playing now": the website and the README show how many people play openOMSI right now. The game sends only a random per-session id, its version and the kind of system; switch it off under Settings → General.
+
+### Fixes
+- Updates no longer fail with "Timeout" on a slow or unsteady connection: requests are tried again, a broken download goes on where it stopped, and github.com is asked when the GitHub API does not answer.
+
 ## 0.1.1512 - 2026-10-04
 
 ### Merged pull requests
