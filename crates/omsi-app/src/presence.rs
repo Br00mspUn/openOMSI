@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// The project's presence service (`services/presence/`, deployed with wrangler).
-pub(crate) const SERVICE: &str = "https://openomsi-presence.openomsi.workers.dev";
+pub(crate) const SERVICE: &str = "https://openomsi.savvabestbrother.workers.dev";
 /// How often a running game says it is still there (the service forgets one after 10 min).
 const EVERY: Duration = Duration::from_secs(180);
 

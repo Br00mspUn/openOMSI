@@ -4,6 +4,17 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1515 - 2026-10-04
+
+### New
+- Multiplayer: every variable of the other players' buses (floats and strings: gearbox, displays, IBIS, ticket printer, plugin values) is synced, so their buses look and behave as they do for their drivers.
+- Updates during a session: the game looks for a new version, downloads it in the background and says so over the navigator; it is installed when the session ends. The cards can be switched off (Settings → General → "Tell me about a new version during a session").
+- The launcher looks for updates again every 30 minutes while it is open and after a game ends, not only when it starts.
+- "Playing now": the website and the README show how many people play openOMSI right now. The game sends only a random per-session id, its version and the kind of system; switch it off under Settings → General.
+
+### Fixes
+- Updates no longer fail with "Timeout" on a slow or unsteady connection: requests are tried again, a broken download goes on where it stopped, and github.com is asked when the GitHub API does not answer.
+
 ## 0.1.1512 - 2026-10-04
 
 ### Merged pull requests
