@@ -2390,6 +2390,11 @@ mod save_slot_tests {
 /// The command line a duty becomes.
 pub fn duty_args(d: &Duty) -> Result<Vec<String>> {
     let root = root()?;
+    duty_args_for_root(d, &root)
+}
+
+// The installation is validated by duty_args; argument tests supply their own path.
+fn duty_args_for_root(d: &Duty, root: &Path) -> Result<Vec<String>> {
     if let Some(t) = d.tutorial {
         return Ok(vec!["--root".into(), root.to_string_lossy().to_string(), "--no-menu".into(), "--tutorial".into(), t.to_string()]);
     }
@@ -2790,10 +2795,10 @@ mod tests {
     #[test]
     fn a_picked_trip_starts_the_rest_of_the_tour() {
         let d = Duty { map: "maps/x/global.cfg".into(), bus: "Vehicles/x.bus".into(), time: "09:43".into(), line: Some("14".into()), tour: Some("1".into()), trip: Some("5".into()), whole_tour: true, ..Default::default() };
-        let a = duty_args(&d).unwrap();
+        let a = duty_args_for_root(&d, Path::new("test-omsi")).unwrap();
         let k = a.iter().position(|x| x == "--trip").unwrap();
         assert_eq!((a[k + 1].as_str(), a[k + 2].as_str()), ("5", "--whole-tour"));
-        let alone = duty_args(&Duty { whole_tour: false, ..d }).unwrap();
+        let alone = duty_args_for_root(&Duty { whole_tour: false, ..d }, Path::new("test-omsi")).unwrap();
         assert!(!alone.iter().any(|x| x == "--whole-tour"));
     }
 
@@ -2809,7 +2814,7 @@ mod tests {
     #[test]
     fn a_duty_passes_its_fleet_number() {
         let d: Duty = serde_json::from_str(r#"{"map":"maps/x/global.cfg","bus":"Vehicles/x.bus","time":"09:00","number":"4711"}"#).unwrap();
-        let a = duty_args(&d).unwrap();
+        let a = duty_args_for_root(&d, Path::new("test-omsi")).unwrap();
         assert!(a.windows(2).any(|w| w[0] == "--number" && w[1] == "4711"), "{a:?}");
     }
 
