@@ -2918,7 +2918,34 @@ impl Traffic {
             seed,
             scheme,
         });
+        if kind != LaneKind::Air {
+            let i = self.cars.len() - 1;
+            if let Some(gap) = self.red_ahead(i) {
+                let st = &mut self.cars[i].state;
+                st.speed = st.speed.min((2.0 * st.decel * (gap - 1.0).max(0.0)).sqrt());
+            }
+        }
         id
+    }
+
+    fn red_ahead(&self, i: usize) -> Option<f32> {
+        let st = &self.cars[i].state;
+        let way = self.way_lanes(st, 200.0);
+        for (k, &(_, d)) in way.iter().enumerate().skip(1) {
+            if d > 150.0 {
+                break;
+            }
+            let Some((c, li)) = self.light_at_entry(&way, k) else {
+                continue;
+            };
+            let Some(ctl) = self.lights.get(c) else {
+                continue;
+            };
+            if !matches!(TrafficLightController::aspect(ctl.state(li)), Aspect::Green | Aspect::Dark) {
+                return Some(d - st.front);
+            }
+        }
+        None
     }
 
     /// The vehicle/paint sets the random traffic draws from.
@@ -4318,7 +4345,11 @@ impl Traffic {
                 }
                 // decided to go on yellow and too close to stop now, or past stopping at all
                 Aspect::Red | Aspect::RedYellow => {
-                    (amber == Some((c, li)) && gap < comfortable) || gap < possible - 0.5
+                    let go = (amber == Some((c, li)) && gap < comfortable) || gap < possible - 0.5;
+                    if !go && amber == Some((c, li)) {
+                        amber = None;
+                    }
+                    go
                 }
             };
             if !go {
