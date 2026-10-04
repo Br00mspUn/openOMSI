@@ -2758,6 +2758,17 @@ pub fn set_ai_destination(
     set_destination(v, hof, line, terminus, stops, false)
 }
 
+/// The same with terminus number `ti` of the depot file itself (its `AI_target_index`).
+pub fn set_ai_destination_at(
+    v: &mut omsi_sim::VehicleInstance,
+    hof: &omsi_vehicle::Hof,
+    line: &str,
+    ti: usize,
+    stops: &[&str],
+) {
+    set_destination_at(v, hof, line, ti, stops, false)
+}
+
 /// The same for the player's bus, done the driver's way: a typing job
 /// (`omsi_sim::ibis::Typist`) that works the bus's own IBIS keys - or its ticket machine's
 /// - as a driver would, so that the IBIS script itself sets the displays, the stop list,
@@ -4788,7 +4799,7 @@ impl PlayerDuty {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// The row OMSI's AI bus is given: the first whose ident is the destination, whatever
@@ -5175,7 +5186,7 @@ mod tests {
 
     /// A vehicle of the script `osc` that declares the variables `varlist` and the string
     /// variables `stringvarlist` (one a line).
-    fn script_test_vehicle(osc: &str, varlist: &str, stringvarlist: &str) -> omsi_sim::VehicleInstance {
+    pub(crate) fn script_test_vehicle(osc: &str, varlist: &str, stringvarlist: &str) -> omsi_sim::VehicleInstance {
         // (a folder of its own: tests run side by side)
         static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let n = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

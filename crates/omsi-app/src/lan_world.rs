@@ -301,6 +301,18 @@ fn car_display(v: &omsi_sim::VehicleInstance) -> (String, String) {
     (line, format!("#{target}"))
 }
 
+/// A host's timetable bus on our copy of it: line `line` and destination `destination`,
+/// the row of the depot file [`car_display`] names (`#<row>`) - that row itself. Looked up
+/// again by the row's sign text, it was the first row with that text anywhere on its sign:
+/// Spandau's buses to U Ruhleben (282) showed Machandelweg (194), whose second line reads
+/// RUHLEBEN.
+fn show_car_destination(v: &mut omsi_sim::VehicleInstance, hof: Option<&omsi_vehicle::Hof>, line: &str, destination: &str) {
+    let row = destination.strip_prefix('#').and_then(|n| n.parse::<usize>().ok());
+    if let (Some(ti), Some(hof)) = (row, hof) {
+        crate::schedule::set_ai_destination_at(v, hof, line, ti, &[]);
+    }
+}
+
 impl LanWorld {
     /// Once a frame, after `LanSession::tick`.
     #[allow(clippy::too_many_arguments)]
@@ -1222,16 +1234,10 @@ impl LanWorld {
                     .entry(path)
                     .or_insert_with(|| crate::find_hof(args, world, &car.vehicle.ty))
                     .clone();
-                let terminus = destination
-                    .strip_prefix('#')
-                    .and_then(|n| n.parse::<usize>().ok())
-                    .and_then(|ti| hof.as_ref().and_then(|h| h.termini.get(ti)))
-                    .and_then(|t| t.strings.first().cloned())
-                    .unwrap_or_else(|| destination.clone());
                 if let Some(k) = car.vehicle.ty.program.str_var("Linie") {
                     car.vehicle.state.str_vars[k as usize] = line.clone();
                 }
-                crate::schedule::set_ai_destination(&mut car.vehicle, hof.as_deref(), line, &terminus, &[]);
+                show_car_destination(&mut car.vehicle, hof.as_deref(), line, destination);
                 m.shown.insert(id, want);
             }
         }
@@ -1483,6 +1489,22 @@ fn describe(
 #[cfg(test)]
 mod tests {
     use super::PlayClock;
+
+    /// The host's bus to U Ruhleben (row 2) shows U Ruhleben on ours too, not Machandelweg
+    /// (row 1), whose sign has RUHLEBEN on its second line.
+    #[test]
+    fn a_hosts_timetable_bus_shows_the_row_it_was_given() {
+        let t = |code: i32, id: &str, s: &[&str]| omsi_vehicle::hof::Terminus { code, texture_id: id.into(), strings: s.iter().map(|x| x.to_string()).collect(), ..Default::default() };
+        let hof = omsi_vehicle::Hof { termini: vec![t(0, "Empty", &[""]), t(194, "Machandelweg", &["MACHANDELWEG", "RUHLEBEN"]), t(282, "U Ruhleben", &["RUHLEBEN", "U-BAHNHOF"])], ..Default::default() };
+        let mut v = crate::schedule::tests::script_test_vehicle("{frame}\n{end}\n", "AI_target_index\nIBIS_TerminusIndex\nIBIS_TerminusCode\n", "SetLineTo\n");
+        super::show_car_destination(&mut v, Some(&hof), "5", "#2");
+        assert_eq!((v.var("AI_target_index"), v.var("IBIS_TerminusCode")), (Some(2.0), Some(282.0)));
+        assert_eq!(v.str_var("SetLineTo"), "5");
+        // no such row, or no depot file: nothing changes
+        super::show_car_destination(&mut v, Some(&hof), "5", "#7");
+        super::show_car_destination(&mut v, None, "5", "#1");
+        assert_eq!(v.var("AI_target_index"), Some(2.0));
+    }
 
     #[test]
     fn the_moment_drawn_follows_a_changed_delay_smoothly() {
