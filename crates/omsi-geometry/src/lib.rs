@@ -1866,6 +1866,26 @@ fn plan_weights(a: Vec3, b: Vec3, c: Vec3, x: f32, y: f32, tol: f32) -> Option<(
     (out(l1, edge(b, c)) && out(l2, edge(c, a)) && out(l3, edge(a, b))).then_some((l1, l2, l3))
 }
 
+/// The box outside which [`plan_weights`] accepts no point of `abc` (unbounded for a sliver).
+fn plan_reach(a: Vec3, b: Vec3, c: Vec3, tol: f32) -> [f32; 4] {
+    const ALL: [f32; 4] = [f32::MIN, f32::MIN, f32::MAX, f32::MAX];
+    let (p, q, r) = (a.truncate(), b.truncate(), c.truncate());
+    let area2 = ((q - p).perp_dot(r - p)).abs();
+    let lens = [(q - r).length(), (r - p).length(), (p - q).length()];
+    if area2 < 1e-6 || lens.iter().any(|l| *l < 1e-4) {
+        return ALL;
+    }
+    let push = lens.iter().map(|l| tol.max(2e-4 * area2 / l)).fold(0.0f32, f32::max);
+    let half_sin = |u: glam::Vec2, v: glam::Vec2| ((1.0 - u.normalize().dot(v.normalize()).clamp(-1.0, 1.0)) * 0.5).sqrt();
+    let s = half_sin(q - p, r - p).min(half_sin(p - q, r - q)).min(half_sin(p - r, q - r));
+    if s < 0.02 {
+        return ALL;
+    }
+    let m = push / s * 1.05 + 0.01;
+    let (lo, hi) = (p.min(q).min(r), p.max(q).max(r));
+    [lo.x - m, lo.y - m, hi.x + m, hi.y + m]
+}
+
 /// A `.surf` map: a picture beside a road texture (`str_kopfgr01.bmp.surf`) whose red
 /// channel lies over that texture's own coordinates. Where a wheel stands on a face drawn
 /// with the texture, OMSI 2 moves the ground by [`HeightMap::AMPLITUDE`] × (2·red − 1):
@@ -1960,6 +1980,8 @@ pub struct DriveGrid {
     /// Per cell, the range of `items` that lists its triangles (`cells² + 1` offsets).
     start: Vec<u32>,
     items: Vec<u32>,
+    /// Per triangle, the box (min x, min y, max x, max y) outside which [`plan_weights`] never accepts a point.
+    reach: Vec<[f32; 4]>,
 }
 
 impl DriveGrid {
@@ -1968,7 +1990,7 @@ impl DriveGrid {
 
     /// Bytes the grid holds on the heap.
     pub fn heap_bytes(&self) -> usize {
-        self.tris.capacity() * std::mem::size_of::<[Vec3; 3]>() + self.ridge.capacity() + self.bump_of.capacity() * 4 + self.bumps.capacity() * std::mem::size_of::<(u32, [Vec2; 3])>() + self.start.capacity() * 4 + self.items.capacity() * 4
+        self.tris.capacity() * std::mem::size_of::<[Vec3; 3]>() + self.ridge.capacity() + self.bump_of.capacity() * 4 + self.bumps.capacity() * std::mem::size_of::<(u32, [Vec2; 3])>() + self.start.capacity() * 4 + self.items.capacity() * 4 + self.reach.capacity() * 16
     }
 
     /// Add a triangle; walls (faces steeper than about 70°) are left out, they are nothing
@@ -2034,6 +2056,7 @@ impl DriveGrid {
             keep_ridge.push(*r);
             keep_bump.push(*b);
         }
+        self.reach = keep.iter().map(|t| plan_reach(t[0], t[1], t[2], SEAM_TOLERANCE)).collect();
         self.tris = keep;
         self.ridge = keep_ridge;
         self.bump_of = keep_bump;
@@ -2079,7 +2102,7 @@ impl DriveGrid {
         let k = cy * self.cells + cx;
         let mut best: Option<(f32, Vec3)> = None;
         for &i in &self.items[self.start[k] as usize..self.start[k + 1] as usize] {
-            if self.ridge.get(i as usize).copied().unwrap_or(false) { continue; }
+            if self.ridge.get(i as usize).copied().unwrap_or(false) || !self.reaches(i, x, y) { continue; }
             let [a, b, c] = self.tris[i as usize];
             let Some((l1, l2, l3)) = plan_weights(a, b, c, x, y, SEAM_TOLERANCE) else { continue };
             let z = l1 * a.z + l2 * b.z + l3 * c.z;
@@ -2107,6 +2130,9 @@ impl DriveGrid {
         let k = cy * self.cells + cx;
         let mut n = 0;
         for &i in &self.items[self.start[k] as usize..self.start[k + 1] as usize] {
+            if !self.reaches(i, x, y) {
+                continue;
+            }
             let [a, b, c] = self.tris[i as usize];
             let Some((l1, l2, l3)) = plan_weights(a, b, c, x, y, SEAM_TOLERANCE) else { continue };
             let mut z = l1 * a.z + l2 * b.z + l3 * c.z;
@@ -2125,6 +2151,11 @@ impl DriveGrid {
         n
     }
 
+    #[inline]
+    fn reaches(&self, i: u32, x: f32, y: f32) -> bool {
+        self.reach.get(i as usize).is_none_or(|r| x >= r[0] && y >= r[1] && x <= r[2] && y <= r[3])
+    }
+
     fn probe_kind(&self, x: f32, y: f32, z_top: f32, ridges: bool) -> Probe {
         let mut out = Probe::default();
         if self.cells == 0 || x < 0.0 || y < 0.0 {
@@ -2136,7 +2167,7 @@ impl DriveGrid {
         }
         let k = cy * self.cells + cx;
         for &i in &self.items[self.start[k] as usize..self.start[k + 1] as usize] {
-            if self.ridge.get(i as usize).copied().unwrap_or(false) != ridges {
+            if self.ridge.get(i as usize).copied().unwrap_or(false) != ridges || !self.reaches(i, x, y) {
                 continue;
             }
             let [a, b, c] = self.tris[i as usize];
