@@ -2329,8 +2329,23 @@ fn probe_tile(
     let lx = (x - key.0 as f64 * tile_size()) as f32;
     let ly = (y - key.1 as f64 * tile_size()) as f32;
     let mut probe = omsi_geometry::Probe::default();
-    if let Some(s) = surface {
+    let mut zs = [0f32; 64];
+    let mut walls = None;
+    let n = surface.map_or(0, |s| s.drive.heights(lx, ly, &mut zs, &mut walls));
+    if let Some(s) = surface.filter(|_| n > zs.len()) {
         probe = s.drive.probe(lx, ly, top as f32);
+        let mut layers = 0;
+        while let Some(z1) = probe.below.filter(|_| layers < 4) {
+            layers += 1;
+            match s.drive.probe(lx, ly, z1 - 0.0005).below {
+                Some(z2) if z1 - z2 < PAINT_LAYER => probe.below = Some(z2),
+                _ => break,
+            }
+        }
+    } else if surface.is_some() {
+        let zs = &zs[..n];
+        let below = |lim: f32| zs.iter().fold(omsi_geometry::Probe::default(), |p, &z| p.merge(omsi_geometry::Probe::of(z, lim)));
+        probe = below(top as f32);
         // a painted layer is no step: road markings made as `[surface]` objects or as
         // splines with a height profile lie a centimetre or three over the asphalt, and the
         // wheels climbed every line - the bus hopped at stops and over dotted lines (Horizon).
@@ -2342,7 +2357,7 @@ fn probe_tile(
         let mut layers = 0;
         while let Some(z1) = probe.below.filter(|_| layers < 4) {
             layers += 1;
-            match s.drive.probe(lx, ly, z1 - 0.0005).below {
+            match below(z1 - 0.0005).below {
                 Some(z2) if z1 - z2 < PAINT_LAYER => probe.below = Some(z2),
                 _ => break,
             }
@@ -2379,8 +2394,8 @@ fn probe_tile(
     // it is probed from; nearer the ground than that the wheel rolls on the road beside it
     // (where the wall's top met the road the wheels went up onto it and rode along it)
     if let Some(s) = surface {
-        let walls = s.drive.probe_walls(lx, ly, f32::MAX);
-        if let (Some(zw), Some(g)) = (walls.below, probe.below) {
+        let walls = if n > zs.len() { s.drive.probe_walls(lx, ly, f32::MAX).below } else { walls };
+        if let (Some(zw), Some(g)) = (walls, probe.below) {
             if zw > g + WALL_TOP_STEP {
                 probe.above = Some(probe.above.map_or(zw, |a| a.min(zw)));
             }

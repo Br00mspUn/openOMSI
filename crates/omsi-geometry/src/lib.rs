@@ -2066,6 +2066,35 @@ impl DriveGrid {
         self.probe_kind(x, y, z_top, true)
     }
 
+    pub fn heights(&self, x: f32, y: f32, road: &mut [f32], walls: &mut Option<f32>) -> usize {
+        if self.cells == 0 || x < 0.0 || y < 0.0 {
+            return 0;
+        }
+        let (cx, cy) = ((x / self.cell) as usize, (y / self.cell) as usize);
+        if cx >= self.cells || cy >= self.cells {
+            return 0;
+        }
+        let k = cy * self.cells + cx;
+        let mut n = 0;
+        for &i in &self.items[self.start[k] as usize..self.start[k + 1] as usize] {
+            let [a, b, c] = self.tris[i as usize];
+            let Some((l1, l2, l3)) = plan_weights(a, b, c, x, y, SEAM_TOLERANCE) else { continue };
+            let mut z = l1 * a.z + l2 * b.z + l3 * c.z;
+            if let Some(&(m, uv)) = self.bump_of.get(i as usize).and_then(|&b| self.bumps.get(b as usize)) {
+                z += self.maps[m as usize].lift(uv[0] * l1 + uv[1] * l2 + uv[2] * l3);
+            }
+            if self.ridge.get(i as usize).copied().unwrap_or(false) {
+                *walls = Probe { below: *walls, above: None }.merge(Probe::of(z, f32::MAX)).below;
+            } else {
+                if let Some(slot) = road.get_mut(n) {
+                    *slot = z;
+                }
+                n += 1;
+            }
+        }
+        n
+    }
+
     fn probe_kind(&self, x: f32, y: f32, z_top: f32, ridges: bool) -> Probe {
         let mut out = Probe::default();
         if self.cells == 0 || x < 0.0 || y < 0.0 {
