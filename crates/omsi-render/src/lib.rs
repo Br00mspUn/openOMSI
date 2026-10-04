@@ -881,6 +881,7 @@ impl InstanceBounds {
 }
 
 const CULL_BLOCK: usize = 128;
+const CULL_BLOCK_REBUILDS: usize = 8;
 
 fn transform_scale(transform: Mat4) -> f32 {
     transform.x_axis.truncate().length_squared()
@@ -1073,8 +1074,9 @@ pub struct Scene {
     changed_mark: Vec<bool>,
     cache_bounds: bool,
     bounds_meshes: Vec<bool>,
-    block_bounds: Vec<(DVec3, f32)>,
+    block_bounds: Vec<(DVec3, DVec3)>,
     block_dirty: Vec<bool>,
+    block_cursor: usize,
     bounds_dirty: bool,
     /// What the per-draw buffers hold, kept on the CPU: changed entries are written here
     /// and uploaded as a few merged ranges. Every `write_buffer` makes a new staging buffer
@@ -4257,6 +4259,7 @@ impl Renderer {
             bounds_dirty: false,
             block_bounds: Vec::new(),
             block_dirty: Vec::new(),
+            block_cursor: 0,
             uploaded_instances: 0,
             uploaded_entries: 0,
             cpu_models: Vec::new(),
@@ -5973,21 +5976,28 @@ impl Renderer {
         if !scene.cache_bounds { return; }
         let blocks = scene.instances.len().div_ceil(CULL_BLOCK);
         let all = scene.dirty || scene.block_bounds.len() != blocks;
-        scene.block_dirty.resize(blocks, true);
+        scene.block_bounds.resize(blocks, (DVec3::splat(f64::MAX), DVec3::splat(f64::MIN)));
+        scene.block_dirty.resize(blocks, false);
+        let grow = |bb: &mut (DVec3, DVec3), i: &Instance| {
+            let c = i.origin + i.bounds.centre.as_dvec3();
+            let r = i.bounds.radius as f64;
+            bb.0 = bb.0.min(c - r);
+            bb.1 = bb.1.max(c + r);
+        };
         if scene.dirty {
             for i in &mut scene.instances {
                 i.bounds = InstanceBounds::new(&scene.meshes[i.mesh], i.transform);
             }
         } else {
-            for i in &mut scene.instances[scene.uploaded_instances..] {
+            for k in scene.uploaded_instances..scene.instances.len() {
+                let i = &mut scene.instances[k];
                 i.bounds = InstanceBounds::new(&scene.meshes[i.mesh], i.transform);
-            }
-            for b in scene.uploaded_instances / CULL_BLOCK..blocks {
-                scene.block_dirty[b] = true;
+                grow(&mut scene.block_bounds[k / CULL_BLOCK], i);
             }
             for &idx in &scene.changed {
                 if let Some(i) = scene.instances.get_mut(idx) {
                     i.bounds = InstanceBounds::new(&scene.meshes[i.mesh], i.transform);
+                    grow(&mut scene.block_bounds[idx / CULL_BLOCK], i);
                     scene.block_dirty[idx / CULL_BLOCK] = true;
                 }
             }
@@ -5997,6 +6007,7 @@ impl Renderer {
                 for (k, i) in scene.instances.iter_mut().enumerate() {
                     if scene.bounds_meshes.get(i.mesh).copied().unwrap_or(false) {
                         i.bounds = InstanceBounds::new(&scene.meshes[i.mesh], i.transform);
+                        grow(&mut scene.block_bounds[k / CULL_BLOCK], i);
                         scene.block_dirty[k / CULL_BLOCK] = true;
                     }
                 }
@@ -6006,30 +6017,47 @@ impl Renderer {
             scene.bounds_meshes.fill(false);
             scene.bounds_dirty = false;
         }
-        scene.block_bounds.resize(blocks, (DVec3::ZERO, f32::MAX));
-        for b in 0..blocks {
-            if !all && !scene.block_dirty[b] {
-                continue;
-            }
-            scene.block_dirty[b] = false;
-            let (mut lo, mut hi) = (DVec3::splat(f64::MAX), DVec3::splat(f64::MIN));
+        let rebuild = |scene: &mut Scene, b: usize| {
+            let mut bb = (DVec3::splat(f64::MAX), DVec3::splat(f64::MIN));
             for i in &scene.instances[b * CULL_BLOCK..((b + 1) * CULL_BLOCK).min(scene.instances.len())] {
-                let c = i.origin + i.bounds.centre.as_dvec3();
-                let r = i.bounds.radius as f64;
-                lo = lo.min(c - r);
-                hi = hi.max(c + r);
+                grow(&mut bb, i);
             }
-            scene.block_bounds[b] = if lo.x <= hi.x {
-                ((lo + hi) * 0.5, ((hi - lo).length() * 0.5) as f32)
-            } else {
-                (DVec3::ZERO, 0.0)
-            };
+            scene.block_bounds[b] = bb;
+            scene.block_dirty[b] = false;
+        };
+        if all {
+            for b in 0..blocks {
+                rebuild(scene, b);
+            }
+            return;
+        }
+        let mut left = CULL_BLOCK_REBUILDS;
+        for _ in 0..blocks {
+            if left == 0 {
+                break;
+            }
+            scene.block_cursor = (scene.block_cursor + 1) % blocks.max(1);
+            if scene.block_dirty[scene.block_cursor] {
+                rebuild(scene, scene.block_cursor);
+                left -= 1;
+            }
         }
     }
 
     fn cull_blocks(scene: &Scene) -> Option<Vec<(Vec3, f32)>> {
-        (scene.cache_bounds && scene.block_bounds.len() == scene.instances.len().div_ceil(CULL_BLOCK))
-            .then(|| scene.block_bounds.iter().map(|&(c, r)| ((c - scene.render_origin).as_vec3(), r)).collect())
+        (scene.cache_bounds && scene.block_bounds.len() == scene.instances.len().div_ceil(CULL_BLOCK)).then(|| {
+            scene
+                .block_bounds
+                .iter()
+                .map(|&(lo, hi)| {
+                    if lo.x > hi.x {
+                        (Vec3::ZERO, 0.0)
+                    } else {
+                        (((lo + hi) * 0.5 - scene.render_origin).as_vec3(), ((hi - lo).length() * 0.5) as f32)
+                    }
+                })
+                .collect()
+        })
     }
 
     /// A dynamic alpha value is never allowed to fade an opaque body panel; only
