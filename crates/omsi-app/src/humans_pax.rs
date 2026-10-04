@@ -777,11 +777,17 @@ impl Humans {
                 let s = &self.stops[id];
                 let d = bn.pos - s.pos;
                 let dist = d.length();
+                // (the stop to request is wanted only by a bus whose next stop nobody knows; a
+                // stop beyond that and out of reach costs nothing more, as before)
+                let wants_request = bn.next_stop.is_none() && dist < request_distance;
+                if !wants_request && !(dist < 60.0) {
+                    continue;
+                }
                 let sh = s.heading.to_radians();
                 let (s_fwd, s_right) = (DVec2::new(sh.sin(), sh.cos()), DVec2::new(sh.cos(), -sh.sin()));
                 let same_way = bn.fwd().dot(s_fwd) > 0.0;
                 // Without a route, use the nearest stop ahead, not the one just left.
-                if same_way && d.truncate().dot(s_fwd) <= 25.0 && dist < request_distance {
+                if wants_request && same_way && d.truncate().dot(s_fwd) <= 25.0 {
                     request_distance = dist;
                     reg.request_next = Some(RequestStop {
                         id: *id,

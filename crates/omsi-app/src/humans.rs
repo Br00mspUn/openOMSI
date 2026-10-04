@@ -2953,6 +2953,12 @@ impl Humans {
 
 
     pub fn set_player_next_stop(&mut self, stop: Option<&crate::schedule::PlannedStop>) {
+        // (called once a frame: worked out again only when the duty moves on to another stop)
+        if let (Some(s), Some(cur)) = (stop, self.player_next_stop.as_ref()) {
+            if cur.id == s.object_id {
+                return;
+            }
+        }
         self.player_next_stop = stop
             .and_then(|stop| self.request_stop(stop.object_id, Some(&stop.name), stop.position));
     }
