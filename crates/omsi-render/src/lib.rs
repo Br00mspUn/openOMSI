@@ -1069,6 +1069,7 @@ pub struct Scene {
     /// because one bus moved was the biggest single CPU cost of a frame.
     changed: Vec<usize>,
     changed_mark: Vec<bool>,
+    origin_moved: bool,
     cache_bounds: bool,
     bounds_meshes: Vec<bool>,
     bounds_dirty: bool,
@@ -4248,6 +4249,7 @@ impl Renderer {
             dirty: true,
             changed: Vec::new(),
             changed_mark: Vec::new(),
+            origin_moved: false,
             cache_bounds: omsi_cfg::env::var_os("OMSI_NO_BOUNDS_CACHE").is_none(),
             bounds_meshes: Vec::new(),
             bounds_dirty: false,
@@ -5940,8 +5942,12 @@ impl Renderer {
     /// Choose the render origin. Everything is re-uploaded when it moves.
     pub fn set_render_origin(&self, scene: &mut Scene, origin: DVec3) {
         if scene.render_origin != origin {
+            if origin.z != scene.render_origin.z || scene.model_buf.is_none() {
+                scene.dirty = true;
+            } else {
+                scene.origin_moved = true;
+            }
             scene.render_origin = origin;
-            scene.dirty = true;
         }
     }
 
@@ -6588,6 +6594,25 @@ impl Renderer {
     pub fn prepare(&self, scene: &mut Scene) {
         Self::prepare_bounds(scene);
         scene.bind_groups.clear();
+        if std::mem::take(&mut scene.origin_moved) && !scene.dirty {
+            let ro = scene.render_origin;
+            let n = scene.uploaded_entries as usize;
+            for i in &scene.instances[..scene.uploaded_instances] {
+                let t = (Mat4::from_translation((i.origin - ro).as_vec3()) * i.transform).w_axis.to_array();
+                let (b, k) = (i.base as usize, i.slot_alpha.len());
+                if b + k <= n.min(scene.cpu_models.len()) {
+                    for m in &mut scene.cpu_models[b..b + k] {
+                        m[3] = t;
+                    }
+                }
+            }
+            match scene.model_buf.as_ref() {
+                Some(buf) if (n * 64) as u64 <= buf.size() && n <= scene.cpu_models.len() => {
+                    buf.write(&self.queue, 0, bytemuck::cast_slice(&scene.cpu_models[..n]));
+                }
+                _ => scene.dirty = true,
+            }
+        }
         if !scene.dirty
             && scene.instances.len() > scene.uploaded_instances
             && scene.model_buf.is_some()
