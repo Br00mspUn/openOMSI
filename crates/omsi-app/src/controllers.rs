@@ -209,6 +209,16 @@ pub struct Analog {
     pub look: [f32; 2],
 }
 
+impl Analog {
+    /// Automatic gamepad camera input leaves explicitly assigned look axes and driving
+    /// controls alone, including when the automatic right-stick input is switched off.
+    fn apply_default_gamepad_look(&mut self, enabled: bool, x: f32, y: f32) {
+        if enabled && self.look == [0.0, 0.0] {
+            self.look = [look_axis(x), look_axis(-y)];
+        }
+    }
+}
+
 /// An axis that turns the head: nothing round its centre, then the rest of the way.
 pub(crate) fn look_axis(v: f32) -> f32 {
     const DEAD: f32 = 0.12;
@@ -809,6 +819,8 @@ pub struct Controllers {
     pub enabled: bool,
     /// The settings' dead zone round the centre of a set-up device's axes (0..0.3).
     pub deadzone: f32,
+    /// Automatic right-stick camera movement (Settings: `right_stick_look`).
+    pub right_stick_look: bool,
     /// The pedals' response curves (Settings → pedal strength; 1 = as the pedal reads).
     pub pedal_throttle: f32,
     pub pedal_brake: f32,
@@ -884,7 +896,7 @@ impl Controllers {
         for c in devices.connected() {
             log::info!("game controller: {} ({})", c.name, if cfg.iter().any(|d| names_match(&d.name, &c.name)) { "set up in gamectrler.cfg" } else if c.gamepad { "as a gamepad" } else { "not set up: its X axis steers" });
         }
-Controllers { settled: Vec::new(), devices, focused: true, cfg, deadzone: 0.0, pedal_throttle: 1.0, pedal_brake: 1.0, disabled: Vec::new(), ff_invert: false, ff_enabled: true, ff_road: 1.0, ff_engine: 1.0, ff_fade: FF_FADE, steer_gain: 1.0, enabled: true, actions: Vec::new(), announced: Vec::new(), notice: None, steer: None, ff_t: 0.0, ff_lateral: 0.0, ff_bump: 0.0, ff_bump_age: 0.0, ff_micro: Micro::default(), ff_vib: ScriptVib::default(), ff_rumble: 0.0, ff_source_logged: None, rumble: None, #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel: None, #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel_tried: None }
+Controllers { settled: Vec::new(), devices, focused: true, cfg, deadzone: 0.0, right_stick_look: true, pedal_throttle: 1.0, pedal_brake: 1.0, disabled: Vec::new(), ff_invert: false, ff_enabled: true, ff_road: 1.0, ff_engine: 1.0, ff_fade: FF_FADE, steer_gain: 1.0, enabled: true, actions: Vec::new(), announced: Vec::new(), notice: None, steer: None, ff_t: 0.0, ff_lateral: 0.0, ff_bump: 0.0, ff_bump_age: 0.0, ff_micro: Micro::default(), ff_vib: ScriptVib::default(), ff_rumble: 0.0, ff_source_logged: None, rumble: None, #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel: None, #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel_tried: None }
     }
 
     /// A wheel or joystick steers the bus (then the arrow keys look around, as in OMSI:
@@ -1036,9 +1048,7 @@ Controllers { settled: Vec::new(), devices, focused: true, cfg, deadzone: 0.0, p
                 out.throttle.get_or_insert(crate::settings::pedal_curve(rt, self.pedal_throttle));
                 out.brake.get_or_insert(crate::settings::pedal_curve(lt, self.pedal_brake));
                 // the right stick looks round, as the truck games have it (#454)
-                if out.look == [0.0, 0.0] {
-                    out.look = [look_axis(pad.value(Axis::RightStickX)), look_axis(-pad.value(Axis::RightStickY))];
-                }
+                out.apply_default_gamepad_look(self.right_stick_look, pad.value(Axis::RightStickX), pad.value(Axis::RightStickY));
             }
         }
         let before = self.steer.as_ref().filter(|s| steer.as_ref().is_some_and(|n| n.0 == s.0)).map(|s| s.1);
@@ -2376,5 +2386,34 @@ mod button_tests {
         let mut off = super::ScriptVib::default();
         off.step(true, 0.8, 12.0, super::FF_FADE, dt);
         assert_eq!(off.step(false, 0.0, 0.0, super::FF_FADE, dt).0, 0.0);
+    }
+}
+
+#[cfg(test)]
+mod right_stick_look_tests {
+    #[test]
+    fn disabling_automatic_look_keeps_driving_controls_and_assigned_look() {
+        for assigned in [[0.0, 0.0], [0.5, -0.25]] {
+            let mut analog = super::Analog { steering: Some(0.3), stick: true, throttle: Some(0.8), brake: Some(0.2), clutch: Some(0.4), look: assigned };
+            analog.apply_default_gamepad_look(false, 1.0, -1.0);
+            assert_eq!(analog.look, assigned);
+            assert_eq!(analog.steering, Some(0.3));
+            assert!(analog.stick);
+            assert_eq!(analog.throttle, Some(0.8));
+            assert_eq!(analog.brake, Some(0.2));
+            assert_eq!(analog.clutch, Some(0.4));
+        }
+    }
+
+    #[test]
+    fn enabled_automatic_look_keeps_dead_zone_direction_and_assigned_axes() {
+        let mut analog = super::Analog::default();
+        analog.apply_default_gamepad_look(true, 0.1, -0.1);
+        assert_eq!(analog.look, [0.0, 0.0]);
+        analog.apply_default_gamepad_look(true, 1.0, -1.0);
+        assert_eq!(analog.look, [1.0, 1.0]);
+        analog.look = [0.25, -0.5];
+        analog.apply_default_gamepad_look(true, -1.0, 1.0);
+        assert_eq!(analog.look, [0.25, -0.5]);
     }
 }
