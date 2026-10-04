@@ -271,7 +271,7 @@ fn keyboard_cfg(app: &App) -> omsi_content::KeyboardCfg {
         .with_vr_defaults()
 }
 
-fn write_keyboard_cfg(app: &App, cfg: &omsi_content::KeyboardCfg) -> Result<(), String> {
+fn write_keyboard_cfg(_app: &App, cfg: &omsi_content::KeyboardCfg) -> Result<(), String> {
     let dir = crate::startup::content_dir().ok_or_else(|| "No writable openOMSI content folder was found".to_string())?.join("Inputs");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("keyboard.cfg");
@@ -603,6 +603,8 @@ pub(crate) fn menu_extras(
         ListKind::Options(_) => (MenuKind::Options, head("Options..."), None),
         ListKind::Vehicle(_) => (MenuKind::Options, head("Vehicle options..."), None),
         ListKind::World(_) => (MenuKind::Options, head("World options..."), None),
+        ListKind::Controls => (MenuKind::List, head("Controls..."), None),
+        ListKind::Events => (MenuKind::List, Some((tr("Add event"), String::new())), None),
         ListKind::Lines => {
             let preview = action.strip_prefix("line ").and_then(|name| {
                 let line = schedule?.data.lines.iter().find(|l| l.name == name)?;
