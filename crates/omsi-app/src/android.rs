@@ -47,9 +47,14 @@ fn android_main(app: AndroidApp) {
     // the Java activity (OmsiActivity) for the calls into it: ndk_context's context is the
     // Application, which has none of the activity's methods
     ACTIVITY.store(app.activity_as_ptr(), Ordering::Relaxed);
-    // the app's own folder is the home of settings.cfg, launcher.json, the profiles
     if let Some(home) = app.internal_data_path() {
         std::env::set_var("HOME", &home);
+        if let Some(parent) = home.parent() {
+            let prev = std::fs::read_to_string(home.join("game-prev.log")).unwrap_or_default();
+            if prev.contains("Adreno (TM) 7") || prev.contains("Adreno (TM) 8") || prev.contains("Adreno (TM) 6") {
+                let _ = std::fs::remove_dir_all(parent.join("code_cache"));
+            }
+        }
     }
     init_log();
     // the content folder (mods, archives, screenshots): on the shared storage when the
