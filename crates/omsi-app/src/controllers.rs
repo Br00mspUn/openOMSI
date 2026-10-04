@@ -86,8 +86,12 @@ pub(crate) fn cfg_path(root: &Path) -> std::path::PathBuf {
 
 /// `Inputs/gamectrler.cfg`: the configured devices.
 pub(crate) fn read_cfg(root: &Path) -> Vec<DeviceCfg> {
+    read_cfg_checked(root).unwrap_or_default()
+}
+
+pub(crate) fn read_cfg_checked(root: &Path) -> Result<Vec<DeviceCfg>, String> {
     let path = cfg_path(root);
-    let Ok(text) = std::fs::read(&path) else { return Vec::new() };
+    let text = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut devices = parse_cfg(&omsi_cfg::codepage::decode(&text));
     // An inherited OMSI file can contain 0/0 FFScale on a wheel. Keep its axis and
     // button bindings, but use openOMSI's 100/100 default until our own file is saved.
@@ -101,7 +105,7 @@ pub(crate) fn read_cfg(root: &Path) -> Vec<DeviceCfg> {
             }
         }
     }
-    devices
+    Ok(devices)
 }
 
 pub(crate) fn parse_cfg(text: &str) -> Vec<DeviceCfg> {
@@ -664,6 +668,11 @@ fn save_cfg_to(path: &Path, devices: &[DeviceCfg]) -> Result<(), String> {
     result
 }
 
+/// Scale only the configured gamepad, rather than borrowing a wheel's vibration setting.
+fn rumble_scale(cfg: &[DeviceCfg], name: &str) -> f32 {
+    find_device_cfg(cfg, name).and_then(|d| d.ff_scale).map(|s| s.1).unwrap_or(1.0).clamp(0.0, 2.0)
+}
+
 /// A button-only gamepad configuration keeps the automatic analog layout. Once axes
 /// are assigned, the explicit layout takes complete ownership of them.
 fn custom_gamepad_axes(cfg: &[DeviceCfg], name: &str) -> bool {
@@ -720,7 +729,7 @@ pub struct Controllers {
     ff_source_logged: Option<String>,
     /// The rumble playing (`FF_Vib_Amp` and `FF_Vib_Period` of the bus), rebuilt when
     /// either changes.
-    rumble: Option<(gilrs::ff::Effect, f32, f32)>,
+    rumble: Vec<(gilrs::GamepadId, gilrs::ff::Effect, f32, f32, f32)>,
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     wheel: Option<crate::evdev_ff::Wheel>,
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
@@ -773,7 +782,7 @@ impl Controllers {
     }
 
     fn with_devices(devices: Devices, cfg: Vec<DeviceCfg>) -> Controllers {
-        Controllers { settled: Vec::new(), devices, focused: true, cfg, held: HeldButtons::default(), editing: false, raw_buttons: Vec::new(), deadzone: 0.0, pedal_throttle: 1.0, pedal_brake: 1.0, disabled: Vec::new(), ff_invert: false, ff_enabled: true, steer_gain: 1.0, enabled: true, actions: Vec::new(), announced: Vec::new(), notice: None, steer: None, ff_t: 0.0, ff_lateral: 0.0, ff_bump: 0.0, ff_bump_age: 0.0, ff_source_logged: None, rumble: None, #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel: None, #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel_tried: None }
+        Controllers { settled: Vec::new(), devices, focused: true, cfg, held: HeldButtons::default(), editing: false, raw_buttons: Vec::new(), deadzone: 0.0, pedal_throttle: 1.0, pedal_brake: 1.0, disabled: Vec::new(), ff_invert: false, ff_enabled: true, steer_gain: 1.0, enabled: true, actions: Vec::new(), announced: Vec::new(), notice: None, steer: None, ff_t: 0.0, ff_lateral: 0.0, ff_bump: 0.0, ff_bump_age: 0.0, ff_source_logged: None, rumble: Vec::new(), #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel: None, #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel_tried: None }
     }
 
     /// A wheel or joystick steers the bus (then the arrow keys look around, as in OMSI:
@@ -819,7 +828,7 @@ impl Controllers {
                             let (steering, position) = wheel_steering(v, inverted, d.axis_flags[k], dz, self.steer_gain);
                             set(&mut out.steering, steering);
                             out.stick = c.gamepad;
-                            if steer.is_none() {
+                            if steer.is_none() && !c.gamepad {
                                 steer = Some((c.name.clone(), position, c.ff));
                             }
                             continue;
@@ -1012,37 +1021,36 @@ impl Controllers {
         let amp = amp.clamp(0.0, 1.0);
         let period = if period.is_finite() { period.clamp(0.0, 100.0) } else { 0.0 };
         let Some(g) = self.devices.gilrs.as_mut() else { return };
-        if let Some((_, was, was_period)) = &self.rumble {
-            if (was - amp).abs() < 0.02 && (was_period - period).abs() < 0.05 {
-                return;
+        let pads: Vec<(gilrs::GamepadId, f32, f32)> = g.gamepads()
+            .filter(|(_, p)| p.is_ff_supported() && !self.disabled.iter().any(|n| names_match(n, p.name())))
+            .map(|(id, p)| {
+                let scale = rumble_scale(&self.cfg, p.name());
+                (id, (amp * scale).min(1.0), scale)
+            }).collect();
+        // Keep unchanged gamepad effects. A saved vibration-strength change must take
+        // effect even when the bus's vibration amplitude and period have not changed.
+        self.rumble.retain(|(id, _, was, was_period, was_scale)| pads.iter().any(|(pad, value, scale)|
+            pad == id && *value >= 0.01 && (was - value).abs() < 0.02
+                && (was_period - period).abs() < 0.05 && (was_scale - scale).abs() < 1e-6));
+        for (id, value, scale) in pads {
+            if value < 0.01 || self.rumble.iter().any(|(pad, ..)| *pad == id) { continue; }
+            let m = (value * u16::MAX as f32) as u16;
+            let ms = (period * 10.0).round() as u32;
+            let scheduling = if ms >= 20 {
+                gilrs::ff::Replay { after: gilrs::ff::Ticks::from_ms(0), play_for: gilrs::ff::Ticks::from_ms(ms / 2), with_delay: gilrs::ff::Ticks::from_ms(ms - ms / 2) }
+            } else {
+                Default::default()
+            };
+            let effect = gilrs::ff::EffectBuilder::new()
+                .add_effect(gilrs::ff::BaseEffect { kind: gilrs::ff::BaseEffectType::Strong { magnitude: m }, scheduling, ..Default::default() })
+                .add_effect(gilrs::ff::BaseEffect { kind: gilrs::ff::BaseEffectType::Weak { magnitude: m / 2 }, scheduling, ..Default::default() })
+                .repeat(gilrs::ff::Repeat::Infinitely)
+                .gamepads(&[id])
+                .finish(g);
+            if let Ok(e) = effect {
+                let _ = e.play();
+                self.rumble.push((id, e, value, period, scale));
             }
-        }
-        self.rumble = None;
-        if amp < 0.01 {
-            return;
-        }
-        let pads: Vec<gilrs::GamepadId> = g.gamepads().filter(|(_, p)| p.is_ff_supported()).map(|(id, _)| id).collect();
-        if pads.is_empty() {
-            return;
-        }
-        // (the file's [FFScale] of a set-up device scales it)
-        let scale = self.cfg.iter().find_map(|d| d.ff_scale).map(|s| s.1).unwrap_or(1.0).clamp(0.0, 2.0);
-        let m = ((amp * scale).min(1.0) * u16::MAX as f32) as u16;
-        let ms = (period * 10.0).round() as u32;
-        let scheduling = if ms >= 20 {
-            gilrs::ff::Replay { after: gilrs::ff::Ticks::from_ms(0), play_for: gilrs::ff::Ticks::from_ms(ms / 2), with_delay: gilrs::ff::Ticks::from_ms(ms - ms / 2) }
-        } else {
-            Default::default()
-        };
-        let effect = gilrs::ff::EffectBuilder::new()
-            .add_effect(gilrs::ff::BaseEffect { kind: gilrs::ff::BaseEffectType::Strong { magnitude: m }, scheduling, ..Default::default() })
-            .add_effect(gilrs::ff::BaseEffect { kind: gilrs::ff::BaseEffectType::Weak { magnitude: m / 2 }, scheduling, ..Default::default() })
-            .repeat(gilrs::ff::Repeat::Infinitely)
-            .gamepads(&pads)
-            .finish(g);
-        if let Ok(e) = effect {
-            let _ = e.play();
-            self.rumble = Some((e, amp, period));
         }
     }
 
@@ -2056,6 +2064,16 @@ mod hot_reload_tests {
         let (steer, physical) = wheel_steering(0.6, true, 0, 0.1, 1.0);
         assert!((physical + 0.6).abs() < 1e-6);
         assert!((steer + 0.5 / 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn hot_reload_gamepad_vibration_uses_its_own_device_scale() {
+        let mut cfg = vec![wheel(), DeviceCfg { name: "Xbox Controller".into(), ff_scale: Some((1.0, 0.5)), ..Default::default() }];
+        assert_eq!(rumble_scale(&cfg, "Xbox Controller"), 0.5);
+        cfg[1].ff_scale = Some((1.0, 1.5));
+        assert_eq!(rumble_scale(&cfg, "Xbox Controller"), 1.5);
+        assert_eq!(rumble_scale(&cfg, "Test wheel"), 1.25);
+        assert_eq!(rumble_scale(&cfg, "Unconfigured gamepad"), 1.0);
     }
 
     #[test]

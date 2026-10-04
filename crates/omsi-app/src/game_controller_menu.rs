@@ -99,7 +99,8 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Vec<(String, String)> {
             for b in 0..count {
                 let label = button_label(b);
                 let action = d.buttons.get(b).map(|x| x.0.as_str()).unwrap_or("");
-                out.push(row(&label, if action.is_empty() { "<none>".into() } else { names.control(action) }.as_str(), "Choose an OMSI event or game action", format!("button {b}")));
+                let value = if action.is_empty() { "<none>".to_string() } else { names.control(action) };
+                out.push(row(&label, &value, "Choose an OMSI event or game action", format!("button {b}")));
                 out.push((crate::game_lists::row("Latching", 's', if d.latching.contains(&b) { "on" } else { "off" }, "Switch back when a physical switch is released", None), format!("latching {b}")));
             }
             out.push(crate::game_lists::opens("Back to devices", "All successful changes are saved immediately", "back"));
@@ -171,9 +172,14 @@ pub(crate) fn run(app: &mut App, kind: &ListKind, action: &str, mv: Move) -> Opt
             "keyboard" => ListKind::Controls,
             "controller" => ListKind::Controller(arg.to_string()),
             "reload_controllers" => {
-                let devices = crate::controllers::read_cfg(&app.args.root);
-                if let Some(c) = app.controllers.as_mut() { c.install_cfg(devices); }
-                app.service_msg = Some(("Saved controller mappings reloaded".into(), 3.0));
+                match crate::controllers::read_cfg_checked(&app.args.root) {
+                    Ok(devices) => {
+                        if let Some(c) = app.controllers.as_mut() { c.install_cfg(devices); }
+                        app.last_ctl_steer = None;
+                        app.service_msg = Some(("Saved controller mappings reloaded".into(), 3.0));
+                    }
+                    Err(e) => app.service_msg = Some((format!("Controller mappings were not reloaded: {e}"), 6.0)),
+                }
                 kind.clone()
             }
             _ => kind.clone(),
