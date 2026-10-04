@@ -74,8 +74,27 @@ system's installer asks "Do you want to update this app?"; Update replaces openO
 it again, Cancel leaves it as it was. Settings → General → Updates: look for updates at the start (on
 by default), install without asking (off by default), Check now. A folder openOMSI cannot
 write to (Program Files, an app opened straight from Downloads on macOS) is reported with
-what to do. `OMSI_NO_UPDATE=1` switches the check off; `OMSI_UPDATE_URL` points it at another
-release description (GitHub's format; `file://` works, for testing).
+what to do. A download that breaks goes on where it stopped (up to four times), a request
+that times out is tried again after 3 and 10 s, and when the GitHub API does not answer (or
+says its hourly limit is reached) the latest tag is taken from github.com itself.
+
+The launcher also looks again every 30 minutes while it is open, and right after a game it
+started ends. During a session the game looks a minute in and every hour after: a newer
+version is downloaded in the background and a card over the navigator says so ("openOMSI
+X is out"); when the session ends the launcher installs the file already downloaded (by
+itself with "Install updates without asking", else it offers it), and never while a game
+runs. "Tell me about a new version during a session" switches the cards off (the download
+goes on). `OMSI_NO_UPDATE=1` switches the checks off; `OMSI_UPDATE_URL` points them at another
+release description (GitHub's format; `file://` works, for testing - the game then looks after
+3 s).
+
+**Playing now.** While a session runs the game tells the project's counter (a Cloudflare
+Worker, `services/presence/`) every three minutes that it is being played, and says goodbye
+when it ends; the website and the README show how many play right now. What goes out is a
+random id made new for each session, the version and the kind of system - nothing else, and
+the counter keeps no addresses. Settings → General → "Count me in the website's \"playing
+now\"" (on by default) or `OMSI_NO_PRESENCE=1` switch it off; a dedicated server is never
+counted.
 
 **O** switches mouse steering on and off, as in OMSI (Omsi.exe's own formula): the cursor's
 place across the whole window is the steering from full left to full right lock
@@ -627,6 +646,15 @@ drawn and heard where they stand, and are obstacles for the AI traffic like your
 as long as that bus type is installed locally, otherwise your own type stands in for it.
 **V** opens the chat line (Enter sends, Esc drops it); joining and leaving are announced
 there. The host checks everything it takes in and limits how much a player may send.
+
+**Every variable of the other buses.** Besides the pose, each game sends all script
+variables of its bus (floats and strings: a gearbox's state, a display's or an IBIS's text,
+a ticket printer, what a plugin or `setvar` set): ten times a second the ones that changed,
+and all of them in turn in between, so a lost datagram is mended within seconds and a
+player who joins late sees the whole state. The copy of another player's bus takes them over
+its own scripts' results (the ones its parts move smoothly by stay smooth); a copy made from
+other files than the sender's (another version of the bus) takes nothing. `OMSI_NO_VAR_SYNC=1`
+switches it off, `OMSI_DEBUG_VAR_SYNC=<variable>` logs what arrives for one variable.
 
 **The host's mods.** What the host's session uses that is not in the OMSI 2 folder itself
 (its map, bus, objects, splines, AI vehicles and people from the content folder or archives,

@@ -267,6 +267,8 @@ pub enum NoticeKind {
     Info,
     Warn,
     Alert,
+    /// A new openOMSI version (`update_watch`).
+    Update,
 }
 
 /// How many notifications show at once (the newest; an older one makes room).
@@ -753,6 +755,7 @@ impl Ui {
                     NoticeKind::Info => ([90, 160, 255], "Server"),
                     NoticeKind::Warn => ([240, 170, 50], "Warning"),
                     NoticeKind::Alert => ([235, 80, 70], "Alert"),
+                    NoticeKind::Update => ([46, 160, 67], "Update"),
                 };
                 let rows = {
                     let tc = &self.text;
