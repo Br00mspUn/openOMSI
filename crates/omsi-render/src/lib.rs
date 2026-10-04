@@ -80,6 +80,7 @@ struct PostUniform {
     a: [f32; 4],
     b: [f32; 4],
     c: [f32; 4],
+    d: [f32; 4],
 }
 
 /// The enhanced lighting (enhanced_common.wgsl `Enhanced`).
@@ -9846,7 +9847,7 @@ impl Renderer {
                 // the metering may take a little off a bright picture and add a little to a
                 // dark one: a night stays a night, snow stays white
                 a: [
-                    0.035,
+                    if rt_frame { 0.05 } else { 0.035 },
                     m[2],
                     m[3],
                     if self.instant_exposure || dt <= 0.0 {
@@ -9863,6 +9864,8 @@ impl Renderer {
                 // there instead of being drawn burning: their halo shows, they don't bleach.
                 // `Led glow`, 0 = not at all.)
                 c: [m[0], m[5], self.exposure.map(f32::exp).unwrap_or(1.0), lighting.led_glow * 10.0],
+                // Enhanced+: its filmic grade, the vignette and the sharpening (post.wgsl)
+                d: if rt_frame && omsi_cfg::env::var_os("OMSI_NO_RT_GRADE").is_none() { [1.0, 0.22, 0.32, 0.0] } else { [0.0; 4] },
             };
             self.queue
                 .write_buffer(&self.post_buf, 0, bytemuck::bytes_of(&pu));

@@ -13,6 +13,9 @@
 // - nothing: the sky probe.
 // The composite then adds it, times the weight, to the picture.
 
+// The rays' grid: one per REFL_DIV x REFL_DIV pixels (1: every pixel).
+override REFL_DIV: i32 = 1;
+
 @group(0) @binding(5) var t_gbuf: texture_2d<f32>;
 @group(0) @binding(6) var t_aux: texture_2d<f32>;
 @group(0) @binding(7) var t_out: texture_storage_2d<rgba16float, write>;
@@ -115,11 +118,11 @@ fn cs_reflect(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     let size = vec2<i32>(p.size.xy);
     // the most reflective of the four pixels
-    var px = min(hp * 2, size - vec2<i32>(1));
+    var px = min(hp * REFL_DIV, size - vec2<i32>(1));
     var g = vec4<f32>(0.0);
-    for (var j = 0; j < 2; j++) {
-        for (var i = 0; i < 2; i++) {
-            let q = min(hp * 2 + vec2<i32>(i, j), size - vec2<i32>(1));
+    for (var j = 0; j < REFL_DIV; j++) {
+        for (var i = 0; i < REFL_DIV; i++) {
+            let q = min(hp * REFL_DIV + vec2<i32>(i, j), size - vec2<i32>(1));
             let s = textureLoad(t_gbuf, q, 0);
             if (s.w > g.w) {
                 g = s;
@@ -227,7 +230,7 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
     let dist = aux.r / g.w;
     let rough = clamp(aux.g / g.w, 0.0, 1.0);
     let hsize = vec2<i32>(textureDimensions(t_hist));
-    let hq = (vec2<f32>(px) + vec2<f32>(0.5)) * 0.5 - vec2<f32>(0.5);
+    let hq = (vec2<f32>(px) + vec2<f32>(0.5)) / f32(REFL_DIV) - vec2<f32>(0.5);
     let base = vec2<i32>(floor(hq));
     let fr = hq - floor(hq);
     let reach = i32(round(rough * 4.0));
@@ -256,7 +259,7 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
         l = sum / wsum;
     }
     if (p.temporal.z >= 8.0) {
-        return vec4<f32>(l * 0.3 + vec3<f32>(0.0, 0.0, g.w * 2.0), 0.0);
+        return vec4<f32>(select(l * 0.3, vec3<f32>(0.0), p.temporal.z == 10.0) + vec3<f32>(0.0, 0.0, g.w * 10.0), 0.0);
     }
     return vec4<f32>(l * g.w, 0.0);
 }
@@ -277,7 +280,7 @@ fn cs_reflect_temporal(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     let size = vec2<i32>(p.size.xy);
-    let px = min(hp * 2, size - vec2<i32>(1));
+    let px = min(hp * REFL_DIV, size - vec2<i32>(1));
     let g = textureLoad(t_gbuf, px, 0);
     let rough = select(0.0, clamp(textureLoad(t_aux, px, 0).g / max(g.w, 1e-5), 0.0, 1.0), g.w > 0.002);
     // a mirror needs no history (and would smear while the camera moves): rough ones do

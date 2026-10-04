@@ -124,6 +124,11 @@ pub(super) struct RayTracer {
     refl_front: usize,
 }
 
+/// One reflection ray per this many pixels each way (OMSI_RT_REFL_HALF=1: per 2 x 2).
+fn refl_div() -> u32 {
+    if omsi_cfg::env::var_os("OMSI_RT_REFL_HALF").is_some() { 2 } else { 1 }
+}
+
 /// The reflections' shader: the shared ray tracing, the enhanced uniform's layout, its own.
 fn reflect_source() -> String {
     let common = include_str!("enhanced_common.wgsl");
@@ -268,8 +273,16 @@ impl RayTracer {
         });
         let refl_module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("ray-traced reflections"), source: wgpu::ShaderSource::Wgsl(reflect_source().into()) });
         let refl_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("ray-traced reflections"), bind_group_layouts: &[Some(&refl_layout)], immediate_size: 0 });
+        let div = [("REFL_DIV", refl_div() as f64)];
         let refl_compute = |entry: &str| {
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(entry), layout: Some(&refl_pl), module: &refl_module, entry_point: Some(entry), compilation_options: Default::default(), cache: None })
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some(entry),
+                layout: Some(&refl_pl),
+                module: &refl_module,
+                entry_point: Some(entry),
+                compilation_options: wgpu::PipelineCompilationOptions { constants: &div, ..Default::default() },
+                cache: None,
+            })
         };
         let reflect = refl_compute("cs_reflect");
         let refl_temporal = refl_compute("cs_reflect_temporal");
@@ -285,7 +298,7 @@ impl RayTracer {
                 module: &refl_module,
                 entry_point: Some("fs_composite"),
                 targets: &[Some(wgpu::ColorTargetState { format: HDR_FORMAT, blend: Some(wgpu::BlendState { color: add, alpha: add }), write_mask: wgpu::ColorWrites::COLOR })],
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions { constants: &div, ..Default::default() },
             }),
             multiview_mask: None,
             cache: None,
@@ -725,9 +738,10 @@ impl Renderer {
         let temporal_bg = group(&t.hist[1 - front], &t.raw, &t.hist[front]);
         let filter_bg = group(&t.hist[front], &t.raw, &t.out);
         let (gx, gy) = (t.size.0.div_ceil(8), t.size.1.div_ceil(8));
-        let passes: [(&str, &[(&wgpu::ComputePipeline, &wgpu::BindGroup)]); 2] = [
+        let passes: [(&str, &[(&wgpu::ComputePipeline, &wgpu::BindGroup)]); 3] = [
             ("rt trace", &[(&rt.trace, &trace_bg)]),
-            ("rt denoise", &[(&rt.temporal, &temporal_bg), (&rt.filter, &filter_bg)]),
+            ("rt temporal", &[(&rt.temporal, &temporal_bg)]),
+            ("rt filter", &[(&rt.filter, &filter_bg)]),
         ];
         for (label, steps) in passes {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -752,9 +766,12 @@ impl Renderer {
     /// The ray-traced reflections of the window's picture, added to `HdrTargets::view` after
     /// the main pass (and before the rain on the glass, which looks through it).
     pub(super) fn encode_rt_reflections(&mut self, encoder: &mut wgpu::CommandEncoder, w: u32, h: u32, queries: Option<&wgpu::QuerySet>, timed: &mut Vec<&'static str>) {
+        if omsi_cfg::env::var_os("OMSI_DEBUG_RT").is_some() {
+            log::info!("rt reflections: rt {} hdr {} gbuf {} ao {} probe {}", self.rt.is_some(), self.hdr_targets.contains_key(&(w, h)), self.hdr_targets.get(&(w, h)).is_some_and(|h| h.gbuf.is_some()), self.ao.is_some(), self.probe.is_some());
+        }
         let (Some(rt), Some(hdr), Some(ao), Some(probe)) = (self.rt.as_mut(), self.hdr_targets.get(&(w, h)), self.ao.as_ref(), self.probe.as_ref()) else { return };
         let Some(gbuf) = hdr.gbuf.as_ref() else { return };
-        let half = (w.div_ceil(2), h.div_ceil(2));
+        let half = (w.div_ceil(refl_div()), h.div_ceil(refl_div()));
         if rt.refl.as_ref().is_none_or(|r| r.0 != half) {
             let mk = |label: &str| {
                 self.device

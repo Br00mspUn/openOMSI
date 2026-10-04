@@ -235,8 +235,10 @@ fn cs_filter(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_i
     let spread = mix(0.3, 1.0, young);
     var sum = c.rb * 0.140625;
     var wsum = 0.140625;
-    for (var j = -2; j <= 2; j++) {
-        for (var i = -2; i <= 2; i++) {
+    // (a pixel with its history full takes its 3 x 3 neighbours only)
+    let r = select(2, 1, young < 0.05);
+    for (var j = -r; j <= r; j++) {
+        for (var i = -r; i <= r; i++) {
             if (i == 0 && j == 0) {
                 continue;
             }
