@@ -12961,6 +12961,11 @@ mod tests {
             ("upscale", include_str!("upscale.wgsl").to_string()),
             ("mip", include_str!("mip.wgsl").to_string()),
             ("xr_ui", include_str!("xr_ui.wgsl").to_string()),
+            // Enhanced+: the scene's pass with its reflection targets, the ray tracing
+            ("scene (Enhanced+)", scene_shader_source(false).replace("//RT ", "")),
+            ("ray-traced lighting", rt::lighting_source()),
+            ("ray-traced reflections", rt::reflect_source()),
+            ("texture means", include_str!("rt_avg.wgsl").to_string()),
         ];
         let sizes: &[(&str, usize)] = &[
             ("Enhanced", std::mem::size_of::<EnhancedUniform>()),
@@ -12970,6 +12975,7 @@ mod tests {
             ("PointLight", std::mem::size_of::<GpuPointLight>()),
             ("Camera", std::mem::size_of::<CameraUniform>()),
             ("MaterialParams", std::mem::size_of::<MaterialUniform>()),
+            ("RtParams", rt::PARAMS_SIZE),
         ];
         let mut checked = std::collections::HashSet::new();
         for (name, src) in &modules {

@@ -548,8 +548,9 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     // chrome, polished trim - a W123's paint says power 10, colour 0.3 each) is lacquered or
     // polished: it mirrors its surroundings through the traced reflections, a little
     // sharper the tighter the highlight
+    // (not a road, a pavement or anything else lying on the ground: no lacquer there)
     let glossy = camera.clouds.w > 1.5 && !terrain && !thin && !glass && !reflective_env && !is_water
-        && material.params.y < 0.5 && material.specular.w >= 8.0
+        && in.params2.w < 0.5 && material.params2.z <= 0.0 && material.params.y < 0.5 && material.specular.w >= 8.0
         && dot(material.specular.rgb, vec3<f32>(1.0)) > 0.6
         && near_player_vehicle(in.world) * inside_vehicle(camera.cam_pos.xyz) < 0.5;
     if (glossy) {
@@ -922,22 +923,6 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
             case 15: { dc = lamps * pre; }
             case 16: { dc = emit; }
             case 17: { dc = vec3<f32>(rough, f0.g * 10.0, metal); }
-            case 19: { dc = vec3<f32>(f32(camera.clouds.w > 1.5), f32(traced), f32(reflects)); }
-            case 21: { dc = vec3<f32>(f32(traced)); }
-            case 22: { dc = vec3<f32>(f32(glossy)); }
-            case 23: { dc = vec3<f32>(f32(reflects)); }
-            case 24: { dc = vec3<f32>(f32(reflective_env)); }
-            case 25: { dc = vec3<f32>(f32(material.specular.w >= 20.0)); }
-            case 26: { dc = vec3<f32>(f32(dot(material.specular.rgb, vec3<f32>(1.0)) > 0.05)); }
-            case 27: { dc = vec3<f32>(f32(thin)); }
-            case 28: { dc = vec3<f32>(f32(material.params.y < 0.5)); }
-            case 29: { dc = vec3<f32>(f32(near_player_vehicle(in.world) * inside_vehicle(camera.cam_pos.xyz) < 0.5)); }
-            case 30: { dc = vec3<f32>(f32(glass)); }
-            case 31: { dc = vec3<f32>(f32(material.specular.w >= 4.0), f32(material.specular.w >= 8.0), f32(material.specular.w >= 12.0)); }
-            case 32: { dc = vec3<f32>(f32(dot(material.specular.rgb, vec3<f32>(1.0)) > 0.6), f32(dot(material.specular.rgb, vec3<f32>(1.0)) > 1.2), f32(dot(material.specular.rgb, vec3<f32>(1.0)) > 2.0)); }
-            case 33: { dc = vec3<f32>(f32(in.params2.w < -500.0)); }
-            case 20: { dc = vec3<f32>(f32(glossy), f32(rough < 0.75), f32(reflective_env)); }
-            case 18: { dc = vec3<f32>(material.specular.w / 100.0, select(0.0, 1.0, in.params2.w < -500.0), dot(material.specular.rgb, vec3<f32>(0.333))); }
             default: { dc = vec3<f32>(alpha, f32(glass), f32(has_env)); }
         }
         return vec4<f32>(dc, 1.0);

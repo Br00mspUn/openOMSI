@@ -7,6 +7,13 @@
 //! the sky's occlusion (rt.wgsl); the main pass takes them in place of the shadow map and
 //! the screen-space AO where they are there. What a hit looks like - for the reflections -
 //! comes from a record per geometry: its material's colour and its texture's mean colour.
+//!
+//! OMSI_NO_RT=1 opens no ray queries (Enhanced+ draws as Enhanced), OMSI_NO_RT_FRAME=1 keeps
+//! them but traces nothing, OMSI_NO_RT_GRADE=1 leaves out Enhanced+'s grade, and
+//! OMSI_RT_REFL_HALF=1 traces the reflections at half size. OMSI_DEBUG_RT=1 logs the
+//! structures now and then; its numbers show: 1 the history's length, 3 cut-out meshes as
+//! solid, 4 cut-out meshes as clear, 7 no accumulation, 8 / 9 / 10 the reflections' rays and
+//! weights (OMSI_DEBUG_ENHANCED=1 and 2 show the traced shadow and occlusion).
 
 use super::*;
 
@@ -129,8 +136,17 @@ fn refl_div() -> u32 {
     if omsi_cfg::env::var_os("OMSI_RT_REFL_HALF").is_some() { 2 } else { 1 }
 }
 
+/// The traced lighting's shader: the shared ray tracing and its own.
+pub(super) fn lighting_source() -> String {
+    [include_str!("rt_common.wgsl"), include_str!("rt.wgsl")].join("\n")
+}
+
+/// The size of the shaders' `RtParams` (for the shader test).
+#[cfg(test)]
+pub(super) const PARAMS_SIZE: usize = std::mem::size_of::<Params>();
+
 /// The reflections' shader: the shared ray tracing, the enhanced uniform's layout, its own.
-fn reflect_source() -> String {
+pub(super) fn reflect_source() -> String {
     let common = include_str!("enhanced_common.wgsl");
     let enh = &common[..common.find("@group(0) @binding(11)").expect("Enhanced struct")];
     [include_str!("rt_common.wgsl"), enh, include_str!("rt_reflect.wgsl")].join("\n")
@@ -198,7 +214,7 @@ impl RayTracer {
                 },
             ],
         });
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("ray tracing"), source: wgpu::ShaderSource::Wgsl([include_str!("rt_common.wgsl"), include_str!("rt.wgsl")].join("\n").into()) });
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("ray tracing"), source: wgpu::ShaderSource::Wgsl(lighting_source().into()) });
         let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("ray tracing"), bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
         let pipeline = |entry: &str, step: Option<f64>| {
             let constants: Vec<(&str, f64)> = step.map(|s| vec![("STEP", s)]).unwrap_or_default();
@@ -766,9 +782,6 @@ impl Renderer {
     /// The ray-traced reflections of the window's picture, added to `HdrTargets::view` after
     /// the main pass (and before the rain on the glass, which looks through it).
     pub(super) fn encode_rt_reflections(&mut self, encoder: &mut wgpu::CommandEncoder, w: u32, h: u32, queries: Option<&wgpu::QuerySet>, timed: &mut Vec<&'static str>) {
-        if omsi_cfg::env::var_os("OMSI_DEBUG_RT").is_some() {
-            log::info!("rt reflections: rt {} hdr {} gbuf {} ao {} probe {}", self.rt.is_some(), self.hdr_targets.contains_key(&(w, h)), self.hdr_targets.get(&(w, h)).is_some_and(|h| h.gbuf.is_some()), self.ao.is_some(), self.probe.is_some());
-        }
         let (Some(rt), Some(hdr), Some(ao), Some(probe)) = (self.rt.as_mut(), self.hdr_targets.get(&(w, h)), self.ao.as_ref(), self.probe.as_ref()) else { return };
         let Some(gbuf) = hdr.gbuf.as_ref() else { return };
         let half = (w.div_ceil(refl_div()), h.div_ceil(refl_div()));
