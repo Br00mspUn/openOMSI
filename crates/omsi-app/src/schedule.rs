@@ -3053,18 +3053,50 @@ fn terminus_match_score(t: &omsi_vehicle::hof::Terminus, wanted: &str) -> u8 {
 /// the best of the looser matches - the first of equals, not the last (a depot file whose
 /// codes are not in row order put the AI bus's matrix on another terminus's picture, #110).
 fn find_terminus(hof: &omsi_vehicle::Hof, wanted: &str) -> Option<usize> {
+    termini_named(hof, wanted).first().copied()
+}
+
+/// Every row of the depot file a trip's destination names, in file order: those whose
+/// ident is the name, else those of the best looser match. A depot file may give one
+/// destination a row per route, each with a code of its own (four "ul. Xutorskaya" of
+/// codes 92, 120, 123 and 124, #738).
+fn termini_named(hof: &omsi_vehicle::Hof, wanted: &str) -> Vec<usize> {
     let exact = wanted.trim();
-    if let Some(i) = hof.termini.iter().position(|t| t.texture_id == exact) {
-        return Some(i);
+    let rows: Vec<usize> = (0..hof.termini.len()).filter(|&i| hof.termini[i].texture_id == exact).collect();
+    if !rows.is_empty() {
+        return rows;
     }
-    let mut best: Option<(usize, u8)> = None;
-    for (i, t) in hof.termini.iter().enumerate() {
-        let score = terminus_match_score(t, wanted);
-        if score > 0 && best.is_none_or(|(_, b)| score > b) {
-            best = Some((i, score));
+    let scores: Vec<u8> = hof.termini.iter().map(|t| terminus_match_score(t, wanted)).collect();
+    let best = scores.iter().copied().max().unwrap_or(0);
+    (0..scores.len()).filter(|&i| best > 0 && scores[i] == best).collect()
+}
+
+/// The depot file's terminus a trip of `line` to `terminus` through `stops` ends at, and
+/// the route it takes ([`pick_route`]): of the rows of that name (see [`termini_named`]) the
+/// one the line's route through the trip's stops leads to. Taking the first of them, the
+/// IBIS got the first's code, a route of the line to it or none at all, whichever route
+/// the trip drove (line 39 to "ul. Xutorskaya" typed destination 92, where its route ends
+/// at 120). The first row when no route of the line goes to any of them.
+fn trip_terminus(
+    hof: &omsi_vehicle::Hof,
+    line: &str,
+    terminus: &str,
+    stops: &[&str],
+) -> Option<(usize, Option<usize>)> {
+    let rows = termini_named(hof, terminus);
+    let first = *rows.first()?;
+    let mut codes: Vec<i32> = Vec::new();
+    for &i in &rows {
+        if !codes.contains(&hof.termini[i].code) {
+            codes.push(hof.termini[i].code);
         }
     }
-    best.map(|(i, _)| i)
+    let route = pick_route(hof, &routes_to(hof, line, &codes), stops);
+    let ti = route
+        .map(|r| omsi_cfg::parse_i32(&hof.info_trips[r].route))
+        .and_then(|code| rows.iter().copied().find(|&i| hof.termini[i].code == code))
+        .unwrap_or(first);
+    Some((ti, route))
 }
 
 /// The IBIS codes of a trip from the depot file, and the terminus index they lead to.
@@ -3081,10 +3113,9 @@ pub fn ibis_codes(
     if terminus.is_empty() {
         return None;
     }
-    let ti = find_terminus(hof, terminus)?;
+    let (ti, route) = trip_terminus(hof, line, terminus, stops)?;
     let code = hof.termini[ti].code;
-    let route = pick_route(hof, &routes_to(hof, line, code), stops)
-        .and_then(|i| hof.info_trips[i].code.trim().parse::<u32>().ok());
+    let route = route.and_then(|i| hof.info_trips[i].code.trim().parse::<u32>().ok());
     let codes = match route {
         Some(r) => IbisCodes {
             line: line_code_from_text(line, Some(r)),
@@ -3100,10 +3131,10 @@ pub fn ibis_codes(
     Some((codes, ti))
 }
 
-/// The depot file's routes of `line` to the terminus with code `code`, in file order. The
+/// The depot file's routes of `line` to a terminus with one of `codes`, in file order. The
 /// route code is the line's number and two digits: a driver types those, whatever the
 /// route's line string says (Grundorf's 7601 to Krankenhaus has "TML").
-fn routes_to(hof: &omsi_vehicle::Hof, line: &str, code: i32) -> Vec<usize> {
+fn routes_to(hof: &omsi_vehicle::Hof, line: &str, codes: &[i32]) -> Vec<usize> {
     let line_digits: String = line
         .trim()
         .chars()
@@ -3114,7 +3145,7 @@ fn routes_to(hof: &omsi_vehicle::Hof, line: &str, code: i32) -> Vec<usize> {
         .iter()
         .enumerate()
         .filter(|(_, t)| {
-            omsi_cfg::parse_i32(&t.route) == code
+            codes.contains(&omsi_cfg::parse_i32(&t.route))
                 && (t.line.trim().eq_ignore_ascii_case(line.trim())
                 || (!line_digits.is_empty() && t.line.trim() == line_digits)
                 || (line_number.is_some()
@@ -3236,7 +3267,13 @@ fn set_destination(
     if terminus.is_empty() {
         return;
     }
-    let term_index = find_terminus(hof, terminus);
+    // (an AI bus shows the first row of the name, as Omsi.exe gives it; the player's IBIS
+    // the row its route leads to, as the typing does)
+    let term_index = if player {
+        trip_terminus(hof, line, terminus, stops).map(|(ti, _)| ti)
+    } else {
+        find_terminus(hof, terminus)
+    };
     let Some(ti) = term_index else {
         log::debug!(
             "AI bus: terminus '{terminus}' not in depot file {} ({} termini)",
@@ -3263,7 +3300,7 @@ fn set_destination_at(
 ) {
     let Some(term) = hof.termini.get(ti) else { return };
     let code = term.code;
-    let route_index = pick_route(hof, &routes_to(hof, line, code), stops);
+    let route_index = pick_route(hof, &routes_to(hof, line, &[code]), stops);
     let line_num = line_number_digits(line).parse::<f32>().unwrap_or(0.0);
     // The route's last two digits select its stop list; they must not replace
     // a display suffix. Otherwise an ordinary route code such as 505 becomes
@@ -5117,6 +5154,51 @@ mod tests {
         // (by its name it is the first of them, as the list used to set it)
         set_player_destination_directly(&mut v, Some(&hof), "39", "ul. Xutorskaya", &[]);
         assert_eq!(v.var("IBIS_TerminusCode"), Some(92.0));
+    }
+
+    /// A depot file with a row of one destination per route, each of its own code (#738's
+    /// four "ul. Xutorskaya"): a duty types the route its stops take, and the IBIS shows that
+    /// route's destination, not the first row's code with no route.
+    #[test]
+    fn a_trip_to_a_destination_of_several_codes_types_its_own_route() {
+        let t = |code: i32, id: &str, name: &str| omsi_vehicle::hof::Terminus { code, texture_id: id.into(), terminus_stop: Some(id.into()), strings: vec![name.into()], ..Default::default() };
+        let mut hof = omsi_vehicle::Hof {
+            termini: vec![t(0, "Leerfeld", ""), t(92, "Xut_92", "ul. Xutorskaya"), t(120, "Xut_120", "ul. Xutorskaya"), t(123, "Xut_123", "ul. Xutorskaya"), t(124, "Xut_124", "ul. Xutorskaya"), t(50, "Vokzal", "Vokzal")],
+            ..Default::default()
+        };
+        let routes: [(&str, &str, &str, &[&str]); 4] = [
+            ("3901", "39", "50", &["ul. Xutorskaya", "Rynok", "Vokzal"]),
+            ("3902", "39", "120", &["Vokzal", "Rynok", "ul. Xutorskaya"]),
+            ("4101", "41", "123", &["Park", "Shkola", "ul. Xutorskaya"]),
+            ("4102", "41", "124", &["Vokzal", "Shkola", "ul. Xutorskaya"]),
+        ];
+        for (code, line, terminus, stops) in routes {
+            hof.info_trips.push(omsi_vehicle::hof::InfoTrip { code: code.into(), route: terminus.into(), line: line.into(), ..Default::default() });
+            hof.info_busstop_lists.push(stops.iter().map(|s| s.to_string()).collect());
+        }
+        let target = |hof: &omsi_vehicle::Hof, line: &str, stops: &[&str]| {
+            let t = ibis_target(hof, line, "ul. Xutorskaya", stops, None).expect("a target");
+            (t.route, t.terminus_code, t.terminus_index)
+        };
+        assert_eq!(target(&hof, "39", &["Vokzal", "Rynok", "ul. Xutorskaya"]), (Some(2), None, 2));
+        // two routes of line 41 there, each to a row of its own
+        assert_eq!(target(&hof, "41", &["Park", "Shkola", "ul. Xutorskaya"]), (Some(1), None, 3));
+        assert_eq!(target(&hof, "41", &["Vokzal", "Shkola", "ul. Xutorskaya"]), (Some(2), None, 4));
+        // no route of the line goes there: the first row's code, typed in the destination mode
+        assert_eq!(target(&hof, "7", &[]), (None, Some(92), 1));
+        // set without typing (when the typing fails): the same row
+        let mut v = ibis_test_vehicle();
+        set_player_destination_directly(&mut v, Some(&hof), "41", "ul. Xutorskaya", &["Vokzal", "Shkola", "ul. Xutorskaya"]);
+        assert_eq!((v.var("IBIS_TerminusCode"), v.var("IBIS_TerminusIndex")), (Some(124.0), Some(4.0)));
+        // an AI bus shows the first row of the name, as Omsi.exe's AI_target_index does
+        set_ai_destination(&mut v, Some(&hof), "41", "ul. Xutorskaya", &["Vokzal", "Shkola", "ul. Xutorskaya"]);
+        assert_eq!(v.var("IBIS_TerminusIndex"), Some(1.0));
+        // rows of one ident as well
+        for term in &mut hof.termini[1..5] {
+            term.texture_id = "ul. Xutorskaya".into();
+        }
+        assert_eq!(target(&hof, "39", &["Vokzal", "Rynok", "ul. Xutorskaya"]), (Some(2), None, 2));
+        assert_eq!(target(&hof, "41", &["Vokzal", "Shkola", "ul. Xutorskaya"]), (Some(2), None, 4));
     }
 
     #[test]
