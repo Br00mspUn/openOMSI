@@ -9,6 +9,10 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # a release is only proposed once it is a week old: a broken or compromised one is
+    # usually yanked by then (security fixes do not wait)
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       crates:
@@ -21,6 +25,9 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # (a week old, as for the crates)
+    cooldown:
+      default-days: 7
     groups:
       actions:
         patterns:
