@@ -428,6 +428,7 @@ pub struct LightObject {
     /// once the listener is near (shared by the copies of the list, like `script`).
     pub sound: Option<PathBuf>,
     pub sounds: Arc<Mutex<Option<omsi_audio::SoundSet>>>,
+    pub shown: Option<u64>,
 }
 
 pub struct SplineType {
@@ -7576,6 +7577,7 @@ impl World {
                             animated,
                             sound,
                             sounds: Default::default(),
+                            shown: None,
                         });
                     } else if let Some(inst) = object_script.take() {
                         let texture_selection = scenery_texture_selection(&ot, &inst);
