@@ -46,7 +46,7 @@ _version: 2
 "Custom weather":
   zh-tw: "自訂天氣"
 "Depot file (HOF)":
-  zh-tw: "HOF文件 (HOF)"
+  zh-tw: "HOF 文件"
 "Destination display":
   zh-tw: "目的地顯示"
 "Discord Rich Presence":
@@ -14027,6 +14027,8 @@ _version: 2
   zh: "线路与行程..."
   hi: "लाइन और टूर..."
   zh-tw: "路線與班次..."
+"Line and tour":
+  zh-tw: "路線與班次"
 "Lines":
   ru: "Маршруты"
   de: "Linien"
@@ -21702,7 +21704,7 @@ _version: 2
   pt: "Colocar de volta sobre as rodas"
   pt-pt: "Voltar a colocar sobre as rodas"
 
-  zh-tw: "放回輪子上"
+  zh-tw: "恢復直立位置"
 "Return the vehicle to an upright position":
   pt: "Coloca o veículo novamente na posição normal"
   pt-pt: "Volta a colocar o veículo na posição normal"
@@ -21824,7 +21826,7 @@ _version: 2
   pt-pt: "Fonte METAR"
   zh: "METAR 数据源"
 
-  zh-tw: "METAR源"
+  zh-tw: "METAR 源"
 "The airport whose METAR report the weather follows.":
   pt: "Aeroporto cujo relatório METAR define o clima."
   pt-pt: "Aeroporto cujo relatório METAR define a meteorologia."
