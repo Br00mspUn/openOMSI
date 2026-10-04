@@ -219,6 +219,21 @@ impl Analog {
     }
 }
 
+/// Below this a steering value counts as the wheel at its centre (see `stick_steers`).
+const CENTRE_SNAP: f32 = 0.03;
+
+/// Whether a pad's left stick at `x` steers, given what steers already (`current`) and whether
+/// that is a device set up to steer. Only the first device used to: an idle joystick, wheel or
+/// virtual pad nobody set up (its X axis lends the steering) held the wheel at its centre and
+/// the stick did nothing (#1165). Now the stick steers unless a set-up device has the wheel,
+/// whenever it is pushed further than that device or the device lies at its centre.
+fn stick_steers(current: Option<f32>, set_up: bool, x: f32) -> bool {
+    match current {
+        None => true,
+        Some(s) => !set_up && (x.abs() > s.abs() || s.abs() < CENTRE_SNAP),
+    }
+}
+
 /// An axis that turns the head: nothing round its centre, then the rest of the way.
 pub(crate) fn look_axis(v: f32) -> f32 {
     const DEAD: f32 = 0.12;
@@ -935,6 +950,8 @@ Controllers { settled: Vec::new(), devices, focused: true, cfg, deadzone: 0.0, r
         let mut pads: Vec<(Option<&DeviceCfg>, Connected)> = self.devices.connected().into_iter().filter(|c| !off.iter().any(|d| names_match(d, &c.name))).map(|c| (find_device_cfg(&self.cfg, &c.name), c)).collect();
         pads.sort_by_key(|(cfg, _)| cfg.is_none());
         let mut steer: Option<(String, f32, bool)> = None;
+        // (a device set up to steer has the wheel; one nobody set up only lends its X axis)
+        let mut steering_set_up = false;
         let dz = self.deadzone.clamp(0.0, 0.3);
         for (cfg, c) in pads {
             if let Some((k, v)) = c.axes.iter().find(|(_, v)| v.abs() > 0.5) {
@@ -949,6 +966,7 @@ Controllers { settled: Vec::new(), devices, focused: true, cfg, deadzone: 0.0, r
                     for (k, v) in c.axes.iter().copied() {
                         let Some((f, inverted)) = d.axes[k] else { continue };
                         if matches!(f, Func::Steering) {
+                            steering_set_up = true;
                             let (steering, position) = wheel_steering(v, inverted, d.axis_flags[k], dz, self.steer_gain);
                             set(&mut out.steering, steering);
                             if steer.is_none() {
@@ -1033,15 +1051,16 @@ Controllers { settled: Vec::new(), devices, focused: true, cfg, deadzone: 0.0, r
                 }
                 let x = pad.value(Axis::LeftStickX);
                 let dead = |v: f32| if v.abs() < 0.08 { 0.0 } else { v };
+                let steers = stick_steers(out.steering, steering_set_up, dead(x));
                 // (said once per pad: the stick moved, and whether it steers - a report of
                 // "the sticks do nothing" then says which way the pad came in)
                 if x.abs() > 0.5 && !self.announced.iter().any(|n| n == &format!("stick:{}", pad.name())) {
                     self.announced.push(format!("stick:{}", pad.name()));
-                    log::info!("game controller {}: left stick {x:.2}, steers: {} (layout {:?})", pad.name(), out.steering.is_none(), pad.mapping_source());
+                    log::info!("game controller {}: left stick {x:.2}, steers: {steers} (layout {:?})", pad.name(), pad.mapping_source());
                 }
                 let rt = pad.button_data(gilrs::Button::RightTrigger2).map(|d| d.value()).unwrap_or(0.0);
                 let lt = pad.button_data(gilrs::Button::LeftTrigger2).map(|d| d.value()).unwrap_or(0.0);
-                if out.steering.is_none() {
+                if steers {
                     out.steering = Some(dead(x));
                     out.stick = true;
                 }
@@ -2386,6 +2405,19 @@ mod button_tests {
         let mut off = super::ScriptVib::default();
         off.step(true, 0.8, 12.0, super::FF_FADE, dt);
         assert_eq!(off.step(false, 0.0, 0.0, super::FF_FADE, dt).0, 0.0);
+    }
+}
+
+#[cfg(test)]
+mod stick_steering_tests {
+    #[test]
+    fn an_idle_device_nobody_set_up_does_not_hold_the_sticks_steering() {
+        assert!(super::stick_steers(None, false, 0.0));
+        assert!(super::stick_steers(Some(0.0), false, -0.6));
+        assert!(super::stick_steers(Some(0.0), false, 0.0));
+        assert!(super::stick_steers(Some(0.02), false, 0.0));
+        assert!(!super::stick_steers(Some(0.8), false, 0.3));
+        assert!(!super::stick_steers(Some(0.0), true, 1.0));
     }
 }
 
