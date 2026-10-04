@@ -3407,6 +3407,12 @@ impl TrailerPart {
         (self.pitch, self.axle_z, self.track)
     }
 
+    /// How far the part's origin stands above the plane its wheels touch (m): the road is
+    /// at z = -this in its own frame (where its shadow blob lies, and the tyre spray starts).
+    pub fn ground_lift(&self) -> f32 {
+        self.ground_lift
+    }
+
     pub fn new(
         ty: Arc<VehicleType>,
         main: &VehicleType,

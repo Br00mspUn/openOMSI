@@ -52,8 +52,8 @@ pub(crate) struct App {
     pub(crate) ui: Option<ui::Ui>,
     pub(crate) fps: f32,
     pub(crate) rain: rain::Rain,
-    /// Wheel splashes through the puddles `enhanced.wgsl` paints on wet roads.
-    pub(crate) splashes: puddles::Splashes,
+    /// What the tyres throw up from the water on the roads (see `puddles`).
+    pub(crate) spray: puddles::Spray,
     pub(crate) lamps_on: Option<bool>,
     pub(crate) menu: Option<menu::Menu>,
     pub(crate) populate_t: f32,

@@ -2602,8 +2602,8 @@ impl World {
     /// The wetness a puddle would use at world (x, y): `wetness` where a road surface is
     /// under the point (the same `[moisture]` ground `enhanced.wgsl`'s reflective puddle
     /// patches sit on), 0 on bare terrain or where no surface is loaded there yet. Approximate
-    /// on purpose - `puddles::puddle_coverage` only needs to agree with the shader's own mask
-    /// closely enough that a wheel's splash starts where the reflection does, not to the texel.
+    /// on purpose - `puddles::water_at` only needs to agree with the shader's own mask
+    /// closely enough that a tyre's spray starts where the reflection does, not to the texel.
     pub fn wet_road_at(&self, x: f64, y: f64, wetness: f32) -> f32 {
         let tx = (x / tile_size()).floor() as i32;
         let ty = (y / tile_size()).floor() as i32;

@@ -308,6 +308,19 @@ snow-covered roads and mirror views skip these passes. Reflections beyond the lo
 plane use screen-space rays; objects unavailable to those rays keep the sky reflection.
 OpenGL uses the sky reflection too.
 
+On a wet road every vehicle's tyres throw up spray, in all three graphics modes: the player's
+bus, the AI cars and buses, other players' buses. Through standing water a wheel throws a fan
+of water back and up behind it and a mist that hangs behind the vehicle, drifts with the air
+and settles; a road that is only wet through gives a thin haze at speed. It grows with the
+square of the speed and with the depth of the puddle (next to nothing at walking pace, a cloud
+at 50 km/h), and a bus or a lorry throws more than a car. Some vehicles spray through their own
+wheel `[smoke]` driven by `tire_wet_freq`/`tire_wet_live`: the stock AI cars (set by their
+`main_AI` scripts) and the stock SD200, SD202 and NL/NG buses, the AI SD84 among them (set by
+their `spray.osc`). They get that spray only on a road wet through (`StreetCond` 1), as in
+OMSI, and the puddles' spray on top. Spray is thrown
+within 100 m of the camera (less of it farther off), at most 1400 puffs at once; none shows
+inside the bus the camera is in.
+
 The vanilla look stays the default. The navigator (`crates/omsi-app/src/navigator.rs`) sits in a corner of the screen (lower
 left by default), after the Route Advisor of Euro Truck Simulator 2: small, dark and half
 transparent, a tilted 3D map that turns with the bus and zooms out with speed - the roads
@@ -519,6 +532,7 @@ Environment variables, all off unless set. The useful ones:
 | `OMSI_NO_SHADOWS`, `OMSI_NO_CORONAS`, `OMSI_NO_ENVMAP`, `OMSI_NO_BUMP`, `OMSI_NO_CULL`, `OMSI_ENV_PHOTO=0` | leave one part of the picture out for an A/B |
 | `OMSI_NO_SURF=1` | roads without the bumps of their textures' `.surf` maps (A/B) |
 | `OMSI_NO_PUDDLE_REFLECTIONS=1` | leave wet-road scene reflections out for a screenshot or performance comparison |
+| `OMSI_NO_SPRAY=1` | leave the tyres' spray on wet roads out (A/B); `OMSI_DEBUG_RAIN=1` logs how many tyres throw water |
 | `OMSI_DEBUG_ENHANCED`, `OMSI_DEBUG_SKY`, `OMSI_DEBUG_EXPOSURE`, `OMSI_METER=…` | the enhanced renderer's lamps, sky, adaptation and metering |
 | `OMSI_DEBUG_TRAFFIC`, `OMSI_DEBUG_PAX`, `OMSI_DEBUG_PHYSICS`, `OMSI_DEBUG_LAN`, `OMSI_DEBUG_IBIS`, `OMSI_DEBUG_VARS=a,b` | why a car, a passenger, a wheel, a peer, an IBIS or a script variable does what it does |
 | `OMSI_CHECK_ROADS=1`, `OMSI_ROAD_PHOTO=1`, `OMSI_CHECK_ENTRIES=1` | walk the lanes as a bus wheel, photograph the carriageway from above, check every entry point |

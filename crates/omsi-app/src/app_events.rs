@@ -1842,21 +1842,29 @@ impl ApplicationHandler for App {
                         let __tr = Instant::now();
                         self.rain.tick(if self.paused { 0.0 } else { dt }, cam.position, wind, scene, &buses);
                         *self.profile.entry("lights.rain").or_default() += __tr.elapsed().as_secs_f64();
-                        // wheel splashes through the puddles enhanced.wgsl paints on wet roads
-                        if kind == 1 {
+                        // what every vehicle's tyres throw up from the water on the road: the
+                        // puddles and the wet asphalt the renderer draws (the same wetness:
+                        // none under snow, OMSI_WETNESS as the picture takes it)
+                        let wetness = puddles::road_wetness(self.wetness, wt.snow);
+                        if (wetness > 0.0 || !self.spray.is_empty()) && omsi_cfg::env::var_os("OMSI_NO_SPRAY").is_none() {
+                            let __ts = Instant::now();
+                            let mut vehicles: Vec<(u64, &omsi_sim::VehicleInstance)> = Vec::new();
                             if let Some(p) = self.player.as_ref() {
-                                let wheels = puddles::wheel_contacts(&p.vehicle);
-                                let speed = p.vehicle.physics.velocity_kmh().abs() / 3.6;
-                                let wetness = self.wetness;
-                                scene.smoke.extend(self.splashes.update(
-                                    dt,
-                                    &wheels,
-                                    speed,
-                                    &|x, y| {
-                                        puddles::puddle_coverage(x, y, w.wet_road_at(x, y, wetness))
-                                    },
-                                ));
+                                vehicles.push((0, &p.vehicle));
                             }
+                            if let Some(t) = self.traffic.as_ref() {
+                                vehicles.extend(t.cars.iter().map(|c| (c.id.wrapping_add(1), &c.vehicle)));
+                            }
+                            vehicles.extend(self.remotes.remotes.iter().map(|(id, r)| (puddles::REMOTE_KEY | *id as u64, r.vehicle())));
+                            self.spray.frame(
+                                if self.paused { 0.0 } else { dt },
+                                &vehicles,
+                                cam.position,
+                                wind * puddles::GROUND_WIND,
+                                &|x, y| puddles::water_at(x, y, w.wet_road_at(x, y, wetness)),
+                            );
+                            self.spray.sprites(cam.position, &mut scene.smoke);
+                            *self.profile.entry("lights.spray").or_default() += __ts.elapsed().as_secs_f64();
                         }
                         // the rain heard in the street and the footsteps on the pavement
                         if let (Some(amb), Some(a)) = (self.ambience.as_mut(), self.audio.as_ref())

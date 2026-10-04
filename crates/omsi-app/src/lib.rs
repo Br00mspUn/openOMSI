@@ -454,7 +454,7 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         ui: ui::Ui::new(),
         fps: 0.0,
         rain: rain::Rain::new(),
-        splashes: puddles::Splashes::new(),
+        spray: puddles::Spray::new(),
         lamps_on: None,
         menu: None,
         populate_t: 0.0,
