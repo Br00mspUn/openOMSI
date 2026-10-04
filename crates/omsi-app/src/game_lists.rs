@@ -136,6 +136,38 @@ pub(crate) fn set_route_by_hand(app: &mut App, line: &str) {
     }
 }
 
+/// The route number the bus shows: its matrix's (`Matrix_Nr`), else the one it was set to
+/// (`SetLineTo`), else its IBIS's line number.
+fn line_shown(v: &omsi_sim::VehicleInstance) -> Option<String> {
+    [v.str_var("Matrix_Nr"), v.str_var("SetLineTo")]
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .find(|s| !s.is_empty())
+        .or_else(|| ibis_line_number(v))
+}
+
+fn ibis_line_number(v: &omsi_sim::VehicleInstance) -> Option<String> {
+    v.var("IBIS_LinieKurs").filter(|l| *l > 0.0).map(|l| format!("{}", l as i64))
+}
+
+/// The line a destination picked from the list is set with: the route number the bus
+/// shows, when the IBIS can take it - its matrix's (`Matrix_Nr`), a roller blind's
+/// (`SetLineTo`, which its crank sets) - else the IBIS's own number. Taken from
+/// `IBIS_LinieKurs`, the IBIS's number without its letter, a pick made 92E into 92 on the
+/// IBIS and the matrix. Not `SetLineTo` on any other bus: no script of its own writes it,
+/// only an earlier pick, so a line typed on the IBIS since went back to that pick's.
+fn destination_line(v: &omsi_sim::VehicleInstance) -> String {
+    let blind = crate::schedule::has_roller_blind(v).then(|| v.str_var("SetLineTo"));
+    [Some(v.str_var("Matrix_Nr")), blind]
+        .into_iter()
+        .flatten()
+        .map(|s| s.trim().to_string())
+        .find(|s| !s.is_empty())
+        .filter(|l| numeric_ibis_line(l))
+        .or_else(|| ibis_line_number(v))
+        .unwrap_or_default()
+}
+
 /// Names in older packs often use underscores as spaces.
 fn bus_label(name: &str) -> String {
     name.replace('_', " ").split_whitespace().collect::<Vec<_>>().join(" ")
@@ -265,15 +297,7 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Vec<(String, String)> {
         }
         ListKind::Destinations => {
             if let Some(p) = app.player.as_ref().filter(|p| p.vehicle.host.hof.is_some()) {
-                let shown = p.vehicle.str_var("Matrix_Nr").trim().to_string();
-                let set = p.vehicle.str_var("SetLineTo").trim().to_string();
-                let now = if !shown.is_empty() {
-                    shown
-                } else if !set.is_empty() {
-                    set
-                } else {
-                    p.vehicle.var("IBIS_LinieKurs").filter(|l| *l > 0.0).map(|l| format!("{}", l as i64)).unwrap_or_else(|| "-".into())
-                };
+                let now = line_shown(&p.vehicle).unwrap_or_else(|| "-".into());
                 out.push((format!("{}: {now}...", tr("Route number")), "routes".into()));
             }
             if let Some(hof) = app.player.as_ref().and_then(|p| p.vehicle.host.hof.clone()) {
@@ -708,7 +732,7 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                 let ti: usize = arg.trim().parse().unwrap_or(usize::MAX);
                 if let Some((hof, t)) = hof.as_ref().and_then(|h| h.termini.get(ti).map(|t| (h, t))) {
                     // (the line on the IBIS stays; only the destination changes)
-                    let line = p.vehicle.var("IBIS_LinieKurs").filter(|l| *l > 0.0).map(|l| format!("{}", l as i64)).unwrap_or_default();
+                    let line = destination_line(&p.vehicle);
                     let name = t.strings.iter().find(|s| !s.trim().is_empty()).cloned().unwrap_or_default();
                     p.set_destination_by_hand(hof, &line, ti);
                     log::info!("destination display set by hand: {} {} (terminus code now {:?})", t.code, name.trim(), p.vehicle.var("IBIS_TerminusCode"));
@@ -2531,6 +2555,43 @@ fn start_duty(app: &mut App, line: &str, tour: &str) {
 
 #[cfg(test)]
 mod tests {
+    /// A destination picked from the list keeps the route number the bus shows, its letter
+    /// too (92E, IBIS 92 and suffix 10).
+    #[test]
+    fn a_destination_picked_from_the_list_keeps_the_lines_letter() {
+        let mut v = crate::schedule::tests::script_test_vehicle("{frame}\n{end}\n", "IBIS_LinieKurs\nIBIS_Linie_Suffix\nIBIS_Linie_Complex\nIBIS_TerminusCode\n", "Matrix_Nr\nSetLineTo\n");
+        let set_str = |v: &mut omsi_sim::VehicleInstance, name: &str, s: &str| {
+            let i = v.ty.program.str_var(name).unwrap();
+            v.state.str_vars[i as usize] = s.to_string();
+        };
+        v.set_var("IBIS_LinieKurs", 92.0);
+        v.set_var("IBIS_Linie_Suffix", 10.0);
+        v.set_var("IBIS_Linie_Complex", 9210.0);
+        set_str(&mut v, "Matrix_Nr", "92E");
+        assert_eq!(super::destination_line(&v), "92E");
+        let hof = omsi_vehicle::Hof { termini: vec![omsi_vehicle::hof::Terminus { code: 211, texture_id: "U Rathaus Spandau".into(), strings: vec!["RATHAUS SPANDAU".into()], ..Default::default() }], ..Default::default() };
+        let line = super::destination_line(&v);
+        crate::schedule::set_player_destination_at(&mut v, &hof, &line, 0, &[]);
+        assert_eq!((v.var("IBIS_LinieKurs"), v.var("IBIS_Linie_Suffix"), v.var("IBIS_Linie_Complex"), v.var("IBIS_TerminusCode")), (Some(92.0), Some(10.0), Some(9210.0), Some(211.0)));
+        // a route number the IBIS cannot take is left to the display: the IBIS keeps its own
+        set_str(&mut v, "Matrix_Nr", "-10");
+        assert_eq!(super::destination_line(&v), "92");
+        // nothing shown: the IBIS's number
+        set_str(&mut v, "Matrix_Nr", "   ");
+        set_str(&mut v, "SetLineTo", "");
+        assert_eq!(super::destination_line(&v), "92");
+        // no matrix line, the line of an earlier pick left in SetLineTo and another typed on
+        // the IBIS since: the IBIS's (only a roller blind shows SetLineTo)
+        set_str(&mut v, "Matrix_Nr", "");
+        set_str(&mut v, "SetLineTo", "5");
+        v.set_var("IBIS_LinieKurs", 145.0);
+        assert_eq!(super::destination_line(&v), "145");
+        let mut blind = crate::schedule::tests::script_test_vehicle("{trigger:rollband_sync}\n{end}\n", "IBIS_LinieKurs\n", "SetLineTo\n");
+        set_str(&mut blind, "SetLineTo", "  5");
+        blind.set_var("IBIS_LinieKurs", 145.0);
+        assert_eq!(super::destination_line(&blind), "5");
+    }
+
     #[test]
     fn escape_fov_updates_the_active_projection_and_can_restore_geometry() {
         let mut settings = crate::settings::Settings::default();
