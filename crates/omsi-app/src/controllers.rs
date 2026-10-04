@@ -421,7 +421,11 @@ impl Devices {
 
         if let Some(g) = self.gilrs.as_mut() {
             while let Some(ev) = g.next_event() {
-                let pad = g.gamepad(ev.id);
+                // A focus/device change can leave a queued gilrs event pointing at a
+                // device that has already been removed. `gamepad` panics in that case.
+                let Some(pad) = g.connected_gamepad(ev.id) else {
+                    continue;
+                };
                 match ev.event {
                     EventType::Connected => log::info!("game controller connected: {} (layout {:?}, DirectInput {})", pad.name(), pad.mapping_source(), di),
                     // DirectInput handles wheels on Windows; system-mapped gamepads
