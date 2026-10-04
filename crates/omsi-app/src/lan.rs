@@ -943,7 +943,6 @@ pub fn update_server_info(players: usize, time: &str, weather: &str) {
     }
 }
 
-/// A server run: the players `GET /players` lists now.
 /// A server run: its shared world now, for `GET /status`.
 pub fn update_server_world(world: omsi_net::ws::WorldCounts) {
     if let Ok(w) = WS_PATH.lock() {
@@ -955,6 +954,7 @@ pub fn update_server_world(world: omsi_net::ws::WorldCounts) {
     }
 }
 
+/// A server run: the players `GET /players` lists now.
 pub fn update_server_players(list: Vec<omsi_net::ws::PlayerInfo>) {
     if let Ok(w) = WS_PATH.lock() {
         if let Some(g) = w.as_ref().and_then(|w| w.gateway.as_ref()) {

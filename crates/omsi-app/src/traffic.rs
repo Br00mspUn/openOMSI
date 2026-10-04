@@ -6774,13 +6774,13 @@ impl Traffic {
         removed
     }
 
-    /// Take a car off the road now (the player took over its tour).
     /// The AI on the roads: (cars, buses, cars asleep far from everybody, parked cars).
     pub fn counts(&self) -> (usize, usize, usize, usize) {
         let buses = self.cars.iter().filter(|c| c.is_bus()).count();
         (self.cars.len() - buses, buses, self.dormant.len(), self.parked.values().map(Vec::len).sum())
     }
 
+    /// Take a car off the road now (the player took over its tour).
     pub fn remove_car(
         &mut self,
         world: &World,
