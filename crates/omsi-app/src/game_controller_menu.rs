@@ -100,6 +100,16 @@ fn button_rows(d: &DeviceCfg, names: &crate::describe::ControlNames) -> Rows {
     out
 }
 
+/// Readable names stay short; identically named mod actions retain their identifier.
+fn action_rows(events: Vec<(String, String)>) -> Rows {
+    let mut counts = std::collections::HashMap::new();
+    for (_, label) in &events { *counts.entry(label.clone()).or_insert(0usize) += 1; }
+    events.into_iter().map(|(action, label)| {
+        let label = if counts[&label] > 1 { format!("{label} · {action}") } else { label };
+        (label, format!("bind {action}"))
+    }).collect()
+}
+
 pub(crate) fn items(app: &App, kind: &ListKind) -> Rows {
     let devices = configurations(app);
     let connected = app.controllers.as_ref().map(|c| c.connected()).unwrap_or_default();
@@ -209,9 +219,7 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Rows {
         }
         ListKind::ControllerButton(name, b) => {
             let d = index(&devices, name).map(|i| devices[i].clone()).unwrap_or_default();
-            for (action, label) in event_names(app, &d) {
-                out.push((label, format!("bind {action}")));
-            }
+            out.extend(action_rows(event_names(app, &d)));
             out.push((format!("Clear {}", button_label(*b)), "bind ".into()));
             out.push(("Back".into(), "back".into()));
         }
@@ -444,5 +452,12 @@ mod tests {
         assert_eq!(parent(&ListKind::Controller(wheel, 3)), Some(ListKind::ControllerDevices(0)));
         assert_eq!(parent(&ListKind::ControllerDevices(2)), Some(ListKind::Controls));
         assert_eq!(parent(&ListKind::Events), None);
+    }
+
+    #[test]
+    fn identically_named_actions_remain_distinguishable_in_the_picker() {
+        let rows = action_rows(vec![("horn".into(), "Horn".into()), ("door_front".into(), "Door".into()), ("door_rear".into(), "Door".into())]);
+        assert_eq!(rows, vec![("Horn".into(), "bind horn".into()),
+            ("Door · door_front".into(), "bind door_front".into()), ("Door · door_rear".into(), "bind door_rear".into())]);
     }
 }
