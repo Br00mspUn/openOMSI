@@ -545,6 +545,13 @@ rim the reflection running on away from the camera.
   It covers the tile **and its eight neighbours**: the tile itself is the middle third
   (texels 85⅓..170⅔ each way). Neighbouring light maps are the same picture shifted by a
   third - 85 texels between two tiles, 171 between every other one, on all stock maps.
+  A tile with `[variable_terrainlightmap]` (296 of Spandau's 329) has its light map baked
+  from the `[maplight]`s of the objects of the nine tiles when they are loaded (Omsi.exe
+  writes it over the file, unless options.cfg has `[no_generateTerrLightMaps]`), so the file
+  is only what the last OMSI run left: openOMSI bakes it the same way. A texel, on the ground
+  at its south-west corner, takes each lamp's colour × min(1, (radius / distance)²), the
+  distance from the lamp's own height over its object, added up, held at 1 and truncated;
+  a lamp more than 15.96 radii away along x or y adds nothing.
 * Spline profiles (`[profilepnt] x z u v`) are extruded as-is: a road's outer points sit at
   the kerb height (0.25 m on the Marcel street splines) with no skirt down to the terrain,
   so the roadway is a slab standing on the ground. The terrain is only cut away under

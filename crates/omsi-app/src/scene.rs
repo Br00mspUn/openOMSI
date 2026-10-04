@@ -652,6 +652,9 @@ pub struct StagedTile {
     /// `omsi_geometry::spline_hole_outlines`).
     hole_outlines: Vec<Vec<DVec2>>,
     water: Option<[f32; 4]>,
+    /// `[variable_terrainlightmap]`: the tile's light map is baked from the lamps around it
+    /// (see [`bake_light_map`]), not read from its `.map.LM.bmp`.
+    bakes_light_map: bool,
     splines: Vec<StagedSpline>,
     /// The whole spline meshes, in the order of `splines`, until the tile is placed.
     meshes: Mutex<Option<Vec<Arc<MeshData>>>>,
@@ -3912,6 +3915,7 @@ impl World {
             align: Vec::new(),
             hole_outlines: Vec::new(),
             water: None,
+            bakes_light_map: false,
             splines: Vec::new(),
             meshes: Mutex::new(Some(Vec::new())),
             drive: Vec::new(),
@@ -3925,6 +3929,7 @@ impl World {
         let Some(tile) = tile else {
             return out;
         };
+        out.bakes_light_map = tile.variable_terrain_lightmap;
         // a tile with water carries one surface with a height at each corner. As in Omsi.exe
         // (TMapKachel.loadMapFile 0x792188) only a `[water]` tile has it: the editor never
         // deletes the `.water` file of a tile whose water was removed. The corners start at
@@ -4363,6 +4368,33 @@ impl World {
             }
             Placement::Attached { .. } => None,
         }
+    }
+
+    /// The `[maplight]`s of the objects of tile `key` and its eight neighbours, as a light map
+    /// bakes them (Omsi.exe 0x7903e0 goes through the tile's near objects, those of the nine
+    /// tiles, 0x77fe5c).
+    fn light_map_lamps(
+        &self,
+        key: (i32, i32),
+        layout: &TileLayout,
+        staged: &HashMap<(i32, i32), Arc<StagedTile>>,
+    ) -> Vec<BakeLamp> {
+        let mut lamps = Vec::new();
+        for q in layout.ring(key) {
+            let Some(qs) = staged.get(&q) else { continue };
+            if qs.objects.iter().all(|o| o.ot.sco.map_lights.is_empty()) {
+                continue;
+            }
+            let Some(res) = self.resolve(q, &Self::sources(layout, staged, q)) else { continue };
+            for (o, pose) in qs.objects.iter().zip(res.poses.iter()) {
+                let Some(pose) = pose else { continue };
+                for ml in &o.ot.sco.map_lights {
+                    let p = pose.rot.transform_point3(glam::Vec3::from(ml.pos)).as_dvec3() + pose.pos;
+                    lamps.push(BakeLamp { x: p.x, y: p.y, height: ml.pos[2], color: ml.color, radius: ml.radius });
+                }
+            }
+        }
+        lamps
     }
 
     /// A tile's final ground and final object poses (computed once per staging; `src` are
@@ -5255,20 +5287,28 @@ impl World {
             }
         }
         self.tile_state.lock().insert(key, state);
-        // the tile's night light map (lamp light pools on the ground)
-        let light_map = self
-            .global
-            .tiles
-            .iter()
-            .find(|t| t.x == tx && t.y == ty)
-            .and_then(|t| {
+        // the tile's night light map (lamp light pools on the ground). Omsi.exe bakes a
+        // `[variable_terrainlightmap]` tile's own from the lamps of the tiles round it once
+        // those are loaded (0x780694, unless `[no_generateTerrLightMaps]`) and writes it over
+        // the `.map.LM.bmp`: the file is only what the map's last OMSI run left there, if
+        // anything. (Novi Sad's light maps are older than its tiles: read from them, a road
+        // lay dark under the lamps put up along it since, #951.)
+        let file_light_map = || {
+            self.global.tiles.iter().find(|t| t.x == tx && t.y == ty).and_then(|t| {
                 let p = omsi_cfg::resolve_path(&self.map_dir, &format!("{}.LM.bmp", t.file));
                 if omsi_cfg::vfs::is_file(&p) {
-                    omsi_texture::decode_file(&p).ok().map(|img| own_tile_of_light_map(&img))
+                    omsi_texture::decode_file(&p).ok()
                 } else {
                     None
                 }
-            });
+            })
+        };
+        let light_map = if st.bakes_light_map {
+            Some(bake_light_map(&self.light_map_lamps(key, layout, staged), st.origin))
+        } else {
+            file_light_map()
+        };
+        let light_map = light_map.map(|img| own_tile_of_light_map(&img));
         // kept for the light map atlas of the splines and [LightMapMapping] objects
         match &light_map {
             Some(img) => {
@@ -8792,6 +8832,67 @@ fn mesh_bounds(m: &MeshData, xf: &Mat4, origin: DVec3) -> [f64; 4] {
         b[3] = b[3].max(w.y);
     }
     b
+}
+
+/// A `[maplight]` as a light map bakes it: where it stands (world x, y), its height over its
+/// object, colour and core radius.
+#[derive(Debug, Clone, Copy)]
+struct BakeLamp {
+    x: f64,
+    y: f64,
+    height: f32,
+    color: [f32; 3],
+    radius: f32,
+}
+
+/// A light map as Omsi.exe bakes one (0x7903e0): 256 x 256 texels over the tile at `origin`
+/// and its eight neighbours, north at the top row. A texel, on the ground at its south-west
+/// corner, takes each lamp's colour x min(1, (core / distance)^2), added up and held at 1,
+/// and its bytes truncated (0x404c88). The distance is in three dimensions from the lamp's
+/// height over its own object (the `[maplight]`'s z: where the object stands does not count),
+/// and a lamp further than 15.96 cores along either axis adds nothing (less than a step).
+fn bake_light_map(lamps: &[BakeLamp], origin: DVec3) -> omsi_texture::Image {
+    const SIDE: usize = 256;
+    let ts = tile_size() as f32;
+    let reach = 15.96f32;
+    let mut sum = vec![[0f32; 3]; SIDE * SIDE];
+    // texel column c lies at x = (3c / 256 - 1) ts, row r at y = (2 - 3r / 256) ts
+    let texel = 3.0 * ts / SIDE as f32;
+    for l in lamps {
+        let (lx, ly) = ((l.x - origin.x) as f32, (l.y - origin.y) as f32);
+        let box_ = reach * l.radius;
+        let c0 = (((lx - box_) / texel + SIDE as f32 / 3.0).floor().max(0.0)) as usize;
+        let c1 = (((lx + box_) / texel + SIDE as f32 / 3.0).ceil().max(0.0) as usize).min(SIDE - 1);
+        let r0 = (((2.0 * ts - (ly + box_)) / texel).floor().max(0.0)) as usize;
+        let r1 = (((2.0 * ts - (ly - box_)) / texel).ceil().max(0.0) as usize).min(SIDE - 1);
+        for r in r0..=r1 {
+            let py = (2.0 - r as f32 / SIDE as f32 * 3.0) * ts;
+            let dy = ly - py;
+            if dy.abs() > box_ {
+                continue;
+            }
+            for c in c0..=c1 {
+                let px = (c as f32 / SIDE as f32 * 3.0 - 1.0) * ts;
+                let dx = lx - px;
+                if dx.abs() > box_ {
+                    continue;
+                }
+                let d = (dx * dx + l.height * l.height + dy * dy).sqrt();
+                let f = (l.radius / d).powi(2).min(1.0);
+                let t = &mut sum[r * SIDE + c];
+                for k in 0..3 {
+                    t[k] = (t[k] + l.color[k] * f).min(1.0);
+                }
+            }
+        }
+    }
+    let mut rgba = vec![255u8; SIDE * SIDE * 4];
+    for (t, px) in sum.iter().zip(rgba.chunks_exact_mut(4)) {
+        for k in 0..3 {
+            px[k] = (t[k] * 255.0) as u8;
+        }
+    }
+    omsi_texture::Image { width: SIDE as u32, height: SIDE as u32, rgba, has_alpha: false }
 }
 
 /// The part of a `.map.LM.bmp` that covers its own tile, resampled to the picture's full
@@ -13178,6 +13279,48 @@ mod tests {
         assert!(!paint_at_foot(&sco("[surface]\n[mesh]\nplate.o3d\n"), &[mesh(&[0.0, 0.0, 0.0])]));
     }
 
+    /// A `[variable_terrainlightmap]` tile's light map is baked as Omsi.exe bakes it: over the
+    /// tile and its neighbours, north up, colour x min(1, (core / distance)^2) from the lamp's
+    /// own height, added up, held at 1 and truncated, nothing beyond 15.96 cores.
+    #[test]
+    fn a_light_map_is_baked_from_the_lamps_round_the_tile() {
+        let ts = tile_size();
+        let origin = DVec3::new(10.0 * ts, -4.0 * ts, 0.0);
+        let texel = 3.0 * ts / 256.0;
+        let at = |img: &omsi_texture::Image, c: usize, r: usize| {
+            let i = (r * 256 + c) * 4;
+            [img.rgba[i], img.rgba[i + 1], img.rgba[i + 2]]
+        };
+        // texel (c, r) lies at x = (3c / 256 - 1) ts, y = (2 - 3r / 256) ts
+        let world = |c: usize, r: usize| (origin.x + c as f64 * texel - ts, origin.y + 2.0 * ts - r as f64 * texel);
+        let lamp = |c: usize, r: usize, height: f32, color: [f32; 3], radius: f32| {
+            let (x, y) = world(c, r);
+            BakeLamp { x, y, height, color, radius }
+        };
+        // a lamp at the ground over a texel of the tile's own third: its full colour there
+        let img = bake_light_map(&[lamp(100, 120, 0.0, [0.5, 0.25, 1.0], 3.0)], origin);
+        assert_eq!(at(&img, 100, 120), [127, 63, 255]);
+        // six metres up with a three metre core: a quarter of it under it (63.75 → 63)
+        let img = bake_light_map(&[lamp(100, 120, 6.0, [1.0, 1.0, 1.0], 3.0)], origin);
+        assert_eq!(at(&img, 100, 120), [63, 63, 63]);
+        // north is the top row: a lamp in the northern neighbour lights a row above the
+        // tile's third, and two of them add up to white, not beyond
+        let img = bake_light_map(
+            &[lamp(128, 40, 0.0, [0.75, 0.0, 0.0], 3.0), lamp(128, 40, 0.0, [0.75, 0.0, 0.0], 3.0)],
+            origin,
+        );
+        assert_eq!(at(&img, 128, 40), [255, 0, 0]);
+        assert_eq!(at(&img, 128, 128), [0, 0, 0]);
+        // a bright lamp lights up to 15.96 cores along an axis and no further
+        let core = 2.0;
+        let near = (15.9 * core / texel as f32).floor() as usize;
+        let img = bake_light_map(&[lamp(128, 128, 0.0, [100.0, 0.0, 0.0], core)], origin);
+        assert!(at(&img, 128 + near, 128)[0] > 0);
+        assert!(at(&img, 128, 128 - near)[0] > 0);
+        assert_eq!(at(&img, 128 + near + 1, 128)[0], 0);
+        assert_eq!(at(&img, 128, 128 - near - 1)[0], 0);
+    }
+
     #[test]
     fn scenery_render_types_map_to_the_cpp_pass_order() {
         use omsi_scenery::sco::RenderType as ScoPhase;
@@ -13387,6 +13530,7 @@ mod tests {
             align: Vec::new(),
             hole_outlines: Vec::new(),
             water: None,
+            bakes_light_map: false,
             splines: Vec::new(),
             meshes: Mutex::new(Some(Vec::new())),
             drive: Vec::new(),
