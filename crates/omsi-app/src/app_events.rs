@@ -2355,6 +2355,7 @@ impl ApplicationHandler for App {
                             info_room: self.touch.info_room.filter(|_| self.touch.enabled),
                             tutorial: self.tutorial.as_ref().filter(|t| !t.hidden && self.game_menu.is_none()).and_then(|t| t.page().map(|p| (p.title.as_str(), p.text.as_str(), p.image.as_deref(), t.at, t.pages.len()))),
                             chat,
+                            chat_size: self.settings.chat_size,
                             tags,
                             notices: &self.notices,
                             notice_anchor: self.navigator.as_ref().and_then(|n| n.screen_rect()),
@@ -3032,6 +3033,13 @@ impl App {
         // the wheel over the chat (or while typing) scrolls its history
         if let Some(ui) = self.ui.as_mut() {
             if self.lan.is_some() && (ui.chat.hovered || lan::chat_open(&self.remotes)) {
+                // Ctrl + the wheel makes the chat larger or smaller (kept for the next game)
+                if self.keys.contains(&KeyCode::ControlLeft) || self.keys.contains(&KeyCode::ControlRight) {
+                    let to = ((self.settings.chat_size + amount.signum() * 0.1) * 10.0).round() / 10.0;
+                    self.settings.chat_size = to.clamp(0.5, 3.0);
+                    crate::game_lists::remember_setting("chat_size", &self.settings.chat_size.to_string());
+                    return;
+                }
                 ui.chat.wheel(self.remotes.chat.lines.len(), amount);
                 return;
             }

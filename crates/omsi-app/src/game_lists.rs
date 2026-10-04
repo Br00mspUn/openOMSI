@@ -837,6 +837,7 @@ fn steps_of(verb: &str) -> Option<Vec<f32>> {
         "led_glow" => (0..16).map(|v| v as f32).collect(),
         "led_mips" => (0..=80).map(|v| v as f32 * 0.05).collect(),
         "ui_scale" => (10..=40).map(|v| v as f32 * 0.05).collect(),
+        "chat_size" => (5..=30).map(|v| v as f32 * 0.1).collect(),
         "ui_opacity" => (4..=20).map(|v| v as f32 * 0.05).collect(),
         "vol_ai" | "vol_scenery" => (0..=20).map(|v| v as f32 * 0.05).collect(),
         "wheel_range" => (6..=60).map(|v| v as f32 * 30.0).collect(),
@@ -977,6 +978,7 @@ fn option_now(app: &App, verb: &str, arg: &str) -> Option<f32> {
         "look_sens" => s.look_sens,
         "look_smoothing_ms" => s.look_smoothing_ms,
         "ui_scale" => s.ui_scale,
+        "chat_size" => s.chat_size,
         "ui_opacity" => s.ui_opacity,
         "vol_ai" => s.vol_ai,
         "vol_scenery" => s.vol_scenery,
@@ -1075,6 +1077,10 @@ fn option_set(app: &mut App, verb: &str, arg: &str, v: f32) -> Option<(&'static 
         "ui_scale" => {
             app.settings.ui_scale = (v * 100.0).round() / 100.0;
             Some(("ui_scale", app.settings.ui_scale.to_string()))
+        }
+        "chat_size" => {
+            app.settings.chat_size = ((v * 10.0).round() / 10.0).clamp(0.5, 3.0);
+            Some(("chat_size", app.settings.chat_size.to_string()))
         }
         "ui_opacity" => {
             app.settings.ui_opacity = (v * 100.0).round() / 100.0;
@@ -2131,6 +2137,7 @@ fn options_pages(app: &App) -> Vec<Page> {
         switch_row(app, "tooltips", "Name of the button under the mouse", "Shows the name of what the cursor points at"),
         switch_row(app, "notes", "Notes in the top-left corner", "Why the vehicle does not move, the change due, what a service did"),
         switch_row(app, "chat", "Chat in online games", "Shows the chat of a LAN session"),
+        slider_row(app, "chat_size", "Chat size", "The chat's texts on top of the interface size (also Ctrl + the mouse wheel over the chat)", &pct),
         switch_row(app, "name_tags", "Other players' names above their buses", "Shows the names of the other players"),
         Some(opens("Reset all settings...", "Everything but the language, the key bindings and the game folder goes back to how it came", "reset")),
     ]

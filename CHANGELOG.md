@@ -4,6 +4,11 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1518 - 2026-10-04
+
+### New
+- The chat has a size of its own: Ctrl + the mouse wheel over it, or Settings → General → Chat size (50-300 %), for large and 4K screens.
+
 ## 0.1.1517 - 2026-10-04
 
 ### Fixes

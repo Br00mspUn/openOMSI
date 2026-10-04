@@ -645,7 +645,8 @@ in step. The other players' buses run their own AI scripts with the sender's inp
 drawn and heard where they stand, and are obstacles for the AI traffic like your own bus -
 as long as that bus type is installed locally, otherwise your own type stands in for it.
 **V** opens the chat line (Enter sends, Esc drops it); joining and leaving are announced
-there. The host checks everything it takes in and limits how much a player may send.
+there. The chat grows with the window like the rest of the interface, and has a size of
+its own on top: **Ctrl + the mouse wheel** over it, or Settings → General → Chat size (50-300 %). The host checks everything it takes in and limits how much a player may send.
 
 **Every variable of the other buses.** Besides the pose, each game sends all script
 variables of its bus (floats and strings: a gearbox's state, a display's or an IBIS's text,

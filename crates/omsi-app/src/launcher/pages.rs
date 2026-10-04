@@ -1061,6 +1061,12 @@ fn general_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
     toggle_setting(ui, s, dirty, c.row(), "Frame rate in the corner", "show_fps");
     toggle_setting(ui, s, dirty, c.row(), "Notes in the top-left corner", "notes");
     toggle_setting(ui, s, dirty, c.row(), "Chat in online games", "chat");
+    // (the chat's own size on top of the interface's; Ctrl + the wheel over it in the game)
+    let mut chat = get(s, "chat_size").as_f64().unwrap_or(1.0) as f32;
+    if ui.slider("s-chatsize", c.row(), &mut chat, 0.5, 3.0, 0.1, "Chat size", &|v| format!("{:.0}%", v * 100.0)) {
+        s["chat_size"] = json!((chat * 10.0).round() / 10.0);
+        *dirty = 0.3;
+    }
     toggle_setting(ui, s, dirty, c.row(), "Other players' names above their buses", "name_tags");
     c.section(ui, "Navigator");
     toggle_setting(ui, s, dirty, c.row(), "Navigator (Shift+N: map, schedule, off)", "navigator");
@@ -2630,7 +2636,7 @@ mod settings_tests {
             "s-maint", "set-collision_vehicles", "set-collision_objects", "set-collision_pedestrians", "set-use_real_time", "set-use_real_date", "set-time_sync", "set-metar_sync", "s-timespeed",
         ];
         let general = vec![
-            "s-lang", "set-machine_translation", "set-launcher_rest", "set-discord_status", "set-voice_chat", "s-uiscale", "set-ui_scale_window", "s-uiop", "set-tooltips", "set-show_fps", "set-notes", "set-chat", "set-name_tags",
+            "s-lang", "set-machine_translation", "set-launcher_rest", "set-discord_status", "set-voice_chat", "s-uiscale", "set-ui_scale_window", "s-uiop", "set-tooltips", "set-show_fps", "set-notes", "set-chat", "s-chatsize", "set-name_tags",
             "set-navigator", "set-nav_arrows", "set-nav_ai", "corner-top-left", "corner-top-right", "corner-bottom-left", "corner-bottom-right",
             "set-update_check", "set-update_auto", "set-update_notify", "set-presence", "s-upd-check", "s-upd-github", "s-reset",
         ];
