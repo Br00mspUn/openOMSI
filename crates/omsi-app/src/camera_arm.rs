@@ -395,6 +395,13 @@ fn ray_triangle(o: Vec3, d: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
 /// the nearest hit of the five rays with scenery, less the margin, and the point where the
 /// middle ray comes within [`GROUND_CLEARANCE`] of the ground. `right`/`up` span the plane
 /// the side rays are spread in.
+pub fn lift_pivot(world: &World, pivot: DVec3) -> DVec3 {
+    match world.camera_ground(pivot.x, pivot.y, pivot.z + GROUND_CLEARANCE) {
+        Some(g) if pivot.z < g + GROUND_CLEARANCE => DVec3::new(pivot.x, pivot.y, g + GROUND_CLEARANCE),
+        _ => pivot,
+    }
+}
+
 pub fn free_length(
     world: &World,
     pivot: DVec3,
