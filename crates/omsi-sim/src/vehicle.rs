@@ -1900,13 +1900,12 @@ impl VehicleInstance {
 
     /// Where variable `name` sits among the script's variables (`State::vars`).
     pub fn var_slot(&self, name: &str) -> Option<usize> {
-        self.var_index.get(&name.to_ascii_lowercase()).map(|&i| i as usize)
+        omsi_script::compile::with_lower(name, |k| self.var_index.get(k).map(|&i| i as usize))
     }
 
     pub fn var(&self, name: &str) -> Option<f32> {
-        self.var_index
-            .get(&name.to_ascii_lowercase())
-            .map(|&i| self.state.vars[i as usize])
+        omsi_script::compile::with_lower(name, |k| self.var_index.get(k).copied())
+            .map(|i| self.state.vars[i as usize])
     }
 
     /// Whether variable `name` was declared in the vehicle's script set (as opposed to built-in host variables).
@@ -1923,8 +1922,8 @@ impl VehicleInstance {
     }
 
     pub fn set_var(&mut self, name: &str, v: f32) -> bool {
-        match self.var_index.get(&name.to_ascii_lowercase()) {
-            Some(&i) => {
+        match omsi_script::compile::with_lower(name, |k| self.var_index.get(k).copied()) {
+            Some(i) => {
                 self.state.vars[i as usize] = v;
                 true
             }

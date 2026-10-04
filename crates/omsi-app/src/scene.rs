@@ -1757,10 +1757,13 @@ fn heightprofile_ground() -> bool {
 }
 
 fn surface_flush() -> f32 {
-    omsi_cfg::env::var("OMSI_SURFACE_FLUSH")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0.12)
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        omsi_cfg::env::var("OMSI_SURFACE_FLUSH")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0.12)
+    })
 }
 
 /// Whether this session's weather lies as snow (`[snow]` in the `.owt`), set by the app
