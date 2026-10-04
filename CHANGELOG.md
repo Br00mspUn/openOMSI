@@ -4,6 +4,11 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1517 - 2026-10-04
+
+### Fixes
+- The README's "playing now" badge keeps its label while the counter cannot be reached.
+
 ## 0.1.1515 - 2026-10-04
 
 ### New
