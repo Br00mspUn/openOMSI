@@ -569,6 +569,7 @@ pub fn chain_distance(index: &MapIndex, from: i64, to: i64, limit: f64) -> Optio
 /// last `[spline]` field in tile version 11 and newer; that value is authoritative because
 /// `prev`/`next` links can be stale. Older tiles do not store it, so reconstruct it by walking
 /// the links (flipping direction where two splines meet end to end).
+#[cfg(test)]
 pub fn chain_offset(index: &MapIndex, id: i64) -> f64 {
     index.splines.get(&id).map(|s| chain_offset_from(index, id, *s)).unwrap_or(0.0)
 }
