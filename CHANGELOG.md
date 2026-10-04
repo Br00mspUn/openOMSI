@@ -4,6 +4,10 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1423 - 2026-10-04
+
+- Build: the small-BAR fix for NVIDIA cards ([#905](https://github.com/openOMSI-Project/openOMSI/pull/905)) now comes from the project's own copy of gpu-allocator, not a personal fork.
+
 ## 0.1.1422 - 2026-10-04
 
 ### Merged pull requests
