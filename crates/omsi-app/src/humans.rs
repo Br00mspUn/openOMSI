@@ -167,6 +167,8 @@ struct Door {
     button: bool,
     /// Where people getting off wait for the door to open: the path point next to it.
     wait: Vec3,
+    /// The sections it belongs to that people walk between (see `Cabin::groups`).
+    group: usize,
 }
 
 impl Door {
@@ -208,6 +210,8 @@ struct Seat {
     /// one its occupancy is written into.
     switch_var: Option<String>,
     taken_var: Option<String>,
+    /// The sections it lies in that people walk between (see `Cabin::groups`).
+    group: usize,
 }
 
 /// What passengers need to know about one vehicle type's cabin.
@@ -229,6 +233,11 @@ struct Cabin {
     /// The sections (one for a rigid bus), front first; everything above is in the
     /// unfolded frame of the front section.
     parts: Vec<CabinPart>,
+    /// How many groups of sections people walk between (one but where a trailer hangs on
+    /// that nobody walks into from the bus, #718), and each path point's group: a passenger
+    /// gets in, rides and gets out within one.
+    groups: usize,
+    point_group: Vec<usize>,
     /// Each link's room height (`[next_roomheight]`; 2 m before any).
     link_room: Vec<f32>,
     /// The routing tables of the path network (sub_72410c).
@@ -263,8 +272,15 @@ fn seat_numbers(seats: &[Seat], sitting: impl Iterator<Item = usize>) -> Vec<u32
 
 /// The places of a bus its scripts have switched off: a `[passpos]` naming a variable of
 /// its own that is 0 now (#721), by index into the cabin's.
+/// (A place in a section of its own without an entry or without an exit is off too: nobody
+/// could get there, or out of it again, #718.)
 fn places_off(v: &VehicleInstance, cabin: &Cabin) -> Vec<bool> {
-    cabin.seats.iter().map(|s| s.switch_var.as_deref().and_then(|n| v.var(n)).is_some_and(|x| x == 0.0)).collect()
+    let unreached = |g: usize| cabin.groups > 1 && (!cabin.entries.iter().any(|e| e.group == g) || !cabin.exits.iter().any(|e| e.group == g));
+    cabin
+        .seats
+        .iter()
+        .map(|s| s.switch_var.as_deref().and_then(|n| v.var(n)).is_some_and(|x| x == 0.0) || unreached(s.group))
+        .collect()
 }
 
 /// The occupancy variables of the places of bus `bn` that name one (#721), and whether
@@ -358,16 +374,21 @@ impl Cabin {
         let mut link_pack: Vec<Option<usize>> = Vec::new();
         let mut link_room: Vec<f32> = Vec::new();
         let mut step_packs: Vec<Arc<[String]>> = Vec::new();
-        // (merged path point or -1, sells tickets, {withbutton}, half width of the section)
-        let mut entry_points: Vec<(i32, bool, bool, f32)> = Vec::new();
-        let mut exit_points: Vec<(i32, f32)> = Vec::new();
-        let mut places: Vec<(omsi_vehicle::cabin::PassPos, Vec3, usize)> = Vec::new();
+        // (merged path point or -1, sells tickets, {withbutton}, half width of the section,
+        // group)
+        let mut entry_points: Vec<(i32, bool, bool, f32, usize)> = Vec::new();
+        let mut exit_points: Vec<(i32, f32, usize)> = Vec::new();
+        let mut places: Vec<(omsi_vehicle::cabin::PassPos, Vec3, usize, usize)> = Vec::new();
+        let mut group = 0usize;
+        let mut point_group: Vec<usize> = Vec::new();
         // (the script seat numbers of the sections in front)
         let mut seat_base = 0usize;
         let mut cabin_parts: Vec<CabinPart> = Vec::new();
         let mut stampers: Vec<(Option<usize>, Vec3)> = Vec::new();
-        // the point of the section in front that leads on to the next one
+        // the point of the section in front that leads on to the next one, and that one as
+        // its cabin gives it (`[linkToPrevVeh]`)
         let mut rear_link: Option<usize> = None;
+        let mut rear_declared: Option<usize> = None;
         for (k, (def, offset, joint_y)) in parts.iter().enumerate() {
             let cab = if k == 0 {
                 Some(data.clone())
@@ -404,19 +425,28 @@ impl Cabin {
             };
             if k > 0 {
                 // through the joint: from the front section's [linkToPrevVeh] point to this
-                // one's [linkToNextVeh] point (the frontmost aisle point when it has none)
-                let front = cab.link_to_next_veh.and_then(valid).or_else(|| end(true));
-                match (rear_link, front) {
+                // one's [linkToNextVeh] point (the frontmost aisle point when it has none). A
+                // trailer's hitch (`[coupling_front_character]` type 0, a lorry's coupling) is
+                // no bellows: walked through only where both cabins give those points, as
+                // Omsi.exe joins coupled cabins (0x7d172c) - joined at the aisle's ends, the
+                // passengers of a bus walked through its back wall into the trailer behind
+                let hitch = def.coupling_front_character.is_some_and(|c| c[3] == 0.0);
+                let front = cab.link_to_next_veh.and_then(valid).or_else(|| if hitch { None } else { end(true) });
+                match (if hitch { rear_declared } else { rear_link }, front) {
                     (Some(a), Some(b)) => {
                         links.push((a as i32, b as i32, false));
                         link_pack.push(None);
                         link_room.push(2.0);
                     }
-                    // no way through: the section stays empty
+                    // no way through: a section of its own, which people get into and out
+                    // of by its own doors and ride in (#718; it stayed empty)
+                    _ if !own.is_empty() => group += 1,
+                    // nowhere to walk in it
                     _ => break,
                 }
             }
             points.extend(own.iter().copied());
+            point_group.extend(std::iter::repeat_n(group, own.len()));
             links.extend(
                 own_links
                     .iter()
@@ -429,7 +459,8 @@ impl Cabin {
             }));
             step_packs.extend(own_packs.into_iter().map(Arc::from));
             link_room.extend((0..own_links.len()).map(|i| own_rooms.get(i).copied().unwrap_or(2.0)));
-            rear_link = cab.link_to_prev_veh.and_then(valid).or_else(|| end(false));
+            rear_declared = cab.link_to_prev_veh.and_then(valid);
+            rear_link = rear_declared.or_else(|| end(false));
             let half = def
                 .bounding_box
                 .map(|b| b[0] * 0.5)
@@ -438,10 +469,10 @@ impl Cabin {
             entry_points.extend(
                 cab.entries
                     .iter()
-                    .map(|e| (shift(e.path_point), !e.no_ticket_sale, e.with_button, half)),
+                    .map(|e| (shift(e.path_point), !e.no_ticket_sale, e.with_button, half, group)),
             );
-            exit_points.extend(cab.exits.iter().map(|e| (shift(*e), half)));
-            places.extend(cab.pass_positions.iter().map(|p| (p.clone(), *offset, seat_base + p.file_index)));
+            exit_points.extend(cab.exits.iter().map(|e| (shift(*e), half, group)));
+            places.extend(cab.pass_positions.iter().map(|p| (p.clone(), *offset, seat_base + p.file_index, group)));
             stampers.extend(cab.stampers.iter().map(|st| (valid(st.path_point), Vec3::from(st.pos) + *offset)));
             seat_base += cab.pass_positions.len() + cab.driver_positions.len();
             cabin_parts.push(CabinPart {
@@ -452,7 +483,7 @@ impl Cabin {
         let graph = PathGraph::new(points.clone(), &links);
         // (the side of the road the stops are on: where a door's own point does not tell)
         let kerb = if LEFT_HAND.load(std::sync::atomic::Ordering::Relaxed) { -1.0f32 } else { 1.0 };
-        let door = |pp: i32, sells: bool, button: bool, half_width: f32| -> Door {
+        let door = |pp: i32, sells: bool, button: bool, half_width: f32, group: usize| -> Door {
             let point = (pp >= 0 && (pp as usize) < points.len()).then_some(pp as usize);
             let inside = point
                 .map(|i| points[i])
@@ -491,15 +522,16 @@ impl Cabin {
                 sells,
                 button,
                 wait,
+                group,
             }
         };
         let mut entries: Vec<Door> = entry_points
             .iter()
-            .map(|(pp, sells, button, half)| door(*pp, *sells, *button, *half))
+            .map(|(pp, sells, button, half, g)| door(*pp, *sells, *button, *half, *g))
             .collect();
         let exits: Vec<Door> = exit_points
             .iter()
-            .map(|(pp, half)| door(*pp, false, false, *half))
+            .map(|(pp, half, g)| door(*pp, false, false, *half, *g))
             .collect();
         // two leaves of one door: the queue of the front leaf runs forwards, the other's back,
         // so that the two lines do not stand in each other
@@ -554,7 +586,7 @@ impl Cabin {
         });
         let seats = places
             .iter()
-            .map(|(p, offset, omsi_seat)| {
+            .map(|(p, offset, omsi_seat, group)| {
                 let pos = Vec3::from(p.pos) + *offset;
                 let seated = p.height > 0.01;
                 let floor = if seated {
@@ -576,6 +608,7 @@ impl Cabin {
                     omsi_seat: *omsi_seat,
                     switch_var: p.switch_var.clone(),
                     taken_var: p.taken_var.clone(),
+                    group: *group,
                 }
             })
             .collect();
@@ -596,6 +629,8 @@ impl Cabin {
             desk,
             seats,
             parts: cabin_parts,
+            groups: group + 1,
+            point_group,
             link_room,
             routes,
             stampers,
@@ -5636,7 +5671,7 @@ mod tests {
 
     #[test]
     fn seats_counted_by_the_scripts_numbers() {
-        let seat = |omsi_seat: usize| Seat { pos: Vec3::ZERO, floor: Vec3::ZERO, rot: 0.0, seated: true, height: 0.45, omsi_seat, switch_var: None, taken_var: None };
+        let seat = |omsi_seat: usize| Seat { pos: Vec3::ZERO, floor: Vec3::ZERO, rot: 0.0, seated: true, height: 0.45, omsi_seat, switch_var: None, taken_var: None, group: 0 };
         // the driver's place is seat 0, a second section's numbers follow the first's
         let seats = [seat(1), seat(2), seat(4), seat(6)];
         assert_eq!(seat_numbers(&seats, [0, 2, 2, 3].into_iter()), [0, 1, 0, 0, 2, 0, 1]);
@@ -6044,6 +6079,90 @@ mod tests {
         assert_eq!(x, vec![true, true, true, true]);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// #718: a trailer on a lorry's hitch (`[coupling_front_character]` type 0) whose cabin
+    /// gives no `[linkToNextVeh]` is not walked into from the bus: it is a section of its
+    /// own, boarded, ridden in and left by its own doors. A bus joint (type 1) without the
+    /// points is still walked through at the aisle's ends.
+    #[test]
+    fn a_trailer_nobody_walks_into_is_boarded_by_its_own_doors() {
+        let dir = std::env::temp_dir().join(format!("omsi-trailer-cabin-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |name: &str, text: &str| std::fs::write(dir.join(name), text).unwrap();
+        // the bus: door at the front right, an aisle, a seat; the trailer: a door, an aisle,
+        // a seat and an exit, nothing that names the bus
+        write("paths_bus.cfg", "[pathpnt]\n1.1\n4\n0.4\n[pathpnt]\n0\n4\n0.5\n[pathpnt]\n0\n-4\n0.5\n[pathlink]\n0\n1\n[pathlink]\n1\n2\n");
+        write("cabin_bus.cfg", "[entry]\n0\n[exit]\n0\n[stamper]\n1\n0.5\n4\n1.5\n[passpos]\n-0.5\n2\n1.0\n0.45\n0\n");
+        write("paths_trail.cfg", "[pathpnt]\n1.1\n2\n0.4\n[pathpnt]\n0\n2\n0.5\n[pathpnt]\n0\n-2\n0.5\n[pathlink]\n0\n1\n[pathlink]\n1\n2\n");
+        write("cabin_trail.cfg", "[entry]\n0\n[exit]\n0\n[passpos]\n-0.5\n-1\n1.0\n0.45\n0\n");
+        // trailers with a way in and none out, and the other way round
+        write("cabin_trail_in.cfg", "[entry]\n0\n[passpos]\n-0.5\n-1\n1.0\n0.45\n0\n");
+        write("cabin_trail_out.cfg", "[exit]\n0\n[passpos]\n-0.5\n-1\n1.0\n0.45\n0\n");
+        // (a bus for its script's variables)
+        write("vars.bus", "[model]\nmodel.cfg\n[varnamelist]\n1\nvars.txt\n[script]\n1\nmain.osc\n");
+        write("model.cfg", "");
+        write("vars.txt", "door_0\n");
+        write("main.osc", "{init}\n{end}\n");
+        let def = |cabin: &str, paths: &str, coupling: Option<f32>| omsi_vehicle::Vehicle {
+            path: dir.join("bus.bus"),
+            passenger_cabin: Some(cabin.into()),
+            paths: Some(paths.into()),
+            bounding_box: Some([2.5, 9.0, 3.0, 0.0, 0.0, 1.5]),
+            coupling_front_character: coupling.map(|kind| [30.0, -10.0, 10.0, kind]),
+            ..Default::default()
+        };
+        let bus = def("cabin_bus.cfg", "paths_bus.cfg", None);
+        let offset = Vec3::new(0.0, -10.0, 0.0);
+        let cabin_of = |cabin: &str, kind: Option<f32>| {
+            let trail = def(cabin, "paths_trail.cfg", kind);
+            Cabin::load_train(&[(&bus, Vec3::ZERO, f32::INFINITY), (&trail, offset, -5.0)]).expect("cabin")
+        };
+        let hitched = cabin_of("cabin_trail.cfg", Some(0.0));
+        let jointed = cabin_of("cabin_trail.cfg", Some(1.0));
+        let plain = cabin_of("cabin_trail.cfg", None);
+        let no_exit = cabin_of("cabin_trail_in.cfg", Some(0.0));
+        let no_entry = cabin_of("cabin_trail_out.cfg", Some(0.0));
+        let jointed_no_exit = cabin_of("cabin_trail_in.cfg", Some(1.0));
+        let ty = std::sync::Arc::new(omsi_sim::VehicleType::load(&dir, &dir.join("vars.bus")).unwrap());
+        std::fs::remove_dir_all(&dir).ok();
+        let v = VehicleInstance::new(ty, omsi_sim::VehicleHost::new(Default::default()));
+        assert_eq!((jointed.groups, plain.groups), (1, 1), "a bus joint is walked through");
+        assert_eq!(jointed.links.len(), 5);
+        assert_eq!(hitched.groups, 2);
+        assert_eq!(hitched.links.len(), 4, "nothing joins the bus to its trailer");
+        assert_eq!(hitched.parts.len(), 2);
+        // its doors and its seat are the trailer's, behind the bus
+        assert_eq!((hitched.entries.len(), hitched.exits.len(), hitched.seats.len()), (2, 2, 2));
+        assert_eq!((hitched.entries[1].group, hitched.exits[1].group, hitched.seats[1].group), (1, 1, 1));
+        assert!((hitched.entries[1].inside - Vec3::new(1.1, -8.0, 0.4)).length() < 1e-4);
+        // somebody for the trailer's seat walks to the trailer's door, a rider in it to its exit
+        let entries = hitched.in_group(hitched.entry_points(), Some(1));
+        assert_eq!(entries, [None, Some(3)]);
+        let near_bus_door = Vec3::new(1.6, 4.0, 0.0);
+        assert_eq!(hitched.omsi_nearest(near_bus_door, &entries, false, false, None, None), Some(3));
+        assert_eq!(hitched.in_group(hitched.exit_points(), hitched.group_at(Some(5))), [None, Some(3)]);
+        assert_eq!(hitched.in_group(hitched.exit_points(), Some(0)), [Some(0), None]);
+        // with the trailer's doors shut (and no button) they wait at those, not at nothing:
+        // the bus's door, the first of the list, is left out of it
+        let here = Vec3::new(0.0, -8.0, 0.5);
+        let exits = hitched.in_group(hitched.exit_points(), Some(1));
+        assert_eq!(hitched.omsi_nearest(here, &exits, false, false, None, Some(&[false, false])), Some(3));
+        let flags = hitched.entry_flags();
+        for avoid in [false, true] {
+            assert_eq!(hitched.omsi_nearest(near_bus_door, &entries, avoid, false, Some(&flags), Some(&[false, false])), Some(3));
+        }
+        // (one group: the list's first, as Omsi.exe)
+        assert_eq!(jointed.omsi_nearest(here, &[None, Some(3)], false, false, None, Some(&[false, false])), None);
+        // a trailer of its own nobody can get into, or out of again, has its places off
+        assert_eq!(places_off(&v, &hitched), [false, false]);
+        assert_eq!(places_off(&v, &no_exit), [false, true], "nobody could get out of it");
+        assert_eq!(places_off(&v, &no_entry), [false, true], "nobody could get into it");
+        assert_eq!(places_off(&v, &jointed_no_exit), [false, false], "out through the bus");
+        // the bus's validator is out of a trailer passenger's reach
+        assert_eq!(hitched.nearest_stamper(Vec3::new(1.1, -8.0, 0.4)), None);
+        assert_eq!(hitched.nearest_stamper(Vec3::new(1.1, 4.0, 0.4)), Some(0));
+        assert_eq!(jointed.nearest_stamper(Vec3::new(1.1, -8.0, 0.4)), Some(0));
     }
 
     /// #722: a validator by each door - every `[stamper]` is kept, and a passenger stamps at

@@ -824,7 +824,12 @@ they follow the joint's dummy meshes; the modelled pose is the straight one.
 The passenger cabins of the sections are joined by `[linkToNextVeh]` / `[linkToPrevVeh]`
 path points: the rear section's seats and exits are numbered after the front's, which is
 how the stock door scripts count them, and a person walking from one section to the other
-crosses the joint on those links.
+crosses the joint on those links. Omsi.exe joins two coupled cabins only where both give
+these points. openOMSI also crosses a bus joint whose cabins give none, between the ends of
+the two aisles, but not a trailer on a lorry's hitch (`[coupling_front_character]` type 0):
+without the points that is a cabin of its own in openOMSI, and passengers whose place is in
+it get in and out by its own `[entry]` and `[exit]` doors (a place there is not offered when
+the trailer has no entry or no exit).
 
 ## Humans (.hum)
 

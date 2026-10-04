@@ -624,6 +624,11 @@ impl Cabin {
         }
         if found.is_none() {
             if !(avoid && flags.is_some()) {
+                // (a list narrowed to the sections somebody is in, #718: the first door of
+                // theirs, not the first of the list - another section's, left out)
+                if self.groups > 1 {
+                    return list.iter().flatten().next().copied();
+                }
                 return list.first().copied().flatten();
             }
             return self.omsi_nearest(p, list, false, level, flags, open);
@@ -632,11 +637,30 @@ impl Cabin {
     }
 
     /// The validator nearest `p` (bus frame, the height weighed as in `omsi_nearest`): the
-    /// one a passenger who came in there stamps at. The first of equally near ones.
+    /// one a passenger who came in there stamps at. The first of equally near ones; in a
+    /// cabin of sections nobody walks between, one in the sections of `p`'s nearest point.
     pub(super) fn nearest_stamper(&self, p: Vec3) -> Option<usize> {
         let at = |s: &(Option<usize>, Vec3)| s.0.and_then(|k| self.graph.points.get(k).copied()).unwrap_or(s.1);
         let d = |k: usize| weighted_dist(p, at(&self.stampers[k]), 5.0);
-        (0..self.stampers.len()).min_by(|&a, &b| d(a).total_cmp(&d(b)))
+        let group = self.group_at(self.omsi_nearest(p, &self.all_points(), false, false, None, None));
+        (0..self.stampers.len())
+            .filter(|&k| self.groups <= 1 || self.group_at(self.stampers[k].0) == group)
+            .min_by(|&a, &b| d(a).total_cmp(&d(b)))
+    }
+
+    /// The group of sections path point `p` lies in (see `groups`).
+    pub(super) fn group_at(&self, p: Option<usize>) -> Option<usize> {
+        p.and_then(|q| self.point_group.get(q).copied())
+    }
+
+    /// The points of `list` in group `g`, the others left out (None): where a trailer hangs
+    /// on that nobody walks into from the bus (#718), a passenger keeps to the sections they
+    /// are in - the doors and devices of the others are out of reach. One group: `list`.
+    pub(super) fn in_group(&self, list: Vec<Option<usize>>, g: Option<usize>) -> Vec<Option<usize>> {
+        match g {
+            Some(g) if self.groups > 1 => list.into_iter().map(|p| p.filter(|&q| self.point_group.get(q) == Some(&g))).collect(),
+            _ => list,
+        }
     }
 
     /// sub_723fac: the next point from `from` towards `to` and the link taken.
@@ -1409,7 +1433,7 @@ impl Humans {
                         p.stamper = bn.cabin.nearest_stamper(local);
                         p.pt_target = p.stamper.and_then(|k| bn.cabin.stampers[k].0);
                     }
-                    TICKET_BUY => p.pt_target = bn.cabin.sale.and_then(|s| s.0),
+                    TICKET_BUY => p.pt_target = bn.cabin.in_group(vec![bn.cabin.sale.and_then(|s| s.0)], bn.cabin.group_at(p.pt))[0],
                     _ => self.route_to_place(i, bn),
                 }
                 let p = self.pax_mut(i).unwrap();
@@ -1438,7 +1462,8 @@ impl Humans {
                     p.pos = q.as_dvec3();
                 }
                 let here = p.pos.as_vec3();
-                // the nearest exit (sub_62a49c / sub_62a5a8)
+                // the nearest exit (sub_62a49c / sub_62a5a8), of the sections they are in
+                let exits = bn.cabin.in_group(exits, bn.cabin.group_at(start));
                 p.pt_target = bn.cabin.omsi_nearest(here, &exits, false, false, None, None);
                 p.door = p.pt_target.and_then(|t| exits.iter().position(|e| *e == Some(t)));
                 if let Some(d) = p.door {
@@ -1532,7 +1557,9 @@ impl Humans {
             Some(_) => p.pos.as_vec3(),
             None => bn.to_local(p.pos),
         };
-        let list = bn.cabin.entry_points();
+        // (the doors of the sections of the place reserved)
+        let group = p.seat.and_then(|k| bn.cabin.seats.get(k)).map(|s| s.group);
+        let list = bn.cabin.in_group(bn.cabin.entry_points(), group);
         let flags = bn.cabin.entry_flags();
         let open: Vec<bool> = (0..list.len()).map(|k| bn.entry_open.get(k).copied().unwrap_or(false)).collect();
         let pt = bn.cabin.omsi_nearest(here, &list, p.ticket == TICKET_BUY, false, Some(&flags), Some(&open));
@@ -1862,11 +1889,13 @@ impl Humans {
                 // frame from the nearest point, and whoever had left a point was pulled back
                 // to it - the people coming down from the upper deck never got off the stairs.
                 self.pax_mut(i).unwrap().timer = 1.0;
-                let exits = bn.cabin.exit_points();
                 let all = bn.cabin.all_points();
-                let open: Vec<bool> = (0..exits.len()).map(|k| bn.exit_open.get(k).copied().unwrap_or(false)).collect();
                 let pp = self.pax_mut(i).unwrap();
                 let here = pp.pos.as_vec3();
+                // (the exits of the sections they are in)
+                let group = bn.cabin.group_at(pp.pt.or_else(|| bn.cabin.omsi_nearest(here, &all, false, false, None, None)));
+                let exits = bn.cabin.in_group(bn.cabin.exit_points(), group);
+                let open: Vec<bool> = (0..exits.len()).map(|k| bn.exit_open.get(k).copied().unwrap_or(false)).collect();
                 let target = bn.cabin.omsi_nearest(here, &exits, false, false, None, Some(&open));
                 if pp.st == 5 {
                     // walking: on from the point walked to, towards the new door (Omsi.exe
