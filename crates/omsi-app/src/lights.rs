@@ -293,9 +293,26 @@ fn push_spot(lights: &mut Vec<PointLight>, at: DVec3, d: Vec3, vals: &[f32; 12],
         core: 1.0,
         // (a plain spot, as Direct3D lights OMSI's road: the low-beam profile's
         // bright band under a hard cut-off has nothing like it in the original)
-        beam: 0.0,
+        beam: full_beam_gain(vals[9]),
         mode: LightMode::Enhanced,
     });
+}
+
+/// How much more a `[spotlight]` of this range throws towards the horizon than along its
+/// axis in the enhanced picture (`PointLight::beam`, negative: a full beam): none up to the
+/// stock low beam's 100, beyond it the square of its reach over the low beam's, so it lights
+/// the road as far out as it reaches further - the stock full beam's 500, 25 times. Its
+/// longer reach alone showed nothing: lit inverse-square from a one-metre core, the road
+/// 60 m ahead had next to no light from either beam, and a full beam lit the road as the
+/// low beam did (#1068). (The classic picture's spot is full within an eighth of its reach,
+/// so its full beam's pool there is five times as long as the low beam's.)
+fn full_beam_gain(range: f32) -> f32 {
+    let k = spot_reach(range, 60.0) / 60.0;
+    if k > 1.0 {
+        -(k * k)
+    } else {
+        0.0
+    }
 }
 
 /// How far a `[spotlight]` reaches in the picture, from its declared range (value 9):
@@ -320,6 +337,17 @@ mod spot_tests {
         assert_eq!(super::spot_reach(30.0, 45.0), 30.0);
         assert_eq!(super::spot_reach(2.0, 45.0), 10.0);
         assert_eq!(super::spot_reach(5000.0, 45.0), 225.0);
+    }
+
+    /// The enhanced picture's full beam throws towards the horizon as many times further as
+    /// its range says; a low beam stays a plain spot (#1068).
+    #[test]
+    fn a_full_beam_throws_its_light_further_down_the_road() {
+        assert_eq!(super::full_beam_gain(100.0), 0.0);
+        assert_eq!(super::full_beam_gain(30.0), 0.0);
+        assert_eq!(super::full_beam_gain(500.0), -25.0);
+        assert_eq!(super::full_beam_gain(200.0), -4.0);
+        assert_eq!(super::full_beam_gain(5000.0), -25.0);
     }
 
     /// `[spotlight_2]`: a pair mirrored across the axis sharing the light, or one lamp, as

@@ -263,7 +263,9 @@ pub struct PointLight {
     pub core: f32,
     /// A headlight's beam (enhanced path): up to this many times stronger towards the
     /// horizon than along its axis, so that the road far ahead is lit as a low beam lights
-    /// it rather than only the pool in front of the bumper (0 = an even cone).
+    /// it rather than only the pool in front of the bumper (0 = an even cone). Negative: a
+    /// full beam, as many times stronger towards the horizon on either side of it (no
+    /// cut-off above).
     pub beam: f32,
     /// Which path draws the light.
     pub mode: LightMode,
