@@ -4,6 +4,12 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1512 - 2026-10-04
+
+### Merged pull requests
+- Mirror panels: only the player's bus notes its mirrors' glass, so the panels no longer take another bus's mirrors [#1171](https://github.com/openOMSI-Project/openOMSI/pull/1171).
+- Translations: Simplified Chinese numbers in their single-character forms [#1282](https://github.com/openOMSI-Project/openOMSI/pull/1282), Traditional Chinese labels refined [#1264](https://github.com/openOMSI-Project/openOMSI/pull/1264).
+
 ## 0.1.1502 - 2026-10-04
 
 ### Merged pull requests
