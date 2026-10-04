@@ -3522,7 +3522,7 @@ _version: 2
   id: "Penjualan tiket"
   ms: "Jualan tiket"
   tl: "Pagbebenta ng tiket"
-"runs"
+"runs":
   zh: "行车数"
 "Recent runs":
   ru: "Последние поездки"
