@@ -373,6 +373,11 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
     } else {
         None
     };
+    // turned away at the door (banned, full, another version): no game to play there
+    if lan.as_ref().and_then(lan::turned_away).is_some() {
+        log::info!("game ends");
+        return Ok(None);
+    }
     // the host's mods: served by the host, fetched by a joining player before its world is
     // made (see `lan_mods`)
     lan_mods::remove_stale();

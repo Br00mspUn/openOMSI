@@ -2947,7 +2947,13 @@ impl ApplicationHandler for App {
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // the server sent us away (kick, ban): the game ends, the launcher says why
+        if self.lan.as_ref().and_then(crate::lan::turned_away).is_some() {
+            self.finish_session();
+            crate::platform::exit(event_loop);
+            return;
+        }
         crate::game_lists::flush_settings(false);
         if self.mouse_edge != 0.0 && !self.mouse_drive {
             self.mouse_edge = 0.0;
