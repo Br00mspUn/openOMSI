@@ -244,11 +244,8 @@ pub(crate) fn clear_ai_traffic(app: &mut App) {
         return;
     }
     if let (Some(t), Some(w), Some(r), Some(scene)) = (app.traffic.as_mut(), app.world.as_ref(), app.renderer.as_ref(), app.scene.as_mut()) {
-        let ids: Vec<u64> = t.cars.iter().filter(|c| !c.is_bus()).map(|c| c.id).collect();
-        for id in &ids {
-            t.remove_car(w, r, scene, *id);
-        }
-        app.service_msg = Some((format!("{} AI vehicles taken off the road", ids.len()), 3.0));
+        let removed = t.clear_random(w, r, scene);
+        app.service_msg = Some((format!("{removed} AI vehicles taken off the road"), 3.0));
     }
 }
 
