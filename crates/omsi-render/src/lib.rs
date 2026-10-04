@@ -6027,8 +6027,6 @@ impl Renderer {
         }
     }
 
-    /// The spheres around each `CULL_BLOCK` instances, relative to the render origin (None
-    /// without cached bounds: nothing is left out by block).
     fn cull_blocks(scene: &Scene) -> Option<Vec<(Vec3, f32)>> {
         (scene.cache_bounds && scene.block_bounds.len() == scene.instances.len().div_ceil(CULL_BLOCK))
             .then(|| scene.block_bounds.iter().map(|&(c, r)| ((c - scene.render_origin).as_vec3(), r)).collect())
