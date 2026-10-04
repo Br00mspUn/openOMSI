@@ -110,82 +110,102 @@ _version: 2
 
 "Force feedback direction":
   de: "Force-Feedback-Richtung"
+  pl: "Kierunek force feedback"
   pt: "Direção do force feedback"
   pt-pt: "Direção do force feedback"
 "Invert force feedback by default":
   de: "Force Feedback standardmäßig invertieren"
+  pl: "Domyślnie odwracaj force feedback"
   pt: "Inverter o force feedback por padrão"
   pt-pt: "Inverter o force feedback por predefinição"
 "Wheels with a saved direction use their own setting under Controls → Game controllers.":
   de: "Lenkräder mit gespeicherter Richtung verwenden ihre eigene Einstellung unter Steuerung → Gamecontroller."
+  pl: "Kierownice z zapisanym kierunkiem używają własnego ustawienia w sekcji Sterowanie → Kontrolery gier."
   pt: "Volantes com uma direção salva usam a própria configuração em Controles → Controles de jogo."
   pt-pt: "Volantes com uma direção guardada usam a própria configuração em Controlos → Controladores de jogo."
 "INJURY RISK: TAKE YOUR HANDS OFF THE WHEEL. Keep hands and fingers clear before starting and throughout the test.":
   de: "VERLETZUNGSGEFAHR: HÄNDE WEG VOM LENKRAD. Halte Hände und Finger vor dem Start und während des gesamten Tests fern."
+  pl: "RYZYKO URAZU: PUŚĆ KIEROWNICĘ. Trzymaj ręce i palce z dala od niej przed rozpoczęciem i przez cały czas trwania testu."
   pt: "RISCO DE LESÃO: TIRE AS MÃOS DO VOLANTE. Mantenha as mãos e os dedos afastados antes de iniciar e durante todo o teste."
   pt-pt: "RISCO DE LESÃO: RETIRE AS MÃOS DO VOLANTE. Mantenha as mãos e os dedos afastados antes de iniciar e durante todo o teste."
 "The test applies two short forces in opposite directions. Finish and press Save to keep the detected direction for this wheel.":
   de: "Der Test gibt zwei kurze Kraftimpulse in entgegengesetzte Richtungen aus. Schließe den Assistenten ab und drücke Speichern, um die erkannte Richtung für dieses Lenkrad zu übernehmen."
+  pl: "Test wywołuje dwa krótkie impulsy siły w przeciwnych kierunkach. Zakończ i naciśnij Zapisz, aby zachować wykryty kierunek dla tej kierownicy."
   pt: "O teste aplica duas forças curtas em direções opostas. Conclua e pressione Salvar para manter a direção detectada para este volante."
   pt-pt: "O teste aplica duas forças curtas em direções opostas. Conclua e prima Guardar para manter a direção detetada para este volante."
 "Start test":
   de: "Test starten"
+  pl: "Rozpocznij test"
   pt: "Iniciar teste"
   pt-pt: "Iniciar teste"
 "Test strength":
   de: "Teststärke"
+  pl: "Siła testu"
   pt: "Força do teste"
   pt-pt: "Força do teste"
 "If the wheel barely moves, increase Test strength and retry. Keep your hands clear.":
   de: "Wenn sich das Lenkrad kaum bewegt, erhöhe die Teststärke und versuche es erneut. Halte deine Hände fern."
+  pl: "Jeśli kierownica ledwo się porusza, zwiększ siłę testu i spróbuj ponownie. Trzymaj ręce z dala od kierownicy."
   pt: "Se o volante quase não se mover, aumente a Força do teste e tente novamente. Mantenha as mãos afastadas."
   pt-pt: "Se o volante quase não se mover, aumente a Força do teste e tente novamente. Mantenha as mãos afastadas."
 "The wheel did not move enough. Retry or choose the direction manually.":
   de: "Das Lenkrad hat sich nicht ausreichend bewegt. Wiederhole den Test oder wähle die Richtung manuell."
+  pl: "Kierownica nie poruszyła się wystarczająco. Spróbuj ponownie lub wybierz kierunek ręcznie."
   pt: "O volante não se moveu o suficiente. Tente novamente ou escolha a direção manualmente."
   pt-pt: "O volante não se moveu o suficiente. Tente novamente ou escolha a direção manualmente."
 "Direction detected: normal":
   de: "Richtung erkannt: normal"
+  pl: "Wykryty kierunek: normalny"
   pt: "Direção detectada: normal"
   pt-pt: "Direção detetada: normal"
 "Direction detected: inverted":
   de: "Richtung erkannt: invertiert"
+  pl: "Wykryty kierunek: odwrócony"
   pt: "Direção detectada: invertida"
   pt-pt: "Direção detetada: invertida"
 "Testing: keep your hands off the wheel…":
   de: "Test läuft: Lenkrad nicht anfassen…"
+  pl: "Test trwa: nie dotykaj kierownicy…"
   pt: "Testando: mantenha as mãos longe do volante…"
   pt-pt: "A testar: mantenha as mãos afastadas do volante…"
 "If detection is inconclusive, retry or choose the direction manually. You can change it later on this device's page.":
   de: "Wenn die Erkennung nicht eindeutig ist, wiederhole den Test oder wähle die Richtung manuell. Du kannst sie später auf der Seite dieses Geräts ändern."
+  pl: "Jeśli wykrywanie nie przyniesie jednoznacznego wyniku, spróbuj ponownie lub wybierz kierunek ręcznie. Możesz go później zmienić na stronie tego urządzenia."
   pt: "Se a detecção for inconclusiva, tente novamente ou escolha a direção manualmente. Você pode alterá-la depois na página deste dispositivo."
   pt-pt: "Se a deteção for inconclusiva, tente novamente ou escolha a direção manualmente. Pode alterá-la mais tarde na página deste dispositivo."
 "The test was interrupted. Please try again.":
   de: "Der Test wurde unterbrochen. Bitte versuche es erneut."
+  pl: "Test został przerwany. Spróbuj ponownie."
   pt: "O teste foi interrompido. Tente novamente."
   pt-pt: "O teste foi interrompido. Tente novamente."
 "The wheel is unavailable. Reconnect it and try again.":
   de: "Das Lenkrad ist nicht verfügbar. Verbinde es erneut und wiederhole den Test."
+  pl: "Kierownica jest niedostępna. Podłącz ją ponownie i spróbuj jeszcze raz."
   pt: "O volante não está disponível. Reconecte-o e tente novamente."
   pt-pt: "O volante não está disponível. Volte a ligá-lo e tente novamente."
 "Move the wheel away from its end stops and try again.":
   de: "Drehe das Lenkrad von den Endanschlägen weg und wiederhole den Test."
+  pl: "Odsuń kierownicę od ograniczników skrajnych i spróbuj ponownie."
   pt: "Afaste o volante dos batentes de fim de curso e tente novamente."
   pt-pt: "Afaste o volante dos batentes de fim de curso e tente novamente."
 "The wheel did not settle. Let go and try again.":
   de: "Das Lenkrad kam nicht zur Ruhe. Lass es los und wiederhole den Test."
+  pl: "Kierownica nie ustabilizowała się. Puść ją i spróbuj ponownie."
   pt: "O volante não ficou parado. Solte-o e tente novamente."
   pt-pt: "O volante não ficou imóvel. Solte-o e tente novamente."
 "The wheel moved too far. Test stopped.":
   de: "Das Lenkrad hat sich zu weit bewegt. Test gestoppt."
+  pl: "Kierownica obróciła się za daleko. Test zatrzymany."
   pt: "O volante se moveu demais. Teste interrompido."
   pt-pt: "O volante moveu-se demasiado. Teste interrompido."
 "The result is inconclusive. Retry or choose the direction manually.":
   de: "Das Ergebnis ist nicht eindeutig. Wiederhole den Test oder wähle die Richtung manuell."
+  pl: "Wynik jest niejednoznaczny. Spróbuj ponownie lub wybierz kierunek ręcznie."
   pt: "O resultado é inconclusivo. Tente novamente ou escolha a direção manualmente."
   pt-pt: "O resultado é inconclusivo. Tente novamente ou escolha a direção manualmente."
 "Force feedback is unavailable. Choose the direction manually.":
   de: "Force Feedback ist nicht verfügbar. Wähle die Richtung manuell."
+  pl: "Force feedback jest niedostępny. Wybierz kierunek ręcznie."
   pt: "O force feedback não está disponível. Escolha a direção manualmente."
   pt-pt: "O force feedback não está disponível. Escolha a direção manualmente."
 
@@ -9560,6 +9580,7 @@ _version: 2
   de: "Servercode kopieren"
   fr: "Copier le code du serveur"
   ru: "Копировать код сервера"
+  pl: "Kopiuj kod serwera"
   es: "Copiar código del servidor"
   pt: "Copiar código do servidor"
   pt-pt: "Copiar código do servidor"
@@ -9567,6 +9588,7 @@ _version: 2
   de: "Servercode kopiert"
   fr: "Code du serveur copié"
   ru: "Код сервера скопирован"
+  pl: "Kod serwera skopiowany"
   es: "Código del servidor copiado"
   pt: "Código do servidor copiado"
   pt-pt: "Código do servidor copiado"
@@ -9574,6 +9596,7 @@ _version: 2
   de: "Servercode"
   fr: "Code du serveur"
   ru: "Код сервера"
+  pl: "Kod serwera"
   es: "Código del servidor"
   pt: "Código do servidor"
   pt-pt: "Código do servidor"
@@ -19193,24 +19216,31 @@ _version: 2
   zh-tw: "震動"
 
 "On foot: W A S D walk, Shift runs, F4 free camera / F1 back, G sits down (by the driver's place: back at the wheel), Ctrl+Shift+G steps out of the bus":
+  pl: "Pieszo: W A S D chodzenie, Shift bieg, F4 wolna kamera / F1 powrót, G siada (przy miejscu kierowcy: z powrotem za kierownicą), Ctrl+Shift+G wysiada z autobusu"
   pt: "A pé: W A S D para andar, Shift para correr, F4 para câmera livre / F1 para voltar, G para sentar (perto do banco do motorista: volta ao volante), Ctrl+Shift+G para sair do ônibus"
   pt-pt: "A pé: W A S D para andar, Shift para correr, F4 para câmara livre / F1 para voltar, G para sentar (junto ao lugar do condutor: volta ao volante), Ctrl+Shift+G para sair do autocarro"
 "No door within reach here (or no room outside it): walk to a door first":
+  pl: "Brak drzwi w zasięgu (lub brak miejsca na zewnątrz): najpierw podejdź do drzwi"
   pt: "Nenhuma porta ao alcance (ou sem espaço do lado de fora): vá até uma porta primeiro"
   pt-pt: "Nenhuma porta ao alcance (ou sem espaço no exterior): aproxime-se primeiro de uma porta"
 "There is no vehicle to remove: you are on foot":
+  pl: "Brak pojazdu do usunięcia: jesteś pieszo"
   pt: "Não há veículo para remover: você está a pé"
   pt-pt: "Não há nenhum veículo para remover: está a pé"
 "Placing: point at the ground, mouse wheel or Q / E turns it, R turns it round, click sets it down, Esc takes it away":
+  pl: "Ustawianie: wskaż podłoże, kółko myszy lub Q / E obraca, R obraca o 180°, kliknięcie stawia, Esc anuluje"
   pt: "Posicionando: aponte para o chão; a roda do mouse ou Q / E gira, R vira 180°, clique posiciona e Esc cancela"
   pt-pt: "A posicionar: aponte para o chão; a roda do rato ou Q / E roda, R vira 180°, clique coloca e Esc cancela"
 "It would stand in another vehicle here":
+  pl: "Tutaj stałby w innym pojeździe"
   pt: "O veículo ficaria sobre outro veículo aqui"
   pt-pt: "O veículo ficaria sobre outro veículo neste local"
 "Point at the ground to set it down":
+  pl: "Wskaż podłoże, aby go postawić"
   pt: "Aponte para o chão para posicioná-lo"
   pt-pt: "Aponte para o chão para o colocar"
 "Placing given up":
+  pl: "Zrezygnowano z ustawiania"
   pt: "Posicionamento cancelado"
   pt-pt: "Colocação cancelada"
 "Driving":
@@ -20653,22 +20683,27 @@ _version: 2
   tl: "+{} pa"
 "Teleport to a start point":
   de: "Zu einem Startpunkt teleportieren"
+  pl: "Teleportuj do punktu startowego"
   pt: "Teleportar para um ponto inicial"
   pt-pt: "Teletransportar para um ponto inicial"
 "Teleport to a start point...":
   de: "Zu einem Startpunkt teleportieren..."
+  pl: "Teleportuj do punktu startowego..."
   pt: "Teleportar para um ponto inicial..."
   pt-pt: "Teletransportar para um ponto inicial..."
 "Teleport to a starting point on the map":
   de: "Teleportiere dich zu einem Startpunkt der Karte"
+  pl: "Teleportuj do punktu startowego na mapie"
   pt: "Teleportar para um ponto inicial do mapa"
   pt-pt: "Teletransportar para um ponto inicial do mapa"
 "This map has no entry points":
   de: "Diese Karte hat keine Einstiegspunkte"
+  pl: "Ta mapa nie ma punktów wejścia"
   pt: "Este mapa não tem pontos de entrada"
   pt-pt: "Este mapa não tem pontos de entrada"
 "entry":
   de: "Einstieg"
+  pl: "wejście"
   pt: "entrada"
   pt-pt: "entrada"
 "Earlier":
@@ -20777,747 +20812,924 @@ _version: 2
   tl: "I-on/i-off ang mga game controller"
 
 "Continue":
+  pl: "Kontynuuj"
   pt: "Continuar"
   pt-pt: "Continuar"
 
 "Join and drive":
+  pl: "Dołącz i jedź"
   pt: "Entrar e dirigir"
   pt-pt: "Entrar e conduzir"
 
 "The game is running":
+  pl: "Gra jest uruchomiona"
   pt: "O jogo está em execução"
   pt-pt: "O jogo está em execução"
   zh: "游戏运行中"
 
 "Type the server's address (an IP, a name or a link)":
+  pl: "Wpisz adres serwera (IP, nazwę lub link)"
   pt: "Digite o endereço do servidor (um IP, um nome ou um link)"
   pt-pt: "Introduza o endereço do servidor (um IP, um nome ou uma ligação)"
 
 "Saved profile":
+  pl: "Zapisany profil"
   pt: "Perfil salvo"
   pt-pt: "Perfil guardado"
 
 "Load":
+  pl: "Wczytaj"
   pt: "Carregar"
   pt-pt: "Carregar"
 
 "Profile name":
+  pl: "Nazwa profilu"
   pt: "Nome do perfil"
   pt-pt: "Nome do perfil"
 
 "Save current graphics as profile":
+  pl: "Zapisz bieżące ustawienia grafiki jako profil"
   pt: "Salvar os gráficos atuais como perfil"
   pt-pt: "Guardar os gráficos atuais como perfil"
 
 "OMSI's shadow meshes (under vehicles)":
+  pl: "Siatki cieni OMSI (pod pojazdami)"
   pt: "Malhas de sombra do OMSI (sob os veículos)"
   pt-pt: "Malhas de sombra do OMSI (sob os veículos)"
 
 "Dynamic steering (slower keys at speed, OMSI's redSteerSpd)":
+  pl: "Dynamiczne kierowanie (wolniejsze klawisze przy prędkości, redSteerSpd z OMSI)"
   pt: "Direção dinâmica (teclas mais lentas em velocidade, redSteerSpd do OMSI)"
   pt-pt: "Direção dinâmica (teclas mais lentas em velocidade, redSteerSpd do OMSI)"
 
 "Driver's view turns with the steering":
+  pl: "Widok kierowcy obraca się razem ze skrętem kierownicy"
   pt: "A visão do motorista acompanha a direção"
   pt-pt: "A vista do condutor acompanha a direção"
 
 "Right mouse button turns the view, Shift+right zooms (off: right zooms as in OMSI, the wheel button turns)":
+  pl: "Prawy przycisk myszy obraca widok, Shift+prawy przybliża (wyłączone: prawy przybliża jak w OMSI, obraca przycisk kółka)"
   pt: "O botão direito do mouse gira a visão; Shift+botão direito aplica zoom (desativado: o botão direito aplica zoom como no OMSI e o botão do meio gira a visão)"
   pt-pt: "O botão direito do rato roda a vista; Shift+botão direito aplica zoom (desativado: o botão direito aplica zoom como no OMSI e o botão do meio roda a vista)"
 
 "Sync the clock with the real time (locks the time)":
+  pl: "Synchronizuj zegar z czasem rzeczywistym (blokuje godzinę)"
   pt: "Sincronizar o relógio com a hora real (bloqueia o horário)"
   pt-pt: "Sincronizar o relógio com a hora real (bloqueia a hora)"
 
 "Sync the weather with METAR (locks the weather)":
+  pl: "Synchronizuj pogodę z METAR (blokuje pogodę)"
   pt: "Sincronizar o clima com o METAR (bloqueia o clima)"
   pt-pt: "Sincronizar a meteorologia com o METAR (bloqueia a meteorologia)"
 
 "Time speed (not in multiplayer or with the real-time sync)":
+  pl: "Prędkość czasu (niedostępna w multiplayer ani przy synchronizacji z czasem rzeczywistym)"
   pt: "Velocidade do tempo (indisponível no multiplayer ou com sincronização em tempo real)"
   pt-pt: "Velocidade do tempo (indisponível no multijogador ou com sincronização em tempo real)"
 
 "On a server its clock and weather are the server's":
+  pl: "Na serwerze zegar i pogoda są ustawiane przez serwer"
   pt: "Em um servidor, o horário e o clima são definidos pelo servidor"
   pt-pt: "Num servidor, a hora e a meteorologia são definidas pelo servidor"
 
 "Search…":
+  pl: "Szukaj…"
   pt: "Pesquisar…"
   pt-pt: "Pesquisar…"
 
 "The map has no lines to drive.":
+  pl: "Mapa nie ma linii do przejechania."
   pt: "O mapa não tem linhas disponíveis para dirigir."
   pt-pt: "O mapa não tem linhas disponíveis para conduzir."
 
 "Lines of the timetable":
+  pl: "Linie rozkładu"
   pt: "Linhas do horário"
   pt-pt: "Linhas do horário"
 
 "Choose a line first.":
+  pl: "Najpierw wybierz linię."
   pt: "Escolha uma linha primeiro."
   pt-pt: "Escolha primeiro uma linha."
 
 "Done":
+  pl: "Gotowe"
   pt: "Concluir"
   pt-pt: "Concluir"
 
 "Leave":
+  pl: "Opuść"
   pt: "Sair"
   pt-pt: "Sair"
 
 "A friend's code or a server address":
+  pl: "Kod znajomego lub adres serwera"
   pt: "Código de um amigo ou endereço de servidor"
   pt-pt: "Código de um amigo ou endereço de servidor"
 
 "Type the code your friend's game shows (or a server's address)":
+  pl: "Wpisz kod wyświetlany w grze znajomego (lub adres serwera)"
   pt: "Digite o código exibido no jogo do seu amigo (ou o endereço de um servidor)"
   pt-pt: "Introduza o código apresentado no jogo do seu amigo (ou o endereço de um servidor)"
 
 "Choose your bus and press Start to join your friend":
+  pl: "Wybierz autobus i naciśnij Start, aby dołączyć do znajomego"
   pt: "Escolha seu ônibus e pressione Iniciar para entrar com seu amigo"
   pt-pt: "Escolha o seu autocarro e prima Iniciar para entrar com o seu amigo"
 
 "Host my next game":
+  pl: "Hostuj moją następną grę"
   pt: "Hospedar meu próximo jogo"
   pt-pt: "Alojar o meu próximo jogo"
 
 "Your next game is hosted: its code shows in the game for your friends":
+  pl: "Twoja następna gra jest hostowana: jej kod pokaże się w grze dla znajomych"
   pt: "Seu próximo jogo será hospedado: o código aparecerá no jogo para seus amigos"
   pt-pt: "O seu próximo jogo será alojado: o código aparecerá no jogo para os seus amigos"
 
 "More servers: add them by their address in the desktop launcher, or type one above.":
+  pl: "Więcej serwerów: dodaj je po adresie w launcherze na komputerze lub wpisz jeden powyżej."
   pt: "Mais servidores: adicione-os pelo endereço no launcher de desktop ou digite um acima."
   pt-pt: "Mais servidores: adicione-os pelo endereço no launcher de ambiente de trabalho ou introduza um acima."
 
 "Weather cycle":
+  pl: "Cykl pogody"
   pt: "Ciclo de clima"
   pt-pt: "Ciclo meteorológico"
 
 "Clear the AI traffic (a jam)":
+  pl: "Usuń ruch AI (korek)"
   pt: "Limpar o tráfego da IA (congestionamento)"
   pt-pt: "Limpar o tráfego da IA (engarrafamento)"
 
 "The time speed is fixed while the real-time sync is on":
+  pl: "Prędkość czasu jest stała, gdy synchronizacja z czasem rzeczywistym jest włączona"
   pt: "A velocidade do tempo fica fixa enquanto a sincronização em tempo real está ativa"
   pt-pt: "A velocidade do tempo fica fixa enquanto a sincronização em tempo real está ativa"
 
 "Nothing to set here":
+  pl: "Nie ma tu nic do ustawienia"
   pt: "Nada para configurar aqui"
   pt-pt: "Nada para configurar aqui"
 
 "This bus has no depot file (.hof) with destinations":
+  pl: "Ten autobus nie ma pliku zajezdni (.hof) z kierunkami"
   pt: "Este ônibus não tem arquivo de garagem (.hof) com destinos"
   pt-pt: "Este autocarro não tem ficheiro de garagem (.hof) com destinos"
 
 "This bus has no depot files (.hof)":
+  pl: "Ten autobus nie ma plików zajezdni (.hof)"
   pt: "Este ônibus não tem arquivos de garagem (.hof)"
   pt-pt: "Este autocarro não tem ficheiros de garagem (.hof)"
 
 "Choose the stop to start from":
+  pl: "Wybierz przystanek, od którego chcesz zacząć"
   pt: "Escolha a parada de onde começar"
   pt-pt: "Escolha a paragem de onde começar"
 
 "Start trip":
+  pl: "Rozpocznij kurs"
   pt: "Iniciar viagem"
   pt-pt: "Iniciar viagem"
 
 "Administration":
+  pl: "Administracja"
   pt: "Administração"
   pt-pt: "Administração"
 
 "The time cannot be changed while the real-time sync is on":
+  pl: "Nie można zmienić godziny, gdy synchronizacja z czasem rzeczywistym jest włączona"
   pt: "O horário não pode ser alterado enquanto a sincronização em tempo real estiver ativa"
   pt-pt: "A hora não pode ser alterada enquanto a sincronização em tempo real estiver ativa"
 
 "The bus stands at the start point":
+  pl: "Autobus stoi w punkcie startowym"
   pt: "O ônibus está no ponto inicial"
   pt-pt: "O autocarro está no ponto inicial"
 
 "That start point is not in the map":
+  pl: "Tego punktu startowego nie ma na mapie"
   pt: "Esse ponto inicial não está no mapa"
   pt-pt: "Esse ponto inicial não está no mapa"
 
 "The weather cannot be changed while the METAR sync is on":
+  pl: "Nie można zmienić pogody, gdy synchronizacja METAR jest włączona"
   pt: "O clima não pode ser alterado enquanto a sincronização METAR estiver ativa"
   pt-pt: "A meteorologia não pode ser alterada enquanto a sincronização METAR estiver ativa"
 
 "Automatic (nearest the map)":
+  pl: "Automatycznie (najbliżej mapy)"
   pt: "Automático (mais próximo do mapa)"
   pt-pt: "Automático (mais próximo do mapa)"
 
 "Reset all settings":
+  pl: "Zresetuj wszystkie ustawienia"
   pt: "Redefinir todas as configurações"
   pt-pt: "Repor todas as definições"
 
 "Enables/Disables the Minimap":
+  pl: "Włącza/wyłącza minimapę"
   pt: "Ativa/desativa o minimapa"
   pt-pt: "Ativa/desativa o minimapa"
 
 "Shows/hides the other (AI) vehicles on the Minimap and the city map":
+  pl: "Pokazuje/ukrywa pozostałe pojazdy (AI) na minimapie i mapie miasta"
   pt: "Mostra/oculta os outros veículos (IA) no minimapa e no mapa da cidade"
   pt-pt: "Mostra/oculta os outros veículos (IA) no minimapa e no mapa da cidade"
 
 "Shows OMSI 2's route arrows over the road":
+  pl: "Pokazuje strzałki trasy z OMSI 2 nad drogą"
   pt: "Mostra as setas de rota do OMSI 2 sobre a via"
   pt-pt: "Mostra as setas de rota do OMSI 2 sobre a via"
 
 "Allows you to get out of the car and explore the world":
+  pl: "Pozwala wysiąść z pojazdu i zwiedzać świat"
   pt: "Permite sair do veículo e explorar o mundo"
   pt-pt: "Permite sair do veículo e explorar o mundo"
 
 "Enables/disables collisions with objects such as buildings, streetlights, etc.":
+  pl: "Włącza/wyłącza kolizje z obiektami, takimi jak budynki, latarnie itp."
   pt: "Ativa/desativa colisões com objetos como prédios, postes etc."
   pt-pt: "Ativa/desativa colisões com objetos como edifícios, candeeiros etc."
 
 "Enables/Disables Collisions with Other Vehicles":
+  pl: "Włącza/wyłącza kolizje z innymi pojazdami"
   pt: "Ativa/desativa colisões com outros veículos"
   pt-pt: "Ativa/desativa colisões com outros veículos"
 
 "Enables/disables knocking down people":
+  pl: "Włącza/wyłącza potrącanie ludzi"
   pt: "Ativa/desativa colisões com pedestres"
   pt-pt: "Ativa/desativa colisões com peões"
 
 "Timetable window":
+  pl: "Okno rozkładu"
   pt: "Janela do horário"
   pt-pt: "Janela do horário"
 
 "Displays a list of all stops (only when a tour is active)":
+  pl: "Wyświetla listę wszystkich przystanków (tylko gdy brygada jest aktywna)"
   pt: "Exibe uma lista de todas as paradas (somente com um serviço ativo)"
   pt-pt: "Apresenta uma lista de todas as paragens (apenas com um serviço ativo)"
 
 "Displays information such as the time, speed, and other details at the top of the screen":
+  pl: "Wyświetla u góry ekranu informacje, takie jak godzina, prędkość i inne szczegóły"
   pt: "Exibe informações como horário, velocidade e outros detalhes no topo da tela"
   pt-pt: "Apresenta informações como hora, velocidade e outros detalhes no topo do ecrã"
 
 "No change is given at the cash desk":
+  pl: "W kasie nie wydaje się reszty"
   pt: "Não há troco na bilheteria"
   pt-pt: "Não há troco na bilheteira"
 
 "Enables/Disabled shadows":
+  pl: "Włącza/wyłącza cienie"
   pt: "Ativa/desativa as sombras"
   pt-pt: "Ativa/desativa as sombras"
 
 "The ground and large walls get fine grain when close":
+  pl: "Podłoże i duże ściany z bliska zyskują drobną ziarnistość"
   pt: "O chão e paredes grandes ganham mais detalhes de perto"
   pt-pt: "O chão e paredes grandes ganham mais detalhe de perto"
 
 "How strongly the dots of LED destination displays glow":
+  pl: "Jak intensywnie świecą punkty wyświetlaczy kierunku LED"
   pt: "Intensidade do brilho dos pontos dos letreiros LED"
   pt-pt: "Intensidade do brilho dos pontos dos destinos LED"
 
 "LED mask mipmaps":
+  pl: "Mipmapy masek LED"
   pt: "Mipmaps das máscaras LED"
   pt-pt: "Mipmaps das máscaras LED"
 
 "Keep the mip chain of the LED masks (smoother from a distance).":
+  pl: "Zachowuje łańcuch mipmap masek LED (gładszy obraz z daleka)."
   pt: "Mantém a cadeia de mipmaps das máscaras LED (mais suave à distância)."
   pt-pt: "Mantém a cadeia de mipmaps das máscaras LED (mais suave à distância)."
 
 "Switches the window between windowed and fullscreen":
+  pl: "Przełącza okno między trybem okienkowym a pełnoekranowym"
   pt: "Alterna a janela entre modo janela e tela cheia"
   pt-pt: "Alterna a janela entre modo janela e ecrã inteiro"
 
 "Waits for the screen's refresh":
+  pl: "Czeka na odświeżenie ekranu"
   pt: "Aguarda a atualização da tela"
   pt-pt: "Aguarda a atualização do ecrã"
 
 "Show the frames per second in the top right corner":
+  pl: "Pokazuje liczbę klatek na sekundę w prawym górnym rogu"
   pt: "Mostra os quadros por segundo no canto superior direito"
   pt-pt: "Mostra os fotogramas por segundo no canto superior direito"
 
 "Set how loud the game should be":
+  pl: "Ustawia głośność gry"
   pt: "Define o volume geral do jogo"
   pt-pt: "Define o volume geral do jogo"
 
 "How loud the other vehicles are":
+  pl: "Głośność pozostałych pojazdów"
   pt: "Volume dos outros veículos"
   pt-pt: "Volume dos outros veículos"
 
 "How loud the sounds of the scenery are":
+  pl: "Głośność dźwięków scenerii"
   pt: "Volume dos sons do cenário"
   pt-pt: "Volume dos sons do cenário"
 
 "Approaching sounds higher, receding ones lower":
+  pl: "Zbliżające się dźwięki brzmią wyżej, oddalające się niżej"
   pt: "Sons que se aproximam ficam mais agudos e os que se afastam mais graves"
   pt-pt: "Sons que se aproximam ficam mais agudos e os que se afastam mais graves"
 
 "The view moves with the vehicle's acceleration":
+  pl: "Widok porusza się wraz z przyspieszeniem pojazdu"
   pt: "A visão se move com a aceleração do veículo"
   pt-pt: "A vista move-se com a aceleração do veículo"
 
 "Smooth viewpoint changes":
+  pl: "Płynne przejścia między widokami"
   pt: "Transições suaves entre pontos de vista"
   pt-pt: "Transições suaves entre pontos de vista"
 
 "Enables a smooth transition between camera perspectives":
+  pl: "Włącza płynne przejście między perspektywami kamery"
   pt: "Ativa uma transição suave entre as perspectivas da câmera"
   pt-pt: "Ativa uma transição suave entre as perspetivas da câmara"
 
 "The outside camera cannot pass through objects":
+  pl: "Kamera zewnętrzna nie przenika przez obiekty"
   pt: "A câmera externa não atravessa objetos"
   pt-pt: "A câmara exterior não atravessa objetos"
 
 "View turns with steering":
+  pl: "Widok obraca się ze skrętem kierownicy"
   pt: "A visão acompanha a direção"
   pt-pt: "A vista acompanha a direção"
 
 "Camera turns with the steering wheel (cockpit only)":
+  pl: "Kamera obraca się razem z kierownicą (tylko w kabinie)"
   pt: "A câmera gira com o volante (somente na cabine)"
   pt-pt: "A câmara roda com o volante (apenas na cabine)"
 
 "How far the view turns at full steering lock":
+  pl: "Jak bardzo obraca się widok przy pełnym skręcie kierownicy"
   pt: "Quanto a visão gira com o volante no fim de curso"
   pt-pt: "Quanto a vista roda com o volante no fim de curso"
 
 "How quickly the view follows the steering":
+  pl: "Jak szybko widok podąża za skrętem kierownicy"
   pt: "Velocidade com que a visão acompanha a direção"
   pt-pt: "Velocidade com que a vista acompanha a direção"
 
 "Shows the driver's hand on the steering wheel (Cockpit only)":
+  pl: "Pokazuje dłoń kierowcy na kierownicy (tylko w kabinie)"
   pt: "Mostra a mão do motorista no volante (somente na cabine)"
   pt-pt: "Mostra a mão do condutor no volante (apenas na cabine)"
 
 "Shows the driver in the outside views and in the mirrors":
+  pl: "Pokazuje kierowcę w widokach zewnętrznych i w lusterkach"
   pt: "Mostra o motorista nas vistas externas e nos retrovisores"
   pt-pt: "Mostra o condutor nas vistas exteriores e nos retrovisores"
 
 "Right mouse button turns the view":
+  pl: "Prawy przycisk myszy obraca widok"
   pt: "O botão direito do mouse gira a visão"
   pt-pt: "O botão direito do rato roda a vista"
 
 "Shift+right zooms; off: right zooms as in OMSI, the wheel button turns":
+  pl: "Shift+prawy przybliża; wyłączone: prawy przybliża jak w OMSI, obraca przycisk kółka"
   pt: "Shift+botão direito aplica zoom; desativado: o botão direito aplica zoom como no OMSI e o botão do meio gira a visão"
   pt-pt: "Shift+botão direito aplica zoom; desativado: o botão direito aplica zoom como no OMSI e o botão do meio roda a vista"
 
 "The view angle of the views from the vehicle":
+  pl: "Kąt widzenia widoków z pojazdu"
   pt: "Ângulo de visão das câmeras do veículo"
   pt-pt: "Ângulo de visão das vistas do veículo"
 
 "Seat forward and back":
+  pl: "Siedzenie do przodu i do tyłu"
   pt: "Banco para frente e para trás"
   pt-pt: "Banco para a frente e para trás"
 
 "Adjust the driver's seat position forward or backward":
+  pl: "Reguluje położenie siedzenia kierowcy do przodu lub do tyłu"
   pt: "Ajusta a posição do banco do motorista para frente ou para trás"
   pt-pt: "Ajusta a posição do banco do condutor para a frente ou para trás"
 
 "Seat height":
+  pl: "Wysokość siedzenia"
   pt: "Altura do banco"
   pt-pt: "Altura do banco"
 
 "Adjust the driver's seat height":
+  pl: "Reguluje wysokość siedzenia kierowcy"
   pt: "Ajusta a altura do banco do motorista"
   pt-pt: "Ajusta a altura do banco do condutor"
 
 "Seat left and right":
+  pl: "Siedzenie w lewo i w prawo"
   pt: "Banco para a esquerda e direita"
   pt-pt: "Banco para a esquerda e direita"
 
 "Adjust the driver's seat position from side to side":
+  pl: "Reguluje położenie siedzenia kierowcy na boki"
   pt: "Ajusta a posição lateral do banco do motorista"
   pt-pt: "Ajusta a posição lateral do banco do condutor"
 
 "Put the seat back where the vehicle has it.":
+  pl: "Przywraca siedzenie do położenia zdefiniowanego przez pojazd."
   pt: "Restaura o banco à posição definida pelo veículo."
   pt-pt: "Repõe o banco na posição definida pelo veículo."
 
 "Steer and control the pedals using the mouse":
+  pl: "Kieruj i obsługuj pedały za pomocą myszy"
   pt: "Esterce e controle os pedais usando o mouse"
   pt-pt: "Vire e controle os pedais usando o rato"
 
 "Adjust how much the steering wheel turns based on mouse movement":
+  pl: "Reguluje, jak bardzo kierownica obraca się pod wpływem ruchu myszy"
   pt: "Ajusta quanto o volante gira com o movimento do mouse"
   pt-pt: "Ajusta quanto o volante roda com o movimento do rato"
 
 "Keyboard steering at OMSI's steady pace":
+  pl: "Kierowanie klawiaturą w stałym tempie OMSI"
   pt: "Direção pelo teclado no ritmo constante do OMSI"
   pt-pt: "Direção pelo teclado ao ritmo constante do OMSI"
 
 "The wheel stays where the keys left it":
+  pl: "Kierownica zostaje tam, gdzie zostawiły ją klawisze"
   pt: "O volante permanece onde as teclas o deixaram"
   pt-pt: "O volante permanece onde as teclas o deixaram"
 
 "The steering keys act slower at speed":
+  pl: "Klawisze kierowania działają wolniej przy prędkości"
   pt: "As teclas de direção atuam mais lentamente em velocidade"
   pt-pt: "As teclas de direção atuam mais lentamente em velocidade"
 
 "Enable force feedback for the steering wheel and vibration for controllers":
+  pl: "Włącza force feedback kierownicy i wibracje kontrolerów"
   pt: "Ativa o force feedback do volante e a vibração dos controles"
   pt-pt: "Ativa o force feedback do volante e a vibração dos controladores"
 
 "For wheels without a saved direction":
+  pl: "Dla kierownic bez zapisanego kierunku"
   pt: "Para volantes sem uma direção salva"
   pt-pt: "Para volantes sem uma direção guardada"
 
 "The steering wheel's own rotation, lock to lock":
+  pl: "Własny kąt obrotu kierownicy, od ogranicznika do ogranicznika"
   pt: "Rotação própria do volante, de batente a batente"
   pt-pt: "Rotação própria do volante, de batente a batente"
 
 "How far the wheel turns for the vehicle's full lock":
+  pl: "Jak bardzo obraca się kierownica przy pełnym skręcie kół pojazdu"
   pt: "Quanto o volante gira até o esterçamento máximo do veículo"
   pt-pt: "Quanto o volante roda até ao esterçamento máximo do veículo"
 
 "Adjust how strongly pedal input affects the throttle":
+  pl: "Reguluje, jak mocno ruch pedału wpływa na gaz"
   pt: "Ajusta quanto a entrada do pedal afeta o acelerador"
   pt-pt: "Ajusta quanto a entrada do pedal afeta o acelerador"
 
 "Adjust how strongly pedal input affects the brake":
+  pl: "Reguluje, jak mocno ruch pedału wpływa na hamulec"
   pt: "Ajusta quanto a entrada do pedal afeta o freio"
   pt-pt: "Ajusta quanto a entrada do pedal afeta o travão"
 
 "Keyboard brake stays on":
+  pl: "Hamulec z klawiatury pozostaje włączony"
   pt: "O freio do teclado permanece acionado"
   pt-pt: "O travão do teclado permanece acionado"
 
 "Keep the brake applied until the throttle is pressed":
+  pl: "Utrzymuje hamulec włączony do wciśnięcia gazu"
   pt: "Mantém o freio acionado até o acelerador ser pressionado"
   pt-pt: "Mantém o travão acionado até o acelerador ser pressionado"
 
 "Automatically operate the clutch for you":
+  pl: "Automatycznie obsługuje sprzęgło za ciebie"
   pt: "Opera a embreagem automaticamente"
   pt-pt: "Opera a embraiagem automaticamente"
 
 "Translates texts nobody has translated, on this machine":
+  pl: "Tłumaczy na tym komputerze teksty, których nikt jeszcze nie przetłumaczył"
   pt: "Traduz nesta máquina os textos que ninguém traduziu"
   pt-pt: "Traduz nesta máquina os textos que ninguém traduziu"
 
 "The size of the texts, the menu, the timetable and the navigator":
+  pl: "Rozmiar tekstów, menu, rozkładu i nawigatora"
   pt: "Tamanho dos textos, do menu, do horário e do navegador"
   pt-pt: "Tamanho dos textos, do menu, do horário e do navegador"
 
 "On a window taller than 1080p the interface grows with it":
+  pl: "W oknie wyższym niż 1080p interfejs rośnie razem z nim"
   pt: "Em uma janela maior que 1080p, a interface cresce junto"
   pt-pt: "Numa janela maior que 1080p, a interface cresce com ela"
 
 "How much of the interface's backgrounds shows":
+  pl: "Ile tła interfejsu jest widoczne"
   pt: "Quanto dos fundos da interface fica visível"
   pt-pt: "Quanto dos fundos da interface fica visível"
 
 "Shows the name of what the cursor points at":
+  pl: "Pokazuje nazwę elementu, na który wskazuje kursor"
   pt: "Mostra o nome do item apontado pelo cursor"
   pt-pt: "Mostra o nome do item apontado pelo cursor"
 
 "Why the vehicle does not move, the change due, what a service did":
+  pl: "Dlaczego pojazd nie rusza, należna reszta, co zrobiła obsługa serwisowa"
   pt: "Mostra por que o veículo não se move, o troco devido e o que um serviço fez"
   pt-pt: "Mostra porque o veículo não se move, o troco devido e o que um serviço fez"
 
 "Shows the chat of a LAN session":
+  pl: "Pokazuje czat sesji LAN"
   pt: "Mostra o chat de uma sessão LAN"
   pt-pt: "Mostra o chat de uma sessão LAN"
 
 "Shows the names of the other players":
+  pl: "Pokazuje nazwy pozostałych graczy"
   pt: "Mostra os nomes dos outros jogadores"
   pt-pt: "Mostra os nomes dos outros jogadores"
 
 "Switch":
+  pl: "Przełącz"
   pt: "Trocar"
   pt-pt: "Trocar"
 
 "Take the wheel of another vehicle standing in the world":
+  pl: "Przejmij kierownicę innego pojazdu stojącego w świecie"
   pt: "Assumir o controle de outro veículo no mundo"
   pt-pt: "Assumir o controlo de outro veículo no mundo"
 
 "Couple the vehicle to the one in front of or behind it":
+  pl: "Sprzęgnij pojazd z tym przed nim lub za nim"
   pt: "Acopla o veículo ao que está à frente ou atrás"
   pt-pt: "Acopla o veículo ao que está à frente ou atrás"
 
 "Separate the coupled vehicles":
+  pl: "Rozdziel sprzęgnięte pojazdy"
   pt: "Separa os veículos acoplados"
   pt-pt: "Separa os veículos acoplados"
 
 "Get up and out":
+  pl: "Wstań i wysiądź"
   pt: "Levantar e sair"
   pt-pt: "Levantar e sair"
 
 "Get out":
+  pl: "Wysiądź"
   pt: "Sair"
   pt-pt: "Sair"
 
 "Step out of your car and explore the world":
+  pl: "Wysiądź z pojazdu i zwiedzaj świat"
   pt: "Saia do veículo e explore o mundo"
   pt-pt: "Saia do veículo e explore o mundo"
 
 "Remove this vehicle":
+  pl: "Usuń ten pojazd"
   pt: "Remover este veículo"
   pt-pt: "Remover este veículo"
 
 "Remove":
+  pl: "Usuń"
   pt: "Remover"
   pt-pt: "Remover"
 
 "Removes the current vehicle":
+  pl: "Usuwa bieżący pojazd"
   pt: "Remove o veículo atual"
   pt-pt: "Remove o veículo atual"
 
 "Removes all vehicles you've placed from the world":
+  pl: "Usuwa ze świata wszystkie ustawione przez ciebie pojazdy"
   pt: "Remove do mundo todos os veículos que você colocou"
   pt-pt: "Remove do mundo todos os veículos que colocou"
 
 "Fills the tank of the current vehicle":
+  pl: "Napełnia zbiornik bieżącego pojazdu"
   pt: "Abastece o tanque do veículo atual"
   pt-pt: "Abastece o depósito do veículo atual"
 
 "Cleans the current vehicle":
+  pl: "Myje bieżący pojazd"
   pt: "Limpa o veículo atual"
   pt-pt: "Limpa o veículo atual"
 
 "Repairs the current vehicle":
+  pl: "Naprawia bieżący pojazd"
   pt: "Repara o veículo atual"
   pt-pt: "Repara o veículo atual"
 
 "Put back on its wheels":
+  pl: "Postaw z powrotem na kołach"
   pt: "Colocar de volta sobre as rodas"
   pt-pt: "Voltar a colocar sobre as rodas"
 
 "Return the vehicle to an upright position":
+  pl: "Przywróć pojazd do pozycji pionowej"
   pt: "Coloca o veículo novamente na posição normal"
   pt-pt: "Volta a colocar o veículo na posição normal"
 
 "Move on the map":
+  pl: "Przenieś na mapie"
   pt: "Mover no mapa"
   pt-pt: "Mover no mapa"
 
 "Pick":
+  pl: "Wybierz"
   pt: "Escolher"
   pt-pt: "Escolher"
 
 "Teleports you to any location on the map":
+  pl: "Teleportuje cię w dowolne miejsce na mapie"
   pt: "Teleporta você para qualquer local do mapa"
   pt-pt: "Teletransporta-o para qualquer local do mapa"
 
 "Real-time sync":
+  pl: "Synchronizacja z czasem rzeczywistym"
   pt: "Sincronização em tempo real"
   pt-pt: "Sincronização em tempo real"
   zh: "实时时间同步"
 
 "The game follows your device's date and time":
+  pl: "Gra korzysta z daty i godziny twojego urządzenia"
   pt: "O jogo segue a data e a hora do seu dispositivo"
   pt-pt: "O jogo segue a data e a hora do seu dispositivo"
   zh: "游戏会跟随你的设备的日期与时间"
 
 "Date and time":
+  pl: "Data i godzina"
   pt: "Data e hora"
   pt-pt: "Data e hora"
   zh: "日期与时间"
 
 "Synchronized with the real time":
+  pl: "Zsynchronizowano z czasem rzeczywistym"
   pt: "Sincronizado com a hora real"
   pt-pt: "Sincronizado com a hora real"
   zh: "与实时时间同步"
 
 "Exact time":
+  pl: "Dokładna godzina"
   pt: "Hora exata"
   pt-pt: "Hora exata"
   zh: "修改时间"
 
 "Press Enter to change, Esc to cancel":
+  pl: "Naciśnij Enter, aby zmienić, lub Esc, aby anulować"
   pt: "Pressione Enter para alterar e Esc para cancelar"
   pt-pt: "Prima Enter para alterar e Esc para cancelar"
   zh: "按 Enter 更改，按 Esc 取消"
 
 "Change the current time (Press Enter to change)":
+  pl: "Zmień bieżącą godzinę (naciśnij Enter, aby zmienić)"
   pt: "Alterar o horário atual (pressione Enter para alterar)"
   pt-pt: "Alterar a hora atual (prima Enter para alterar)"
   zh: "修改当前时间（按 Enter 更改）"
 
 "Hour":
+  pl: "Godzina"
   pt: "Hora"
   pt-pt: "Hora"
   zh: "小时"
 
 "Set the hour of the day directly":
+  pl: "Ustaw bezpośrednio godzinę dnia"
   pt: "Define diretamente a hora do dia"
   pt-pt: "Define diretamente a hora do dia"
   zh: "直接设置当前小时"
 
 "Minute":
+  pl: "Minuta"
   pt: "Minuto"
   pt-pt: "Minuto"
   zh: "分钟"
 
 "Set the minute directly":
+  pl: "Ustaw bezpośrednio minutę"
   pt: "Define diretamente o minuto"
   pt-pt: "Define diretamente o minuto"
   zh: "直接设置当前分钟"
 
 "Jump to this time of day.":
+  pl: "Przeskocz do tej pory dnia."
   pt: "Avança diretamente para este horário."
   pt-pt: "Avança diretamente para esta hora."
   zh: "跳转到该时段"
 
 "Move the clock so that the vehicle is on time":
+  pl: "Przesuń zegar tak, aby pojazd był punktualnie"
   pt: "Ajusta o relógio para que o veículo fique no horário"
   pt-pt: "Ajusta o relógio para que o veículo fique a horas"
   zh: "调整时间，使车辆准点"
 
 "How fast the world's clock runs":
+  pl: "Jak szybko płynie zegar świata"
   pt: "Velocidade do relógio do mundo"
   pt-pt: "Velocidade do relógio do mundo"
   zh: "全局时间倍速"
 
 "METAR sync":
+  pl: "Synchronizacja METAR"
   pt: "Sincronização METAR"
   pt-pt: "Sincronização METAR"
   zh: "同步 METAR 天气数据"
 
 "The weather follows the real METAR report":
+  pl: "Pogoda podąża za rzeczywistym raportem METAR"
   pt: "O clima segue o relatório METAR real"
   pt-pt: "A meteorologia segue o relatório METAR real"
   zh: "天气数据根据真实 METAR 数据同步"
 
 "METAR source":
+  pl: "Źródło METAR"
   pt: "Fonte METAR"
   pt-pt: "Fonte METAR"
   zh: "METAR 数据源"
 
 "The airport whose METAR report the weather follows.":
+  pl: "Lotnisko, którego raport METAR wyznacza pogodę."
   pt: "Aeroporto cujo relatório METAR define o clima."
   pt-pt: "Aeroporto cujo relatório METAR define a meteorologia."
   zh: "天气数据将跟随该机场的 METAR 数据"
 
 "Preset":
+  pl: "Gotowe ustawienie"
   pt: "Predefinição"
   pt-pt: "Predefinição"
   zh: "天气预设配置"
 
 "A ready-made weather":
+  pl: "Gotowa pogoda"
   pt: "Condição climática predefinida"
   pt-pt: "Condição meteorológica predefinida"
   zh: "现成天气方案"
 
 "The kind of clouds in the sky.":
+  pl: "Rodzaj chmur na niebie."
   pt: "Tipo de nuvens no céu."
   pt-pt: "Tipo de nuvens no céu."
   zh: "天空中的云类型"
 
 "Visibility":
+  pl: "Widoczność"
   pt: "Visibilidade"
   pt-pt: "Visibilidade"
   zh: "能见度"
 
 "How far one can see; less is fog.":
+  pl: "Jak daleko widać; mniej oznacza mgłę."
   pt: "Distância de visibilidade; valores menores criam neblina."
   pt-pt: "Distância de visibilidade; valores menores criam nevoeiro."
   zh: "能见度；数值越低，雾越大"
 
 "Precipitation":
+  pl: "Opady"
   pt: "Precipitação"
   pt-pt: "Precipitação"
   zh: "降水"
 
 "Rain or snow.":
+  pl: "Deszcz lub śnieg."
   pt: "Chuva ou neve."
   pt-pt: "Chuva ou neve."
   zh: "雨或雪"
 
 "Precipitation strength":
+  pl: "Intensywność opadów"
   pt: "Intensidade da precipitação"
   pt-pt: "Intensidade da precipitação"
   zh: "降水强度"
 
 "How hard it rains or snows.":
+  pl: "Jak mocno pada deszcz lub śnieg."
   pt: "Intensidade da chuva ou neve."
   pt-pt: "Intensidade da chuva ou neve."
   zh: "雨雪的强弱程度"
 
 "Wet roads":
+  pl: "Mokre drogi"
   pt: "Ruas molhadas"
   pt-pt: "Estradas molhadas"
   zh: "路面湿滑"
 
 "How wet the roads are now (they dry in the sun, wet in the rain).":
+  pl: "Jak mokre są teraz drogi (schną na słońcu, moczy je deszcz)."
   pt: "Quanto as ruas estão molhadas agora (secam ao sol e molham com a chuva)."
   pt-pt: "Quanto as estradas estão molhadas agora (secam ao sol e molham com a chuva)."
   zh: "当前路面湿润程度（晴天变干，雨天变湿）。"
 
 "Temperature":
+  pl: "Temperatura"
   pt: "Temperatura"
   pt-pt: "Temperatura"
   zh: "温度"
 
 "The air temperature.":
+  pl: "Temperatura powietrza."
   pt: "Temperatura do ar."
   pt-pt: "Temperatura do ar."
   zh: "空气温度"
 
 "Wind speed":
+  pl: "Prędkość wiatru"
   pt: "Velocidade do vento"
   pt-pt: "Velocidade do vento"
   zh: "风速"
 
 "How fast the wind blows; it drives the clouds.":
+  pl: "Jak silnie wieje wiatr; przesuwa chmury."
   pt: "Velocidade do vento; ele move as nuvens."
   pt-pt: "Velocidade do vento; ele move as nuvens."
   zh: "风吹得多快，它影响着云移动"
 
 "Wind direction":
+  pl: "Kierunek wiatru"
   pt: "Direção do vento"
   pt-pt: "Direção do vento"
   zh: "风向"
 
 "The direction of the wind in degrees (0 is north).":
+  pl: "Kierunek wiatru w stopniach (0 to północ)."
   pt: "Direção do vento em graus (0 é norte)."
   pt-pt: "Direção do vento em graus (0 é norte)."
   zh: "风的方向，单位为度（0度表示北）"
 
 "Open":
+  pl: "Otwórz"
   pt: "Abrir"
   pt-pt: "Abrir"
 
 "Place and move objects in the world.":
+  pl: "Ustawiaj i przesuwaj obiekty w świecie."
   pt: "Posicione e mova objetos no mundo."
   pt-pt: "Coloque e mova objetos no mundo."
 
 "How many vehicles drive around the map.":
+  pl: "Ile pojazdów jeździ po mapie."
   pt: "Quantidade de veículos circulando pelo mapa."
   pt-pt: "Quantidade de veículos a circular pelo mapa."
 
 "How many passengers wait at the stops and ride.":
+  pl: "Ilu pasażerów czeka na przystankach i podróżuje."
   pt: "Quantidade de passageiros esperando nas paradas e viajando."
   pt-pt: "Quantidade de passageiros à espera nas paragens e a viajar."
 
 "Vehicle settings":
+  pl: "Ustawienia pojazdu"
   pt: "Configurações do veículo"
   pt-pt: "Definições do veículo"
 
 "Roadbook and IBIS":
+  pl: "Książka drogowa i IBIS"
   pt: "Itinerário e IBIS"
   pt-pt: "Itinerário e IBIS"
 
 "Start options":
+  pl: "Opcje startu"
   pt: "Opções de início"
   pt-pt: "Opções de início"
   zh: "选项"
 
 "Saved servers":
+  pl: "Zapisane serwery"
   pt: "Servidores salvos"
   pt-pt: "Servidores guardados"
 
 "Season":
+  pl: "Pora roku"
   pt: "Estação"
   pt-pt: "Estação"
 
 "Choose a line and a tour to see the roadbook and the IBIS codes.":
+  pl: "Wybierz linię i brygadę, aby zobaczyć książkę drogową i kody IBIS."
   pt: "Escolha uma linha e um serviço para ver o itinerário e os códigos do IBIS."
   pt-pt: "Escolha uma linha e um serviço para ver o itinerário e os códigos do IBIS."
 
 "No saved servers yet.":
+  pl: "Brak zapisanych serwerów."
   pt: "Ainda não há servidores salvos."
   pt-pt: "Ainda não há servidores guardados."
 
 "Manage saved servers":
+  pl: "Zarządzaj zapisanymi serwerami"
   pt: "Gerenciar servidores salvos"
   pt-pt: "Gerir servidores guardados"
 
 "No saved servers yet. Add one with Manage saved servers above.":
+  pl: "Brak zapisanych serwerów. Dodaj serwer przez Zarządzaj zapisanymi serwerami powyżej."
   pt: "Ainda não há servidores salvos. Adicione um em Gerenciar servidores salvos acima."
   pt-pt: "Ainda não há servidores guardados. Adicione um em Gerir servidores guardados acima."
 
 "Type the server's address first":
+  pl: "Najpierw wpisz adres serwera"
   pt: "Digite primeiro o endereço do servidor"
   pt-pt: "Introduza primeiro o endereço do servidor"
 
 "Traffic, passengers and the world's clock are set by the server.":
+  pl: "Ruch, liczbę pasażerów i zegar świata ustawia serwer."
   pt: "O tráfego, os passageiros e o relógio do mundo são definidos pelo servidor."
   pt-pt: "O tráfego, os passageiros e o relógio do mundo são definidos pelo servidor."
 "Real-time reflections":
@@ -21626,70 +21838,87 @@ _version: 2
   tl: "Buo"
 "roads":
   de: "Straßen"
+  pl: "drogi"
   zh: "道路"
   zh-tw: "道路"
 "stops":
   de: "Haltestellen"
+  pl: "przystanki"
   zh: "站点"
   zh-tw: "站點"
 "entry points":
   de: "Einstiegspunkte"
+  pl: "punkty wejścia"
   zh: "入口点"
   zh-tw: "入口點"
 "Reading the map…":
   de: "Karte wird gelesen…"
+  pl: "Wczytywanie mapy…"
   zh: "正在读取地图…"
   zh-tw: "正在讀取地圖…"
 "The map cannot be read":
   de: "Die Karte lässt sich nicht lesen"
+  pl: "Nie można wczytać mapy"
   zh: "无法读取这张地图"
   zh-tw: "無法讀取這張地圖"
 "This map has no roads":
   de: "Diese Karte hat keine Straßen"
+  pl: "Ta mapa nie ma dróg"
   zh: "这张地图没有道路"
   zh-tw: "這張地圖沒有道路"
 "Vehicle & environment":
   de: "Fahrzeug & Umgebung"
+  pl: "Pojazd i otoczenie"
   zh: "车辆和环境"
   zh-tw: "車輛和環境"
 "Map & duty":
   de: "Karte & Dienst"
+  pl: "Mapa i służba"
   zh: "地图设置"
   zh-tw: "地圖設定"
 "Put the roadbook away (choosing a tour brings it back)":
   de: "Fahrplan weglegen (eine Tour holt ihn zurück)"
+  pl: "Schowaj książkę drogową (wybranie brygady przywraca ją)"
   zh: "收起路书（选一个班次会再打开）"
   zh-tw: "收起路書（選一個班次會再打開）"
 "The roadbook: the trips of the chosen tour and where they call":
   de: "Der Fahrplan: die Fahrten der gewählten Tour und ihre Haltestellen"
+  pl: "Książka drogowa: kursy wybranej brygady i przystanki, na których się zatrzymują"
   zh: "路书：所选班次的每一趟车和它停靠的站"
   zh-tw: "路書：所選班次的每一趟車和它停靠的站"
 "The vehicle and the day: back to the first tab":
   de: "Das Fahrzeug und der Tag: zurück zum ersten Reiter"
+  pl: "Pojazd i dzień: powrót do pierwszej karty"
   zh: "车辆和日期：回到第一个页签"
   zh-tw: "車輛和日期：回到第一個頁籤"
 "Favourites only":
   de: "Nur Favoriten"
+  pl: "Tylko ulubione"
   zh: "只显示收藏的车辆"
   zh-tw: "只顯示收藏的車輛"
 "Add to the favourites":
   de: "Zu den Favoriten hinzufügen"
+  pl: "Dodaj do ulubionych"
   zh: "加入收藏"
   zh-tw: "加入收藏"
 "Remove from the favourites":
   de: "Aus den Favoriten entfernen"
+  pl: "Usuń z ulubionych"
   zh: "取消收藏"
   zh-tw: "取消收藏"
 "(the server's)":
   de: "(des Servers)"
+  pl: "(serwera)"
   zh: "（服务器的）"
   zh-tw: "（伺服器的）"
 "(the server's clock)":
   de: "(die Uhr des Servers)"
+  pl: "(zegar serwera)"
   zh: "（服务器的时钟）"
   zh-tw: "（伺服器的時鐘）"
 "Back to driving alone: the map, the clock and the weather are your own again":
   de: "Zurück zum Alleinfahren: Karte, Uhr und Wetter sind wieder deine"
+  pl: "Powrót do samotnej jazdy: mapa, zegar i pogoda znów są twoje"
   zh: "回到单人驾驶：地图、时钟和天气重新由你决定"
   zh-tw: "回到單人駕駛：地圖、時鐘和天氣重新由你決定"
 "Day & weather":
@@ -21746,6 +21975,7 @@ _version: 2
   ru: "Наряды этой линии в выбранный день"
   de: "Umläufe dieser Linie am gewählten Tag"
   uk: "Наряди цієї лінії в обраний день"
+  pl: "Brygady tej linii w wybranym dniu"
 "Server":
   fr: "Serveur"
   ru: "Сервер"
@@ -21774,6 +22004,7 @@ _version: 2
   ru: "Игроков рядом слышно оттуда, где они стоят, если запущен GreenTeaSpeak с плагином openOMSI и сервер указывает голосовой сервер."
   de: "Spieler in deiner Nähe hörst du von dort, wo sie stehen, wenn GreenTeaSpeak mit dem openOMSI-Plugin läuft und der Server einen Sprachserver nennt."
   uk: "Гравців поруч чути звідти, де вони стоять, якщо запущено GreenTeaSpeak із плагіном openOMSI і сервер вказує голосовий сервер."
+  pl: "Graczy w pobliżu słychać tam, gdzie stoją, gdy działa GreenTeaSpeak z wtyczką openOMSI, a serwer wskazuje serwer głosowy."
 "speaking":
   ru: "говорит"
   de: "spricht"
