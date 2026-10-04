@@ -18,6 +18,8 @@ pub struct PagesView {
     /// The "reset every setting" dialog is open.
     pub confirm_reset: bool,
     pub kb_filter: [String; 2],
+    /// The OMSI-style "Add event..." browser is open for a keyboard section.
+    pub kb_events: [bool; 2],
     /// (section, index) of the binding waiting for a key.
     pub capturing: Option<(usize, usize)>,
     pub drop_hover: bool,
@@ -1240,9 +1242,54 @@ pub fn controls(l: &mut Launcher, area: Rect) {
         let inner = l.ui.heading(Rect::new(r.x + 18.0, r.y + 14.0, r.w - 36.0, r.h - 28.0), title, Some(if sec == 0 { "directions_bus" } else { "sports_esports" }));
         l.ui.text_in(sub, Rect::new(inner.x, inner.y - 6.0, inner.w, 18.0), 12.0, Weight::Regular, TEXT_DIM, Align::Left);
         let mut filter = std::mem::take(&mut l.pages.kb_filter[sec]);
-        l.ui.text_input(&format!("kb-filter-{sec}"), Rect::new(inner.x, inner.y + 18.0, inner.w, 34.0), &mut filter, "Filter…", Some("search"));
+        let event_w = if sec == 0 { 138.0 } else { 0.0 };
+        let filter_w = if sec == 0 { (inner.w - event_w - GAP).max(120.0) } else { inner.w };
+        l.ui.text_input(&format!("kb-filter-{sec}"), Rect::new(inner.x, inner.y + 18.0, filter_w, 34.0), &mut filter, if l.pages.kb_events[sec] { "Filter events…" } else { "Filter…" }, Some("search"));
+        if sec == 0 && l.ui.button(
+            "kb-events",
+            Rect::new(inner.x + filter_w + GAP, inner.y + 18.0, event_w, 34.0),
+            if l.pages.kb_events[sec] { "Back to keys" } else { "Add event…" },
+            Some(if l.pages.kb_events[sec] { "arrow_back" } else { "add" }),
+            ButtonKind::Normal,
+        ) {
+            l.pages.kb_events[sec] = !l.pages.kb_events[sec];
+            filter.clear();
+        }
         l.pages.kb_filter[sec] = filter.clone();
         let q = filter.to_lowercase();
+
+        // OMSI's Add event dialog: all KY_ events from the language files, including
+        // event tables supplied by installed mods. Picking one adds an unbound vehicle
+        // entry and immediately waits for its key.
+        if sec == 0 && l.pages.kb_events[sec] {
+            let mut events = names.events();
+            if !q.is_empty() {
+                events.retain(|(action, label)| action.to_lowercase().contains(&q) || label.to_lowercase().contains(&q));
+            }
+            let mut picked: Option<String> = None;
+            l.ui.scroll_area(&format!("kb-events-{sec}"), Rect::new(inner.x - 6.0, inner.y + 62.0, inner.w + 12.0, inner.bottom() - (inner.y + 62.0)), &mut |ui, v| {
+                let rh = 40.0;
+                for (row, (action, label)) in events.iter().enumerate() {
+                    let rr = Rect::new(v.x + 6.0, v.y + row as f32 * rh, v.w - 16.0, rh - 4.0);
+                    let shown = format!("{label}  ·  KY_{action}");
+                    if ui.button(&format!("kb-event-{row}"), rr, &shown, Some("add"), ButtonKind::Ghost) {
+                        picked = Some(action.clone());
+                    }
+                }
+                events.len() as f32 * rh
+            });
+            if let Some(action) = picked {
+                if let Some(a) = l.state.keybindings.get_mut("vehicles").and_then(|a| a.as_array_mut()) {
+                    a.push(json!({ "action": action.clone(), "scan_code": 0, "modifier": 0 }));
+                    l.pages.capturing = Some((0, a.len() - 1));
+                    l.pages.kb_events[0] = false;
+                    l.pages.kb_filter[0] = action;
+                    l.state.set_status("Event added. Press the key you want to use (Escape cancels).", false);
+                }
+            }
+            continue;
+        }
+
         let list: Vec<(usize, String, i64, i64)> = l.state.keybindings.get(*key).and_then(|a| a.as_array()).map(|a| a.iter().enumerate().map(|(i, b)| (i, b.get("action").and_then(|x| x.as_str()).unwrap_or("").to_string(), b.get("scan_code").and_then(|x| x.as_i64()).unwrap_or(0), b.get("modifier").and_then(|x| x.as_i64()).unwrap_or(0))).collect()).unwrap_or_default();
         let mut shown: Vec<(usize, String, String, bool)> = list
             .iter()

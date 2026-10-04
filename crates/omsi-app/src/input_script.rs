@@ -1777,6 +1777,7 @@ impl App {
     }
 
     pub(crate) fn close_game_menu(&mut self) {
+        self.key_capture = None;
         if self.menu_edit_icao {
             if let Some(w)=self.window.as_ref(){w.set_ime_allowed(false);}
             self.menu_edit_icao=false; self.menu_edit=None;
@@ -2028,6 +2029,7 @@ impl App {
 
     /// The open list is closed: back to the game menu.
     pub(crate) fn close_list(&mut self) {
+        self.key_capture = None;
         self.dropdown = None;
         if self.menu_edit_icao { if let Some(w)=self.window.as_ref(){w.set_ime_allowed(false);} }
         self.menu_edit_icao=false;
@@ -2673,6 +2675,25 @@ impl App {
 
     pub(crate) fn menu_key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode) {
         self.menu_kbd = true;
+        if self.key_capture.is_some() {
+            match code {
+                KeyCode::ShiftLeft | KeyCode::ShiftRight | KeyCode::ControlLeft | KeyCode::ControlRight | KeyCode::AltLeft | KeyCode::AltRight => {}
+                KeyCode::Escape => self.cancel_key_capture(),
+                KeyCode::Delete | KeyCode::Backspace => self.apply_key_capture(None, 0),
+                _ => match crate::keys::dik_code(code) {
+                    Some(scan) => {
+                        let chord = omsi_content::input::chord(
+                            self.keys.contains(&KeyCode::ShiftLeft) || self.keys.contains(&KeyCode::ShiftRight),
+                            self.keys.contains(&KeyCode::ControlLeft) || self.keys.contains(&KeyCode::ControlRight),
+                            self.keys.contains(&KeyCode::AltLeft) || self.keys.contains(&KeyCode::AltRight),
+                        );
+                        self.apply_key_capture(Some(scan), chord);
+                    }
+                    None => self.service_msg = Some(("That key has no DirectInput scan code".into(), 3.0)),
+                },
+            }
+            return;
+        }
         if self.chooser.is_some() {
             self.chooser_key(code);
             return;
@@ -2777,6 +2798,7 @@ impl App {
         match id {
             "resume" => self.close_game_menu(),
             "options" => self.open_list(crate::game_lists::ListKind::Options(0)),
+            "controls" => self.open_list(crate::game_lists::ListKind::Controls),
             "camera" => {
                 let tab = crate::game_lists::options_tab(self, "Camera");
                 self.open_list(crate::game_lists::ListKind::Options(tab));
@@ -4361,9 +4383,10 @@ pub(crate) const SAVES: &str = "Saves";
 
 /// The lines of the game menu: (what, label). What can be set is on the pages behind
 /// "Options", "Vehicle options" and "World options" (see `game_lists`).
-pub(crate) const GAME_MENU: [(&str, &str); 14] = [
+pub(crate) const GAME_MENU: [(&str, &str); 15] = [
     ("resume", "Resume"),
     ("options", "Options..."),
+    ("controls", "Controls..."),
     // (the driver's view - seat, field of view, head movement - straight from the pause
     // menu: it is what is changed most while driving, #908)
     ("camera", "Camera..."),
