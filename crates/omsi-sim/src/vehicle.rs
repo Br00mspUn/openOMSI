@@ -4544,6 +4544,86 @@ mod tests {
     }
 
     #[test]
+    fn asymmetric_rail_ends_distinguish_declared_joints_from_body_bounds() {
+        for bogies in [None, Some(5.0), Some(-5.0)] {
+            let part = |front: f32, back: f32, min_y: f32, max_y: f32| {
+                let mut ty = coupling_test_type(bogies);
+                let ty_mut = Arc::get_mut(&mut ty).unwrap();
+                ty_mut.def.rail_body_osc = Some([0.0; 7]);
+                ty_mut.def.coupling_front.as_mut().unwrap().pos[1] = front;
+                ty_mut.def.coupling_back.as_mut().unwrap().pos[1] = back;
+                ty_mut.mesh_boxes = vec![(
+                    Vec3::new(-1.0, min_y, 0.0),
+                    Vec3::new(1.0, max_y, 3.0),
+                )];
+                ty
+            };
+            // The first joint is inside the lead body; the tail's joints extend
+            // beyond its body. Bogie-defined cars must retain these declared
+            // distances even when they produce an overlap or a visible gap.
+            let lead = part(15.0, -9.0, -12.0, 15.0);
+            let middle = part(13.0, -13.0, -13.0, 13.0);
+            let tail = part(14.0, -16.0, -15.0, 12.0);
+            for middle_reversed in [false, true] {
+                for tail_reversed in [false, true] {
+                    let mut v = VehicleInstance::new(
+                        lead.clone(),
+                        VehicleHost::new(Default::default()),
+                    );
+                    v.attach_trailer_ex(middle.clone(), middle_reversed);
+                    v.attach_trailer_ex(tail.clone(), tail_reversed);
+                    // Without bogies, rail cars still meet at their mesh bounds.
+                    let distances = if bogies.is_some() {
+                        [22.0, if tail_reversed { 29.0 } else { 27.0 }]
+                    } else {
+                        [25.0, if tail_reversed { 28.0 } else { 25.0 }]
+                    };
+                    for heading in [37.0_f64, 180.0] {
+                        v.heading = heading;
+                        for t in &mut v.trailers {
+                            t.realign();
+                        }
+                        let h = heading.to_radians();
+                        let forward = DVec3::new(h.sin(), h.cos(), 0.0);
+                        for _ in 0..30 {
+                            v.update_trailers(0.0);
+                            let mut previous = v.position;
+                            for (i, (previous_ty, previous_reversed, ty, reversed)) in [
+                                (&lead, false, &middle, middle_reversed),
+                                (&middle, middle_reversed, &tail, tail_reversed),
+                            ]
+                            .into_iter()
+                            .enumerate()
+                            {
+                                let expected = previous - forward * distances[i];
+                                let (back, front) = coupling_points(
+                                    previous_ty,
+                                    previous_reversed,
+                                    ty,
+                                    reversed,
+                                );
+                                let (spawn_position, spawn_heading) = coupling_placement(
+                                    previous,
+                                    heading,
+                                    body_reversed(&previous_ty.def, previous_reversed),
+                                    back.y,
+                                    body_reversed(&ty.def, reversed),
+                                    front.y,
+                                );
+                                let t = &v.trailers[i];
+                                assert!((spawn_position - expected).length() < 1e-4);
+                                assert!((t.position - expected).length() < 1e-4);
+                                assert!((t.body_heading() - spawn_heading).abs() < 1e-4);
+                                previous = expected;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn rail_coupling_distance_does_not_displace_cars_off_track() {
         for bogies in [None, Some(5.0), Some(-5.0)] {
             let mut lead = coupling_test_type(bogies);
