@@ -187,7 +187,8 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Rows {
             let count = d.buttons.len().max(live.map(|c| c.buttons).unwrap_or(0))
                 .max(d.latching.iter().max().map(|b| b + 1).unwrap_or(0)).max(32).min(crate::controllers::HAT_BUTTONS + 16);
             let names = crate::describe::names(&app.args.root, &app.settings.language);
-            for b in 0..count {
+            for b in (0..count.min(crate::controllers::HAT_BUTTONS))
+                .chain(crate::controllers::HAT_BUTTONS..crate::controllers::HAT_BUTTONS + 16) {
                 let action = d.buttons.get(b).map(|x| x.0.as_str()).unwrap_or("");
                 let value = if action.is_empty() { "Unassigned".into() } else { names.control(action) };
                 out.push((format!("{}: {value}", button_label(b)), format!("button {b}")));
