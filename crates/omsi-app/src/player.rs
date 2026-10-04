@@ -2097,7 +2097,7 @@ impl Player {
     ) -> Camera {
         let def = &self.vehicle.ty.def;
         let c = def.camera_outside_center;
-        let centre = orbit_pivot(self.vehicle.position, self.vehicle.heading, c);
+        let centre = camera_arm::lift_pivot(world, orbit_pivot(self.vehicle.position, self.vehicle.heading, c));
         let want = dist.clamp(ORBIT_MIN, ORBIT_MAX);
         let back = -cam.forward().as_dvec3().normalize_or_zero();
         if back.length_squared() < 0.5 {
