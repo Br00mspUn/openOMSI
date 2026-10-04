@@ -735,6 +735,11 @@ fn camera_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, co
         *dirty = 0.3;
     }
     toggle_setting(ui, s, dirty, c.row(), "Right stick turns the view", "right_stick_look");
+    let mut smooth = get(s, "look_smoothing_ms").as_f64().unwrap_or(0.0) as f32;
+    if ui.slider("s-look-smoothing", c.row(), &mut smooth, 0.0, 200.0, 10.0, "Smooth the mouse look", &|v| if v <= 0.0 { "Off".to_string() } else { format!("{v:.0} ms") }) {
+        s["look_smoothing_ms"] = json!(smooth.round());
+        *dirty = 0.3;
+    }
     toggle_setting(ui, s, dirty, c.row(), "Driver's view turns with the steering", "steer_look");
     let mut angle = get(s, "steer_look_angle").as_f64().unwrap_or(30.0) as f32;
     if ui.slider("s-steer-look-angle", c.row(), &mut angle, 0.0, 60.0, 1.0, "Steering view angle", &|v| format!("{v:.0}°")) {
@@ -2579,6 +2584,7 @@ mod settings_tests {
             "s-fov",
             "s-look-sens",
             "set-right_stick_look",
+            "s-look-smoothing",
             "set-steer_look",
             "s-steer-look-angle",
             "s-steer-look-response",

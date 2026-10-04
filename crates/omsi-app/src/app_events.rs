@@ -1012,8 +1012,18 @@ impl ApplicationHandler for App {
                             // or widest at once)
                             let prev_cam = *cam;
                             let base = omsi_render::Camera { fov_deg: 60.0, ..*cam };
-                            let head_look = crate::player::driver_head_look(
+                            // Where the view is drawn: the way the mouse (or the stick, or the
+                            // arrow keys) turned the head is eased in, so the picture glides to
+                            // the angle asked for instead of jumping to it (off by default); the
+                            // seat's head pitch goes on top of it.
+                            let look = crate::input_script::ease_look(
+                                &mut self.look_smooth,
                                 self.look,
+                                dt,
+                                self.settings.look_smoothing_ms,
+                            );
+                            let head_look = crate::player::driver_head_look(
+                                look,
                                 &self.view,
                                 self.settings.seat_pitch_deg,
                             );
