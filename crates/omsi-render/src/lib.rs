@@ -187,6 +187,9 @@ const GLOW_LEVELS: usize = 6;
 /// The illuminance a light's core gives (maplight colour 1, in the sky model's units:
 /// 55 lux, so the street under a lamp gets its 15-25 lux).
 const LAMP_E: f32 = 0.0055;
+/// The glare of the lamps' sprites over the enhanced picture by day and by night.
+const GLARE_DAY: f32 = 1.6;
+const GLARE_NIGHT: f32 = 0.25;
 /// Illuminance of a bus saloon's lamps on the seats and the floor (300 lux).
 const CABIN_E: f32 = 0.03;
 /// A lit window's radiance at night.
@@ -6660,7 +6663,7 @@ impl Renderer {
         };
         let u = EnhancedUniform {
             // (self-lit surfaces at their own brightness after the metering, see ExposureLog)
-            exposure: [pre, 2f32.powf(-self.exposure_log.as_ref().map(|l| l.ev).unwrap_or(0.0)).clamp(0.7, 1.6), pre * WINDOW_RADIANCE, 1.6],
+            exposure: [pre, 2f32.powf(-self.exposure_log.as_ref().map(|l| l.ev).unwrap_or(0.0)).clamp(0.7, 1.6), pre * WINDOW_RADIANCE, GLARE_DAY + (GLARE_NIGHT - GLARE_DAY) * lighting.night.clamp(0.0, 1.0)],
             sun: st.sun.extend(SUN_RADIUS).to_array(),
             sh,
             ground: st.ground.extend(st.lut_scale).to_array(),

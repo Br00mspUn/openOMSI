@@ -188,7 +188,7 @@ fn lamp_light(p: vec3<f32>, n: vec3<f32>, v: vec3<f32>, sf: Surface, thin: bool)
         }
         let dist = sqrt(dist2);
         let ld = d / max(dist, 1e-3);
-        // OMSI's rule: full within the core, inverse-square beyond it; windowed to zero at
+        // inverse-square beyond the core and easing to full at the light, not flat within it; windowed to zero at
         // the range so the grid cut-off does not show
         var core = l.extra.y;
         if (core <= 0.0) {
@@ -196,7 +196,7 @@ fn lamp_light(p: vec3<f32>, n: vec3<f32>, v: vec3<f32>, sf: Surface, thin: bool)
         }
         let q = dist2 / (range * range);
         let window = (1.0 - q * q) * (1.0 - q * q);
-        var e = min(1.0, core * core / max(dist2, 1e-3)) * window;
+        var e = core * core / (dist2 + core * core) * window;
         if (l.dir.w > -1.5) {
             let cd = dot(-ld, l.dir.xyz);
             e = e * smoothstep(l.dir.w, l.extra.x, cd);

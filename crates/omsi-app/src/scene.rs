@@ -5273,7 +5273,10 @@ impl World {
                         switch: sw,
                     });
                 }
-                for ml in &ot.sco.map_lights {
+                for (k, ml) in ot.sco.map_lights.iter().enumerate() {
+                    if ot.sco.map_lights[..k].iter().any(|o| o.pos == ml.pos && o.color == ml.color && o.radius == ml.radius) {
+                        continue;
+                    }
                     let p = xf.transform_point3(glam::Vec3::from(ml.pos)).as_dvec3() + pos;
                     // `[maplight] … radius` is the core the light fills at full colour; it
                     // fades inverse-square beyond and is cut off at six times that. The
