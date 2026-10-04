@@ -185,7 +185,8 @@ impl SyncTable {
                     .chain(m.light_enh.iter().map(|l| l.variable.clone()))
                     .chain(m.light_enh_2.iter().map(|l| l.variable.clone()))
             })
-            .chain(types.iter().flat_map(|t| t.model.interior_lights.iter()).map(|l| l.variable.clone()));
+            .chain(types.iter().flat_map(|t| t.model.interior_lights.iter()).map(|l| l.variable.clone()))
+            .chain(types.iter().flat_map(|t| t.model.spotlights_2.iter()).map(|l| l.variable.clone()));
         let lamps = collect(
             &mut lamp_names.collect::<Vec<_>>().into_iter(),
             &|n| engine_fed(n) || paint_vars.contains(&n.to_ascii_lowercase()),

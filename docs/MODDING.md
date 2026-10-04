@@ -54,6 +54,38 @@ Normal, roughness, metalness and occlusion maps beside a texture, up to 4096 × 
 - Each 25 m square of the world draws up to 32 point and spot lights at once (the nearest
   first), so depots, stations and lit interiors keep their lamps.
 - Interior lamps of vehicles are drawn per pixel, with no count limit per vehicle.
+- `[spotlight_2]` in the `model.cfg` is a spotlight of its own: low beam, main beam, fog
+  lamps or a lamp over a door can light the road at the same time, each switched by its
+  variable, beside the one `[spotlight]` that `Spot_Select` picks. It takes the twelve
+  numbers of a `[spotlight]` (position, direction, red, green, blue, range, inner and
+  outer cone angle), then the variable (0 off, 1 full, in between dimmed; a number is a
+  constant) and a flag:
+
+  ```
+  [spotlight_2]
+  0.95
+  5.95
+  0.652
+  0
+  1
+  -0.3
+  255
+  255
+  233
+  200
+  30
+  80
+  lights_fern
+  0
+  ```
+
+  With the flag 0 (or left out) the lamp is where it says and a twin of it stands on the
+  other side of the vehicle, mirrored across its axis (x and the x of the direction turned
+  round): put the position on one headlamp. With 1 there is just the one lamp, for a
+  light over a door or a cornering lamp. A pair is as bright as a `[spotlight]` of the same
+  colour, shared between its two lamps. The position is used as written: unlike a
+  `[spotlight]`'s, it is not moved onto the vehicle's front. A rear section's model may have
+  its own; their variables are the bus's.
 
 ## Models
 
@@ -164,7 +196,8 @@ place in its first line and the station and song in its second.
 The following behave as in OMSI 2 so that existing content works unchanged:
 
 - the script stack (8 values) and registers (`l0`-`l9`, `s0`-`s9`);
-- one `[spotlight]` lit at a time per vehicle (the one `Spot_Select` picks);
+- one `[spotlight]` lit at a time per vehicle (the one `Spot_Select` picks; `[spotlight_2]`,
+  above, adds more);
 - 100 particles per emitter.
 
 In a LAN session, other players see up to 7 doors, 15 wheels and 127 lamps of a vehicle.

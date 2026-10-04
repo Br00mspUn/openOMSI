@@ -192,6 +192,16 @@ pub struct Spotlight {
     pub values: [f32; 12],
 }
 
+/// `[spotlight_2]` (openOMSI): a `[spotlight]`'s twelve numbers, then the variable that
+/// switches it (0 off, 1 full, a constant too) and a flag: 0 (or none) puts a twin lamp on
+/// the other side of the vehicle, mirrored across its axis, 1 keeps the one lamp.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Spotlight2 {
+    pub values: [f32; 12],
+    pub variable: String,
+    pub mirrored: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct InteriorLight {
     pub variable: String,
@@ -391,6 +401,7 @@ pub struct Model {
     pub smokes: Vec<Smoke>,
     pub particle_emitters: Vec<ParticleEmitter>,
     pub spotlights: Vec<Spotlight>,
+    pub spotlights_2: Vec<Spotlight2>,
     pub interior_lights: Vec<InteriorLight>,
     /// `[light]` legacy lights (raw).
     pub lights: Vec<Vec<String>>,
@@ -739,6 +750,20 @@ impl Model {
                 }
             }
             "spotlight" => self.spotlights.push(Spotlight { values: r.f32s::<12>() }),
+            "spotlight_2" => {
+                let values = r.f32s::<12>();
+                let variable = r.str().to_string();
+                // (the flag may be left out: a keyword next is not it)
+                let mut ahead = r.clone();
+                let flag = ahead.line();
+                let mirrored = if omsi_cfg::keyword_of(flag).is_some() {
+                    true
+                } else {
+                    *r = ahead;
+                    omsi_cfg::parse_f32(flag) < 0.5
+                };
+                self.spotlights_2.push(Spotlight2 { values, variable, mirrored });
+            }
             "interiorlight" => {
                 let variable = r.str().to_string();
                 let range = r.f32();
@@ -1078,6 +1103,23 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(model.terrain_hole_meshes().collect::<Vec<_>>(), ["first.o3d", "second.o3d", "third.o3d", "legacy.o3d"]);
+    }
+
+    /// `[spotlight_2]`: the spot's numbers, its variable and whether it has a mirrored twin
+    /// (yes unless the flag says 1, also when the flag is left out).
+    #[test]
+    fn a_spotlight_2_reads_its_variable_and_mirror_flag() {
+        let spot = "0\n5.95\n0.652\n0\n1\n-0.3\n255\n255\n233\n200\n30\n80\n";
+        let text = format!("[spotlight]\n{spot}\n[spotlight_2]\n{spot}lights_fern\n0\n\n[spotlight_2]\n{spot}door_light\n1\n[spotlight_2]\n{spot}lights_nebel\n[mesh]\nbody.o3d\n");
+        let m = super::Model::parse(&omsi_cfg::CfgFile::from_str("model.cfg", &text));
+        assert_eq!(m.spotlights.len(), 1);
+        let s = &m.spotlights_2;
+        assert_eq!(s.len(), 3);
+        assert_eq!(s[0].values, m.spotlights[0].values);
+        assert_eq!((s[0].variable.as_str(), s[0].mirrored), ("lights_fern", true));
+        assert_eq!((s[1].variable.as_str(), s[1].mirrored), ("door_light", false));
+        assert_eq!((s[2].variable.as_str(), s[2].mirrored), ("lights_nebel", true));
+        assert_eq!(m.meshes.len(), 1);
     }
 
     /// Two [matl] blocks of one material are one material (Absperrung_grau.sco).

@@ -769,7 +769,8 @@ Regional = https://example.org/regional.mp3 | 97.9
   sodium and gas street lamps, the Sv signals, the ICE and RE160 coaches) declare theirs
   after the far `[LOD] 0` mesh, and no stock model repeats a light in two levels.
 * `[spotlight]` (vehicle): pos, dir, rgb, range, inner, outer; the active one is chosen by the
-  `Spot_Select` variable (negative = none). `[interiorlight] variable range r g b x y z`.
+  `Spot_Select` variable (negative = none). `[spotlight_2]` (openOMSI, see MODDING.md): the same twelve
+  numbers, a switching variable and a no-mirror flag; any number lit at once. `[interiorlight] variable range r g b x y z`.
 * `[maplight] x y z r g b radius` (scenery): point light at night, full within `radius`,
   inverse-square beyond, out of range at six times it. The colour is the brightness: a petrol
   station's red sign declares 0.1 red over a 20 m core and is meant to glow by its pumps, not
