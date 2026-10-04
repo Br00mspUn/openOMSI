@@ -107,7 +107,7 @@ fn vehicle_prev(w: vec3<f32>) -> vec3<f32> {
     return p.vehicle_prev.xyz + vec3<f32>(local.x * c2 - local.y * s2, local.x * s2 + local.y * c2, local.z);
 }
 
-// A workgroup's pixels and a border round them, read once (the filters' neighbours).
+// A workgroup's pixels and a border round them, read once (the filter's neighbours).
 var<workgroup> tile: array<vec4<f32>, 144>;
 
 fn load_tile(t: texture_2d<f32>, wid: vec2<u32>, li: u32, border: i32) -> vec2<i32> {
@@ -124,44 +124,42 @@ fn load_tile(t: texture_2d<f32>, wid: vec2<u32>, li: u32, border: i32) -> vec2<i
 
 @compute @workgroup_size(8, 8)
 fn cs_temporal(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) li: u32) {
-    let origin = load_tile(t_raw, wid.xy, li, 1);
+    let origin = load_tile(t_raw, wid.xy, li, 2);
     let px = vec2<i32>(gid.xy);
     if (f32(px.x) >= p.size.x || f32(px.y) >= p.size.y) {
         return;
     }
     let lp = px - origin;
-    let raw = tile[lp.y * 10 + lp.x];
+    let raw = tile[lp.y * 12 + lp.x];
     if (raw.g <= 0.0 || raw.b < 0.0) {
         textureStore(t_out, px, vec4<f32>(raw.rgb, 1.0));
         return;
     }
     let size = vec2<i32>(p.size.xy);
-    // this frame's rays: the pixel's own, or on the other half of the checkerboard its traced
-    // neighbours' at its depth; and the range the rays around it span
-    var cur = raw.rb;
-    var have = raw.a > 0.5;
+    // this frame's rays, filtered over 5 x 5 pixels at the pixel's depth (the other half of
+    // the checkerboard has none of its own), and the range the rays right round it span
+    var k = array<f32, 3>(0.375, 0.25, 0.0625);
+    var sum5 = vec2<f32>(0.0);
+    var w5 = 0.0;
     var lo = vec2<f32>(2.0);
     var hi = vec2<f32>(-1.0);
-    var nsum = vec2<f32>(0.0);
-    var nw = 0.0;
     let near = 0.02 * raw.g + 0.05;
-    for (var j = -1; j <= 1; j++) {
-        for (var i = -1; i <= 1; i++) {
-            let r = tile[(lp.y + j) * 10 + lp.x + i];
+    for (var j = -2; j <= 2; j++) {
+        for (var i = -2; i <= 2; i++) {
+            let r = tile[(lp.y + j) * 12 + lp.x + i];
             if (r.a > 0.5 && r.b >= 0.0 && abs(r.g - raw.g) < near) {
-                lo = min(lo, r.rb);
-                hi = max(hi, r.rb);
-                if (abs(i) + abs(j) == 1) {
-                    nsum += r.rb;
-                    nw += 1.0;
+                let w = k[abs(i)] * k[abs(j)];
+                sum5 += r.rb * w;
+                w5 += w;
+                if (abs(i) <= 1 && abs(j) <= 1) {
+                    lo = min(lo, r.rb);
+                    hi = max(hi, r.rb);
                 }
             }
         }
     }
-    if (!have && nw > 0.0) {
-        cur = nsum / nw;
-        have = true;
-    }
+    let have = w5 > 0.0;
+    var cur = select(raw.rb, sum5 / max(w5, 1e-6), have);
     if (lo.x > hi.x) {
         lo = cur;
         hi = cur;
@@ -212,46 +210,4 @@ fn cs_temporal(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup
     let a = max(1.0 / n, p.temporal.y);
     let v = mix(kept, cur, a);
     textureStore(t_out, px, vec4<f32>(v.x, raw.g, v.y, n));
-}
-
-// The accumulated rays filtered by depth over 5 x 5 pixels: more widely while few frames
-// are in a pixel, narrowly once many are.
-@compute @workgroup_size(8, 8)
-fn cs_filter(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) li: u32) {
-    let origin = load_tile(t_in, wid.xy, li, 2);
-    let px = vec2<i32>(gid.xy);
-    if (f32(px.x) >= p.size.x || f32(px.y) >= p.size.y) {
-        return;
-    }
-    let lp = px - origin;
-    let c = tile[lp.y * 12 + lp.x];
-    if (c.g <= 0.0 || c.b < 0.0 || p.temporal.z == 7.0) {
-        textureStore(t_out, px, c);
-        return;
-    }
-    var k = array<f32, 3>(0.375, 0.25, 0.0625);
-    let young = 1.0 - smoothstep(3.0, p.temporal.w, c.a);
-    let tol = (0.008 + 0.02 * young) * c.g + 0.03;
-    let spread = mix(0.3, 1.0, young);
-    var sum = c.rb * 0.140625;
-    var wsum = 0.140625;
-    // (a pixel with its history full takes its 3 x 3 neighbours only)
-    let r = select(2, 1, young < 0.05);
-    for (var j = -r; j <= r; j++) {
-        for (var i = -r; i <= r; i++) {
-            if (i == 0 && j == 0) {
-                continue;
-            }
-            let s = tile[(lp.y + j) * 12 + lp.x + i];
-            let w = k[abs(i)] * k[abs(j)] * spread * select(0.0, 1.0, s.g > 0.0 && s.b >= 0.0 && abs(s.g - c.g) < tol);
-            sum += s.rb * w;
-            wsum += w;
-        }
-    }
-    let v = sum / wsum;
-    var out = vec4<f32>(v.x, c.g, v.y, c.a);
-    if (p.temporal.z == 1.0) {
-        out = vec4<f32>(c.a / p.temporal.w, c.g, c.a / p.temporal.w, c.a);
-    }
-    textureStore(t_out, px, out);
 }

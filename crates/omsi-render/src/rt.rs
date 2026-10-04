@@ -111,7 +111,6 @@ pub(super) struct RayTracer {
     layout: wgpu::BindGroupLayout,
     trace: wgpu::ComputePipeline,
     temporal: wgpu::ComputePipeline,
-    filter: wgpu::ComputePipeline,
     params: wgpu::Buffer,
     pub(super) targets: Option<Targets>,
     frame: u64,
@@ -229,7 +228,6 @@ impl RayTracer {
         };
         let trace = pipeline("cs_trace", None);
         let temporal = pipeline("cs_temporal", None);
-        let filter = pipeline("cs_filter", None);
         let avg_stride = (device.limits().min_storage_buffer_offset_alignment as u64).max(256);
         let avg_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("texture means"),
@@ -336,7 +334,6 @@ impl RayTracer {
             layout,
             trace,
             temporal,
-            filter,
             params: device.create_buffer(&wgpu::BufferDescriptor { label: Some("ray tracing params"), size: std::mem::size_of::<Params>() as u64, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false }),
             targets: None,
             frame: 0,
@@ -390,7 +387,7 @@ impl RayTracer {
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
                     format: wgpu::TextureFormat::Rgba16Float,
-                    usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+                    usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
                     view_formats: &[],
                 })
                 .create_view(&Default::default())
@@ -590,7 +587,7 @@ impl Renderer {
         if frame % 240 == 0 {
             rt.blas.retain(|_, e| frame - e.used < 1200);
         }
-        if omsi_cfg::env::var_os("OMSI_DEBUG_RT").is_some() && frame % 120 == 1 {
+        if omsi_cfg::env::var_os("OMSI_DEBUG_RT").is_some() && frame % 30 == 1 {
             log::info!("ray tracing: {} instances, {} geometries, {} structures ({} built this frame)", chosen.len(), rt.records.len(), rt.blas.len(), rt.to_build.len());
         }
         // --- the parameters
@@ -752,12 +749,10 @@ impl Renderer {
         // (each pass's input never is its output)
         let trace_bg = group(&t.tmp, &t.tmp, &t.raw);
         let temporal_bg = group(&t.hist[1 - front], &t.raw, &t.hist[front]);
-        let filter_bg = group(&t.hist[front], &t.raw, &t.out);
         let (gx, gy) = (t.size.0.div_ceil(8), t.size.1.div_ceil(8));
-        let passes: [(&str, &[(&wgpu::ComputePipeline, &wgpu::BindGroup)]); 3] = [
+        let passes: [(&str, &[(&wgpu::ComputePipeline, &wgpu::BindGroup)]); 2] = [
             ("rt trace", &[(&rt.trace, &trace_bg)]),
-            ("rt temporal", &[(&rt.temporal, &temporal_bg)]),
-            ("rt filter", &[(&rt.filter, &filter_bg)]),
+            ("rt denoise", &[(&rt.temporal, &temporal_bg)]),
         ];
         for (label, steps) in passes {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -775,6 +770,10 @@ impl Renderer {
                 pass.dispatch_workgroups(if std::ptr::eq(*pipe, &rt.trace) { t.size.0.div_ceil(16) } else { gx }, gy, 1);
             }
         }
+        // (the history is what the main pass reads, at a place of its own: the camera bind group
+        // that points at it is made once)
+        let full = wgpu::Extent3d { width: t.size.0, height: t.size.1, depth_or_array_layers: 1 };
+        encoder.copy_texture_to_texture(t.hist[front].texture().as_image_copy(), t.out.texture().as_image_copy(), full);
     }
 }
 

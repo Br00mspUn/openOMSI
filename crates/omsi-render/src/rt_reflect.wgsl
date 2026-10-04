@@ -130,7 +130,9 @@ fn cs_reflect(@builtin(global_invocation_id) gid: vec3<u32>) {
             }
         }
     }
-    if (g.w < 0.002) {
+    // (a reflection that hardly shows - a pane seen from the cab, a matt surface at a steep
+    // angle - is as good from the sky probe: the composite takes that where no ray went)
+    if (g.w < 0.012) {
         textureStore(t_out, hp, vec4<f32>(0.0));
         return;
     }
@@ -169,7 +171,7 @@ fn cs_reflect(@builtin(global_invocation_id) gid: vec3<u32>) {
         l = sky_probe(d, rough);
         for (var k = 0; k < 4; k++) {
             var rq: ray_query;
-            rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_FORCE_OPAQUE, MASK_SEEN, start, 600.0, o, d));
+            rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_FORCE_OPAQUE, MASK_SEEN, start, 400.0, o, d));
             rayQueryProceed(&rq);
             let ch = rayQueryGetCommittedIntersection(&rq);
             if (ch.kind == RAY_QUERY_INTERSECTION_NONE) {

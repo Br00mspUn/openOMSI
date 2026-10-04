@@ -50,6 +50,7 @@ Everything can also be given on the command line, which then skips both:
 | `--click x,y[,dx,dy]` | press (and drag) the cockpit switch at that pixel, offscreen |
 | `--season winter` / `--situation x.osn` / `--physics simple` | season override, a saved situation, the kinematic dynamics instead of the rigid body |
 | `--enhanced` / `--export-glb bus.glb` | the physically based renderer; write the bus as glTF (the launcher's preview) and quit |
+| `--enhanced-plus` | Enhanced+: the physically based renderer with ray-traced shadows, ambient occlusion and reflections |
 | `--launcher` / `--menu` / `--no-menu` | open the launcher (the default without arguments), the in-game menu, or neither |
 
 Keys in the window: **W** throttle, **S** brake, **A**/**D** steering - the arrow keys do the
@@ -331,6 +332,21 @@ reflections (roughness from `[matl_envmap]`), a computed sky (Rayleigh/Mie scatt
 lit cumulus) that also lights the scene, contact-hardening sun shadows, aerial perspective
 and height fog, automatic exposure, a glow only real highlights produce and the PBR
 Neutral tone curve with FXAA (`post_aa`); no light shafts, vignette or grading.
+
+`graphics=enhanced_plus` (Enhanced+ in the launcher, `--enhanced-plus`) is Enhanced with
+hardware ray tracing, where the graphics card traces rays (Apple M3/M4 and newer, RTX and
+RDNA 2 cards through Vulkan; elsewhere it draws as Enhanced). Every solid mesh within
+420 m of the camera goes into an acceleration structure each frame, and the window's
+picture traces the sun's shadow per pixel (soft away from its caster, crisp at the
+contact; cut-out leaves and fences keep the shadow map, whose texels they need), the
+sky's occlusion within two metres, and reflections: wet roads, water, glass, envmapped
+and lacquered paint mirror what really stands around them, off the screen too, and the
+sky where nothing does. Its shadows, occlusion and reflections cannot be switched off
+apart. It grades the picture as a racing game's photo mode does - a filmic (ACES) curve,
+a little more colour and contrast, a light vignette - and sharpens it after FXAA.
+`OMSI_NO_RT=1` opens no ray queries, `OMSI_NO_RT_GRADE=1` leaves its grade out,
+`OMSI_RT_REFL_HALF=1` traces the reflections at half size, `OMSI_DEBUG_RT=n` (see
+`crates/omsi-render/src/rt.rs`) shows its buffers.
 
 Vanilla, Vanilla+ and Enhanced reflect buses, buildings and scenery in wet road puddles
 when `reflections=1`, each using its own lighting. Depth-aware filtering softens the image;
