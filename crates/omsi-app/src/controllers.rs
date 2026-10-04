@@ -675,6 +675,15 @@ fn rumble_scale(cfg: &[DeviceCfg], name: &str) -> f32 {
 
 /// A button-only gamepad configuration keeps the automatic analog layout. Once axes
 /// are assigned, the explicit layout takes complete ownership of them.
+/// Keep the steering's device kind with the value that actually won arbitration.
+/// A centred gamepad beside a wheel must not give the wheel gamepad smoothing.
+fn set_steering(out: &mut Analog, value: f32, stick: bool) {
+    if out.steering.is_none_or(|old| value.abs() > old.abs()) {
+        out.steering = Some(value);
+        out.stick = stick;
+    }
+}
+
 fn custom_gamepad_axes(cfg: &[DeviceCfg], name: &str) -> bool {
     find_device_cfg(cfg, name).is_some_and(|d| d.axes.iter().any(Option::is_some))
 }
@@ -826,8 +835,7 @@ impl Controllers {
                         let Some((f, inverted)) = d.axes[k] else { continue };
                         if matches!(f, Func::Steering) {
                             let (steering, position) = wheel_steering(v, inverted, d.axis_flags[k], dz, self.steer_gain);
-                            set(&mut out.steering, steering);
-                            out.stick = c.gamepad;
+                            set_steering(&mut out, steering, c.gamepad);
                             if steer.is_none() && !c.gamepad {
                                 steer = Some((c.name.clone(), position, c.ff));
                             }
@@ -2064,6 +2072,20 @@ mod hot_reload_tests {
         let (steer, physical) = wheel_steering(0.6, true, 0, 0.1, 1.0);
         assert!((physical + 0.6).abs() < 1e-6);
         assert!((steer + 0.5 / 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn hot_reload_mixed_devices_keep_the_selected_steering_kind() {
+        let mut out = Analog::default();
+        set_steering(&mut out, 0.75, false);
+        set_steering(&mut out, 0.0, true);
+        assert_eq!(out.steering, Some(0.75));
+        assert!(!out.stick);
+        set_steering(&mut out, -0.9, true);
+        assert_eq!(out.steering, Some(-0.9));
+        assert!(out.stick);
+        set_steering(&mut out, -0.9, false);
+        assert!(out.stick); // identical readings keep the original source
     }
 
     #[test]
