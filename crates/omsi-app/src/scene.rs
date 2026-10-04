@@ -198,6 +198,21 @@ fn lightmap_is_white(name: &str, dirs: &[&Path]) -> Option<bool> {
 }
 
 impl ObjectType {
+    /// The folders the object's textures are looked for in. Omsi.exe loads the model of a
+    /// `.sco` with the `.sco`'s own folder as the base of `texture\`, also when `[model]`
+    /// takes the model file from another folder: a retexture (a copy of the `.sco` with its
+    /// own `texture` folder that points at the original's model) shows its own pictures, not
+    /// the original's (#978).
+    pub fn texture_dirs(&self, root: &Path) -> Vec<PathBuf> {
+        let mut dirs = texture_dirs(root, &self.model_dir);
+        if let (Some(_), Some(sco_dir)) = (&self.sco.model_file, self.sco.path.parent()) {
+            let own = omsi_cfg::resolve_path(sco_dir, "texture");
+            dirs.retain(|d| *d != own);
+            dirs.insert(0, own);
+        }
+        dirs
+    }
+
     /// The model's own extents as a `[boundingbox]` would give them (width, length, height,
     /// centre x, y, z), for an object that has none.
     pub fn local_box(&self) -> Option<[f32; 6]> {
@@ -1384,7 +1399,7 @@ impl GpuCache {
                 let Some((file, scheme_dir)) = replacements.get(&key) else {
                     continue;
                 };
-                let mut dirs = texture_dirs(root, &ot.model_dir);
+                let mut dirs = ot.texture_dirs(root);
                 dirs.insert(0, scheme_dir.clone());
                 let Some((texture, path)) = self.texture(renderer, scene, file, &dirs, images)
                 else {
@@ -5505,7 +5520,7 @@ impl World {
                             ts.rasterize_kind(mesh, &pose.rot, pose.pos, tx, ty, true);
                             if Some(k) == ground_mesh {
                                 // (its textures' `.surf` maps: cobbled junctions shake the bus too)
-                                let dirs = texture_dirs(&self.root, &ot.model_dir);
+                                let dirs = ot.texture_dirs(&self.root);
                                 let dirs: Vec<&Path> = dirs.iter().map(|p| p.as_path()).collect();
                                 let maps: Vec<_> = ot.meshes.get(k).map(|m| m.1.iter().map(|m| surf_map(&m.texture, &dirs)).collect()).unwrap_or_default();
                                 ts.add_drive_mesh_surf(
@@ -5761,7 +5776,7 @@ impl World {
                 let selection = scenery_texture_selection(&o.ot, inst);
                 for (group, &index) in o.ot.dynamic_textures.iter().zip(&selection) {
                     for (_, file, dir) in group.choices.get(index).into_iter().flatten() {
-                        let mut dirs = texture_dirs(&self.root, &o.ot.model_dir);
+                        let mut dirs = o.ot.texture_dirs(&self.root);
                         dirs.insert(0, dir.clone());
                         push(file, &dirs, &mut names);
                     }
@@ -5772,7 +5787,7 @@ impl World {
                     for ov in overrides.iter().filter(|m| !m.item && m.freetex.is_some()) {
                         let Some((_, var)) = &ov.freetex else { continue };
                         if let Some(name) = resolve_scenery_freetex_name(var, ov, overrides, o.script.as_ref(), None, &o.strings) {
-                            push(name, &texture_dirs(&self.root, &o.ot.model_dir), &mut names);
+                            push(name, &o.ot.texture_dirs(&self.root), &mut names);
                         }
                     }
                 }
@@ -5781,7 +5796,7 @@ impl World {
             if have_types.contains(&(key as usize)) || !seen.insert(key) {
                 continue;
             }
-            let dirs = texture_dirs(&self.root, &o.ot.model_dir);
+            let dirs = o.ot.texture_dirs(&self.root);
             for (_, mats, overrides) in
                 o.ot.meshes
                     .iter()
@@ -5824,7 +5839,7 @@ impl World {
         }
         for (ot, tex, ..) in &p.trees {
             if !have_trees.contains(&tex.to_ascii_lowercase()) {
-                push(tex, &texture_dirs(&self.root, &ot.model_dir), &mut names);
+                push(tex, &ot.texture_dirs(&self.root), &mut names);
             }
         }
         // the painted ground layers (and their detail textures) of the tile
@@ -5996,7 +6011,7 @@ impl World {
         if gpu.types.contains_key(&key) {
             return key;
         }
-        let dirs = texture_dirs(&self.root, &ot.model_dir);
+        let dirs = ot.texture_dirs(&self.root);
         let mut t = TypeGpu {
             ot: ot.clone(),
             meshes: Vec::new(),
@@ -6886,7 +6901,7 @@ impl World {
                     for (ot, texture, pos, height, width, heading) in &p.trees[pl.next..end] {
                         let tkey = texture.to_ascii_lowercase();
                         if !gpu.trees.contains_key(&tkey) {
-                            let dirs = texture_dirs(&self.root, &ot.model_dir);
+                            let dirs = ot.texture_dirs(&self.root);
                             let found = gpu.texture(renderer, scene, texture, &dirs, images);
                             let m = renderer.add_material_extra(
                                 scene,
@@ -7140,7 +7155,7 @@ impl World {
                                 ) else {
                                     continue;
                                 };
-                                let dirs = texture_dirs(&self.root, &ot.model_dir);
+                                let dirs = ot.texture_dirs(&self.root);
                                 let Some((tex, path)) = gpu.texture(renderer, scene, name, &dirs, images) else { continue };
                                 let Some(base) = mats.get(slot).and_then(|id| scene.materials.get(*id)) else {
                                     gpu.release_texture(renderer, scene, &path);
@@ -13404,6 +13419,34 @@ mod tests {
             let top = deck[0].positions.iter().map(|p| p.z).fold(f32::MIN, f32::max);
             assert!((top - 1.0).abs() < 1e-3, "its far end is raised by the field: {top}");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_retexture_using_the_originals_model_shows_its_own_textures() {
+        let dir = std::env::temp_dir().join(format!("openomsi-retexture-{}", std::process::id()));
+        for d in ["orig/model", "orig/texture", "retex/model", "retex/texture"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+        }
+        std::fs::write(dir.join("global.cfg"), "[name]\nRetexture\n").unwrap();
+        let plate = "xof 0303txt 0032\nMesh plate {\n 3;\n 0;0;0;,\n 1;0;0;,\n 0;1;0;;\n 1;\n 3;0,1,2;;\n MeshMaterialList {\n  1;\n  1;\n  0;;\n  Material { 1;1;1;1;; 0; 0;0;0;; 0;0;0;; TextureFilename { \"plate.bmp\"; } }\n }\n}\n";
+        std::fs::write(dir.join("orig/model/plate.x"), plate).unwrap();
+        std::fs::write(dir.join("retex/model/plate.x"), plate).unwrap();
+        std::fs::write(dir.join("orig/model/plate.cfg"), "[mesh]\nplate.x\n").unwrap();
+        std::fs::write(dir.join("orig/texture/plate.bmp"), b"original").unwrap();
+        std::fs::write(dir.join("retex/texture/plate.bmp"), b"retexture").unwrap();
+        std::fs::write(dir.join("orig/orig.sco"), "[model]\nmodel\\plate.cfg\n").unwrap();
+        std::fs::write(dir.join("retex/retex.sco"), "[model]\n..\\orig\\model\\plate.cfg\n").unwrap();
+        let world = World::open(&dir, &dir.join("global.cfg"), 20261003).unwrap();
+        let found = |sco: &str| {
+            let ot = world.object_type(sco).expect("the object loads");
+            let dirs = ot.texture_dirs(&dir);
+            let dirs: Vec<&Path> = dirs.iter().map(|d| d.as_path()).collect();
+            omsi_texture::find_texture(&ot.meshes[0].1[0].texture, &dirs).and_then(|p| std::fs::read(p).ok())
+        };
+        assert_eq!(found("orig/orig.sco").as_deref(), Some(&b"original"[..]));
+        // the copy's own `texture` folder, as Omsi.exe takes it, not the model file's
+        assert_eq!(found("retex/retex.sco").as_deref(), Some(&b"retexture"[..]));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
