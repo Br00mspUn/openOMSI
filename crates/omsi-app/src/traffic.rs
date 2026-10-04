@@ -30,6 +30,7 @@ use std::sync::Arc;
 /// each and a minute of stutter after loading Spandau.
 pub const AI_SCHEMES: usize = 4;
 const SCRIPT_UPLOAD_BUDGET: usize = 4 << 20;
+const AI_JOB_SECS: f32 = 50e-6;
 
 /// Start a vehicle of type `ty` once and throw it away: its `{init}` and its displays read
 /// the files they need (depot data, fonts) into the caches before the first real one of the
@@ -226,6 +227,7 @@ pub struct AiCar {
     /// A rail vehicle: the track it has come along, (odometer, point), oldest first -
     /// where its rear bogie and its coupled cars and sections run (see `rail_behind`).
     pub rail_trail: std::collections::VecDeque<(f64, DVec3)>,
+    pub ai_secs: f32,
     /// A train turned round as a whole (its last car leads now): what a trip's
     /// `[trainreverse]` is compared with (Omsi.exe's vehicle +0x4e1).
     pub consist_reversed: bool,
@@ -2913,6 +2915,7 @@ impl Traffic {
             light_at: None,
             pull_out: 0.0,
             rail_trail: Default::default(),
+            ai_secs: 0.0,
             consist_reversed: false,
             park: None,
             seed,
@@ -6152,22 +6155,29 @@ impl Traffic {
         {
             use rayon::prelude::*;
             let net = &self.net;
-            type Work<'a> = (&'a AiState, &'a mut AiBody, &'a mut VehicleInstance, &'a mut AiFrame, &'a mut std::collections::VecDeque<(f64, DVec3)>);
+            type Work<'a> = (&'a AiState, &'a mut AiBody, &'a mut VehicleInstance, &'a mut AiFrame, &'a mut std::collections::VecDeque<(f64, DVec3)>, &'a mut f32);
             let mut work: Vec<Work> = self
                 .cars
                 .iter_mut()
                 .zip(frames.iter_mut())
                 .filter_map(|(c, f)| {
                     let f = f.as_mut()?;
-                    Some((&c.state, &mut c.body, &mut c.vehicle, f, &mut c.rail_trail))
+                    Some((&c.state, &mut c.body, &mut c.vehicle, f, &mut c.rail_trail, &mut c.ai_secs))
                 })
                 .collect();
+            work.sort_by(|a, b| b.5.total_cmp(a.5));
+            let mut jobs: Vec<Vec<Work>> = Vec::new();
+            for w in work {
+                match jobs.last_mut() {
+                    Some(job) if *w.5 < AI_JOB_SECS && *job[0].5 < AI_JOB_SECS && job.len() < 4 => job.push(w),
+                    _ => jobs.push(vec![w]),
+                }
+            }
             let profile = omsi_cfg::env::var_os("OMSI_PROFILE").is_some();
             // (a few cars per job: every job handed out wakes a worker, and the waking cost
             // the main thread more than a car's work)
-            work.par_iter_mut()
-                .with_min_len(4)
-                .for_each(|(state, body, vehicle, frame, trail)| {
+            jobs.into_par_iter().flatten_iter()
+                .for_each(|(state, body, vehicle, frame, trail, secs)| {
                     let t0 = std::time::Instant::now();
                     let ground = vehicle.ground.clone();
                     let contact = vehicle.contact.clone();
@@ -6175,7 +6185,7 @@ impl Traffic {
                     if rail {
                         record_rail_trail(trail, state.odometer as f64, state.way_point(net, 0.0));
                     }
-                    let trail = &**trail;
+                    let trail = &*trail;
                     let behind = |d: f64| rail_behind(trail, state, net, d);
                     body.step(
                         dt,
@@ -6195,6 +6205,7 @@ impl Traffic {
                     frame.steer_deg = body.steer;
                     let t1 = std::time::Instant::now();
                     vehicle.update_ai(dt, frame);
+                    *secs = t0.elapsed().as_secs_f32();
                     if profile && t0.elapsed().as_secs_f64() > 0.01 {
                         log::info!(
                             "  slow AI frame: {} body {:.1} ms, scripts {:.1} ms",
@@ -7462,6 +7473,7 @@ impl Traffic {
             light_at: None,
             pull_out: 0.0,
             rail_trail: Default::default(),
+            ai_secs: 0.0,
             consist_reversed: false,
             park: None,
         });
