@@ -164,9 +164,7 @@ impl World {
         if g.len() <= i {
             g.resize(i + 1, None);
         }
-        if g[i].is_none_or(|old| old.uv_area < uv_area) {
-            g[i] = Some(MirrorGlass { centre: centre / vertices.max(1.0), du, dv, uv_area });
-        }
+        g[i] = larger_glass(g[i], MirrorGlass { centre: centre / vertices.max(1.0), du, dv, uv_area });
     }
 
     /// Render texture of mirror `i` (created on first use, as large as the `mirror_size`
@@ -196,6 +194,12 @@ pub struct MirrorGlass {
     pub dv: glam::Vec3,
     /// How much of the picture the mesh uses.
     pub uv_area: f32,
+}
+
+/// Of two meshes that show one mirror's picture, the glass: the one that uses more of it
+/// (the other is a bit of housing sharing the material).
+fn larger_glass(old: Option<MirrorGlass>, new: MirrorGlass) -> Option<MirrorGlass> {
+    Some(old.filter(|o| o.uv_area >= new.uv_area).unwrap_or(new))
 }
 
 /// `reflexionN.bmp`: the texture drawn by reflection camera N of the vehicle.
@@ -11429,7 +11433,10 @@ impl World {
         vt: &omsi_sim::VehicleType,
         scheme: Option<usize>,
     ) -> VehicleRender {
-        let set = self.upload_vehicle(renderer, scene, vt, scheme);
+        // (the mirrors' glass is the player's bus's: what the last one left is forgotten)
+        self.mirror_aspect.lock().clear();
+        self.mirror_glass.lock().clear();
+        let set = self.upload_vehicle(renderer, scene, vt, scheme, true);
         let mut render = self.instantiate_vehicle(renderer, scene, vt, &set, None, None);
         own_skinned_meshes(renderer, scene, vt, &mut render);
         render
@@ -11447,7 +11454,7 @@ impl World {
         scheme: Option<usize>,
         lead: &VehicleRender,
     ) -> VehicleRender {
-        let set = self.upload_vehicle(renderer, scene, vt, scheme);
+        let set = self.upload_vehicle(renderer, scene, vt, scheme, false);
         let shared = if vt.def.script_share || vt.model.script_textures.is_empty() {
             Some(lead.script_textures.as_slice())
         } else {
@@ -11542,7 +11549,7 @@ impl World {
             }
             return;
         }
-        let c = self.upload_vehicle(renderer, scene, vt, scheme);
+        let c = self.upload_vehicle(renderer, scene, vt, scheme, false);
         self.vehicle_gpu.lock().insert(key, c);
     }
 
@@ -11570,7 +11577,7 @@ impl World {
         let set = match cached {
             Some(c) => c,
             None => {
-                let c = self.upload_vehicle(renderer, scene, vt, scheme);
+                let c = self.upload_vehicle(renderer, scene, vt, scheme, false);
                 self.vehicle_gpu.lock().insert(key.clone(), c.clone());
                 c
             }
@@ -12226,13 +12233,15 @@ impl World {
 
     /// Upload the meshes and materials of a vehicle type: (mesh, materials) per model mesh
     /// and one texture per `[texttexture]`.
-    /// Also returns the slots whose textures are generated per vehicle.
+    /// Also returns the slots whose textures are generated per vehicle. `player`: the
+    /// player's own vehicle, whose mirrors' glass is noted (for the panels).
     fn upload_vehicle(
         &self,
         renderer: &Renderer,
         scene: &mut Scene,
         vt: &omsi_sim::VehicleType,
         scheme: Option<usize>,
+        player: bool,
     ) -> VehicleSet {
         let mut dyn_slots: Vec<DynSlot> = Vec::new();
         let mut variants: Vec<VariantSlot> = Vec::new();
@@ -12332,7 +12341,9 @@ impl World {
                         // looking for it on disk only produced a false "texture not found"
                         None
                     } else if let Some(mi) = mirror_index(&tex_name) {
-                        self.note_mirror_aspect(mi, &vm.data, slot);
+                        if player {
+                            self.note_mirror_aspect(mi, &vm.data, slot);
+                        }
                         Some(self.mirror_texture(renderer, scene, mi))
                     } else if rain_layer && snowing() && !seasonal_texture(&tex_name, &dirs_ref) {
                         tex!("", &dirs_ref, snow_glass_texture)
@@ -13049,6 +13060,16 @@ pub(crate) fn resolve_scenery_freetex_name<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_mirror_keeps_the_glass_that_uses_most_of_the_picture() {
+        let glass = |uv_area: f32, x: f32| MirrorGlass { centre: glam::Vec3::new(x, 0.0, 0.0), du: glam::Vec3::X, dv: glam::Vec3::Z, uv_area };
+        let big = larger_glass(None, glass(0.4, 1.0)).unwrap();
+        // a smaller mesh for the same mirror, loaded later, does not take its place
+        assert_eq!(larger_glass(Some(big), glass(0.001, 2.0)).unwrap().centre.x, 1.0);
+        // a larger one does
+        assert_eq!(larger_glass(Some(big), glass(0.9, 3.0)).unwrap().centre.x, 3.0);
+    }
 
     /// A route arrow's Cyrillic street name with the stock Latin-only "test" font: drawn
     /// with the interface font (it was an empty texture); a Latin one keeps the .oft.
