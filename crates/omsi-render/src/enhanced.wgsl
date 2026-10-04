@@ -283,7 +283,16 @@ fn perturb_normal(n: vec3<f32>, p: vec3<f32>, uv: vec2<f32>, tn: vec3<f32>) -> v
 struct EnhancedOut {
     @location(0) color: vec4<f32>,
     @location(1) mask: vec4<f32>,
+    //RT @location(2) gbuf: vec4<f32>,
+    //RT @location(3) aux: vec4<f32>,
 };
+
+// Enhanced+ (the window's picture, camera.clouds.w 2): the surface the traced reflections
+// start from - its normal and how much of the reflection lands on the screen (w), its
+// distance from the eye and its roughness, all times that weight (see GBUF_FORMAT). The
+// probe's reflection is left out of the colour there: the traced one is added in its place.
+var<private> rt_gbuf: vec4<f32>;
+var<private> rt_aux: vec4<f32>;
 
 @fragment
 fn fs_enhanced(in: FsIn) -> EnhancedOut {
@@ -301,6 +310,8 @@ fn fs_enhanced(in: FsIn) -> EnhancedOut {
     // colour still blends normally, but it must preserve the road's reflection mask.
     let coverage = select(select(c.a, 1.0, screen), 0.0, in.params2.w > 1.5);
     out.mask = vec4<f32>(select(0.0, 1.0, screen), max(led, puddle_weight.y * 0.49), puddle_weight.x, coverage);
+    //RT out.gbuf = rt_gbuf;
+    //RT out.aux = rt_aux;
     return out;
 }
 
@@ -642,7 +653,13 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
             // windows was a millisecond of the frame)
             shadow = sun_shadow_hard(in.world, n);
         } else if (nl > 0.0 || thin) {
+            // Enhanced+: the traced shadow where there is one for this surface
+            // (whose cut-out leaves and fences the shadow map holds alone: see `render_inner`)
+            let traced = rt_at(in.clip.xy, in.world);
             shadow = sun_shadow_soft(in.world, n, thin);
+            if (traced.w > 0.5 && traced.z >= 0.0) {
+                shadow = shadow * traced.z;
+            }
         }
         let e_sun = enh.sun.rgb * shadow;
         if (thin) {
@@ -762,14 +779,32 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     // the Fresnel term took off its ambient above - at a grazing angle that term is near 1,
     // and the far road and ground went dark with no reflection in its place, #374)
     let reflects = reflective_env || glass || pbr_reflects || is_water || wet_road > 0.0;
-    var reflection = select(vec3<f32>(0.0), env * env_brdf(f0, rough, nv) * spec_occ * select(1.0, wet_road, !(reflective_env || glass || pbr_reflects || is_water)), reflects);
+    var refl_f = env_brdf(f0, rough, nv) * spec_occ * select(1.0, wet_road, !(reflective_env || glass || pbr_reflects || is_water));
     if (!reflects) {
         ambient = e_amb * sf.albedo / PI;
     }
     if (glass) {
         // Transparent bus panes need a readable outside reflection from the driver's
         // viewpoint; opaque paint must never receive this boost.
-        reflection = reflection * 0.75 * (1.0 - 0.85 * own_pane);
+        refl_f = refl_f * 0.75 * (1.0 - 0.85 * own_pane);
+    }
+    var reflection = select(vec3<f32>(0.0), env * refl_f, reflects);
+    // Enhanced+: traced instead (rough surfaces keep the probe, which is as good as a
+    // ray there; the cab's own panes too, seen from the driver's seat)
+    let traced = camera.clouds.w > 1.5 && reflects && rough < 0.75 && !capture;
+    if (traced) {
+        var w = dot(refl_f, vec3<f32>(0.2126, 0.7152, 0.0722)) * aer.a;
+        if (glass) {
+            w = w * smoothstep(0.0, 0.05, alpha);
+        } else if (mode > 1.5) {
+            // (a blended layer reflects only where it is there: a painted ground's brush mask)
+            w = w * clamp(alpha, 0.0, 1.0);
+        }
+        if (w > 0.002) {
+            reflection = vec3<f32>(0.0);
+            rt_gbuf = vec4<f32>(n * w, w);
+            rt_aux = vec4<f32>(dist * w, rough * w, 0.0, w);
+        }
     }
     // --- the lamps, the cabin light and what glows by itself
     // ([nomaplighting] objects are not lit by the map's lamps; light-mapped roads are, with
@@ -849,7 +884,11 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         let dm = i32(enh.debug.x);
         var dc = vec3<f32>(0.0);
         switch dm {
-            case 1: { dc = vec3<f32>(sun_shadow_soft(in.world, n, thin)); }
+            case 1: {
+                let tr = rt_at(in.clip.xy, in.world);
+                let sm = sun_shadow_soft(in.world, n, thin);
+                dc = select(vec3<f32>(sm), vec3<f32>(tr.z * sm, tr.z * sm, tr.z * 0.6 + 0.4), tr.w > 0.5 && tr.z >= 0.0);
+            }
             case 2: { dc = vec3<f32>(ao); }
             case 3: { dc = n * 0.5 + vec3<f32>(0.5); }
             case 4: { dc = vec3<f32>(aer.a); }

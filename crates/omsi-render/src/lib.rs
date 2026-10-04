@@ -3,6 +3,7 @@
 pub mod atmosphere;
 pub mod clouds;
 mod puddles;
+mod rt;
 mod triple;
 pub use triple::{panel_width, ScreenView, TripleScreen};
 
@@ -112,6 +113,9 @@ struct HdrTargets {
     /// The screen mask (`MASK_FORMAT`), multisampled and resolved like the picture.
     mask_msaa: Option<wgpu::TextureView>,
     mask: wgpu::TextureView,
+    /// Enhanced+: the reflections' surfaces (`GBUF_FORMAT`, `AUX_FORMAT`): (multisampled,
+    /// resolved) each.
+    gbuf: Option<[(Option<wgpu::TextureView>, wgpu::TextureView); 2]>,
     /// Glow levels at 1/2, 1/4, ... of the size, and the upsampled sums per level.
     down: Vec<wgpu::TextureView>,
     up: Vec<wgpu::TextureView>,
@@ -1997,6 +2001,8 @@ pub struct Renderer {
     pending_meshes: std::cell::RefCell<Vec<(MeshId, Vec<u8>)>>,
     /// What a freed mesh and a freed material hold (see `free_mesh`), made once.
     freed: std::cell::OnceCell<Freed>,
+    /// Enhanced+: the ray tracer (on a device with ray queries, see `RenderOptions::ray_tracing`).
+    rt: Option<rt::RayTracer>,
 }
 
 /// The placeholders freed scene slots share: an empty vertex and index buffer and a plain
@@ -2059,6 +2065,10 @@ pub struct RenderOptions {
     /// Mali and Adreno drivers before the first frame, #364, #333, #316, #371). Asked for,
     /// they are built on every device and graphics API; a computer always builds them.
     pub no_enhanced: bool,
+    /// Enhanced+: the enhanced path with ray-traced sun shadows, ambient occlusion and
+    /// reflections, where the device can trace rays (hardware ray queries); elsewhere the
+    /// enhanced picture as it is.
+    pub ray_tracing: bool,
 }
 
 impl Default for RenderOptions {
@@ -2077,6 +2087,7 @@ impl Default for RenderOptions {
             shadow_blobs: true,
             reflections: true,
             no_enhanced: false,
+            ray_tracing: false,
         }
     }
 }
@@ -2104,12 +2115,23 @@ pub const LAMP_CODE_STRIDE: u32 = 64;
 /// reflected-light weight; a is blend coverage. Sharing this attachment avoids another
 /// geometry pass or a full normal/material buffer just for water.
 const MASK_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+/// Enhanced+: the enhanced pass's third and fourth targets, what the ray-traced reflections
+/// start from (rt.wgsl): the surface's normal (xyz) and how much it reflects (w), and its
+/// view depth and roughness (rg) - all weighted by that reflection (premultiplied), so that
+/// a pane blended over a wet road leaves the stronger reflection's surface in them.
+const GBUF_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+const AUX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
+/// The renderer is built for Enhanced+: its HDR pipelines and targets have the two above.
+static RT_GBUF: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+fn rt_gbuf() -> bool {
+    RT_GBUF.load(std::sync::atomic::Ordering::Relaxed)
+}
 const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 /// The colour targets of a pipeline drawing into `format`: Enhanced and classic puddle
 /// shading draw into `HDR_FORMAT` with the screen mask beside it,
 /// written by the scene's own shader only (`mask`), coverage-blended where the colour is.
-fn color_targets(format: wgpu::TextureFormat, blend: Option<wgpu::BlendState>, write: wgpu::ColorWrites, mask: bool) -> Vec<Option<wgpu::ColorTargetState>> {
+fn color_targets(format: wgpu::TextureFormat, blend: Option<wgpu::BlendState>, write: wgpu::ColorWrites, mask: bool, gbuf: bool) -> Vec<Option<wgpu::ColorTargetState>> {
     let mut v = vec![Some(wgpu::ColorTargetState { format, blend, write_mask: write })];
     if format == HDR_FORMAT {
         v.push(Some(wgpu::ColorTargetState {
@@ -2120,6 +2142,16 @@ fn color_targets(format: wgpu::TextureFormat, blend: Option<wgpu::BlendState>, w
             }),
             write_mask: if mask { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::empty() },
         }));
+        if rt_gbuf() {
+            // (premultiplied by the reflection's weight, the shader's alpha)
+            let over = blend.map(|_| wgpu::BlendState {
+                color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha, operation: wgpu::BlendOperation::Add },
+                alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha, operation: wgpu::BlendOperation::Add },
+            });
+            let write = if gbuf { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::empty() };
+            v.push(Some(wgpu::ColorTargetState { format: GBUF_FORMAT, blend: over, write_mask: write }));
+            v.push(Some(wgpu::ColorTargetState { format: AUX_FORMAT, blend: over, write_mask: write }));
+        }
     }
     v
 }
@@ -2351,6 +2383,19 @@ impl Renderer {
             // textures are decoded to RGBA by upload_texture on this device.
             required_features = wgpu::Features::empty();
         }
+        // Enhanced+: hardware ray queries where the device has them (Apple silicon from the
+        // M3/A17 on, RTX and RDNA2+ cards through Vulkan); OMSI_NO_RT=1 leaves them out
+        let ray_query = options.ray_tracing
+            && !intel_vulkan_safe
+            && info.backend != wgpu::Backend::Noop
+            && adapter.features().contains(wgpu::Features::EXPERIMENTAL_RAY_QUERY)
+            && omsi_cfg::env::var_os("OMSI_NO_RT").is_none();
+        if ray_query {
+            required_features |= wgpu::Features::EXPERIMENTAL_RAY_QUERY;
+            limits = limits.using_acceleration_structure_values(adapter.limits());
+        } else if options.ray_tracing {
+            log::warn!("{}: no hardware ray queries; Enhanced+ is drawn as Enhanced", info.name);
+        }
         // the per-draw arrays as storage buffers where the device reads them in a vertex
         // shader (three there, two lights arrays in a fragment shader), else as textures;
         // OMSI_GPU_ARRAYS=textures|nostorage takes those paths on any device
@@ -2380,6 +2425,8 @@ impl Renderer {
                 // "Out of memory" in the first frames with the textures well under budget,
                 // #332, #295)
                 memory_hints: if weak || modest || vram.is_some_and(|v| v <= 4200) { wgpu::MemoryHints::MemoryUsage } else { wgpu::MemoryHints::Performance },
+                // (the ray queries are still an experimental feature of wgpu)
+                experimental_features: if ray_query { unsafe { wgpu::ExperimentalFeatures::enabled() } } else { wgpu::ExperimentalFeatures::disabled() },
                 ..Default::default()
             })
             .await
@@ -2417,8 +2464,10 @@ impl Renderer {
             // 16x showed none of it - 16x kept the far dashes narrow where 8x smeared them
             // sideways - so 16x is the player's choice again, 8x the default)
             anisotropy: options.anisotropy.clamp(1, 16),
+            ray_tracing: ray_query,
             ..options
         };
+        RT_BUFFERS.store(ray_query, std::sync::atomic::Ordering::Relaxed);
         let bc = device
             .features()
             .contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
@@ -2468,6 +2517,7 @@ impl Renderer {
         options: RenderOptions,
     ) -> Renderer {
         let (msaa, shadow_size) = (options.msaa, options.shadow_size);
+        RT_GBUF.store(options.ray_tracing, std::sync::atomic::Ordering::Relaxed);
         // A GPU error while multisampling is on is logged and switches multisampling off
         // at the next frame (`render_inner`). Otherwise it is logged and the game goes on:
         // wgpu's own handler ends the process, and one call a driver refused (a limit of
@@ -2655,6 +2705,7 @@ impl Renderer {
                         blend,
                         if fs == "fs_surface_depth" { wgpu::ColorWrites::empty() } else { wgpu::ColorWrites::ALL },
                         fs != "fs_surface_depth",
+                        fs == "fs_enhanced",
                     ),
                     // only the alpha-tested pipelines keep their `discard` (see ALPHA_TEST
                     // in shader.wgsl): early depth testing for everything else
@@ -3019,7 +3070,7 @@ impl Renderer {
                 fragment: Some(wgpu::FragmentState {
                     module: &corona_shader,
                     entry_point: Some(fs),
-                    targets: &color_targets(f, Some(blend), wgpu::ColorWrites::COLOR, false),
+                    targets: &color_targets(f, Some(blend), wgpu::ColorWrites::COLOR, false, false),
                     compilation_options: Default::default(),
                 }),
                 multiview_mask: None,
@@ -3158,7 +3209,7 @@ impl Renderer {
                 fragment: Some(wgpu::FragmentState {
                     module: &sky_shader,
                     entry_point: Some(fs),
-                    targets: &color_targets(f, None, wgpu::ColorWrites::COLOR, false),
+                    targets: &color_targets(f, None, wgpu::ColorWrites::COLOR, false, false),
                     compilation_options: Default::default(),
                 }),
                 multiview_mask: None,
@@ -4159,6 +4210,7 @@ impl Renderer {
         let puddles = (!gl && !leave_out_enhanced).then(|| {
             puddles::Pipelines::new(&device, &shader, &camera_layout, &material_layout)
         });
+        let rt = options.ray_tracing.then(|| rt::RayTracer::new(&device));
         Renderer {
             _device_poller: DevicePoller::start(&device),
             upscale_pipeline,
@@ -4280,6 +4332,7 @@ impl Renderer {
             },
             pending_meshes: Default::default(),
             freed: std::cell::OnceCell::new(),
+            rt,
         }
     }
 
@@ -4483,6 +4536,9 @@ impl Renderer {
     /// creation failed validation and mapping it panicked (Windows, Vulkan).
     fn flush_pending_meshes(&self, scene: &Scene, _encoder: &mut wgpu::CommandEncoder) {
         let pending = std::mem::take(&mut *self.pending_meshes.borrow_mut());
+        if let Some(rt) = self.rt.as_ref() {
+            rt.meshes_changed(pending.iter().map(|(id, _)| *id));
+        }
         for (id, b) in &pending {
             let Some(m) = scene.meshes.get(*id) else { continue };
             let len = (b.len() as u64) / 4 * 4;
@@ -6443,6 +6499,9 @@ impl Renderer {
         let view = target("hdr", w, h, fmt, 1);
         let mask_msaa = (self.options.msaa > 1).then(|| target("screen mask msaa", w, h, MASK_FORMAT, self.options.msaa));
         let mask = target("screen mask", w, h, MASK_FORMAT, 1);
+        let gbuf = rt_gbuf().then(|| {
+            [GBUF_FORMAT, AUX_FORMAT].map(|f| ((self.options.msaa > 1).then(|| target("rt surfaces msaa", w, h, f, self.options.msaa)), target("rt surfaces", w, h, f, 1)))
+        });
         // the glow: halving until the smallest level is a few dozen pixels across
         let levels = GLOW_LEVELS
             .min((w.min(h).max(16) as f32).log2() as usize - 3)
@@ -6516,6 +6575,7 @@ impl Renderer {
                 view,
                 mask_msaa,
                 mask,
+                gbuf,
                 down,
                 up,
                 ldr,
@@ -6994,10 +7054,13 @@ impl Renderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 8,
+                    // (Enhanced+: the traced lighting, full size, in place of the SSAO)
                     resource: wgpu::BindingResource::TextureView(
-                        self.ao
+                        self.rt
                             .as_ref()
-                            .map(|a| &a.blur_view)
+                            .and_then(|r| r.targets.as_ref())
+                            .map(|t| &t.out)
+                            .or(self.ao.as_ref().map(|a| &a.blur_view))
                             .unwrap_or(&self.white_texture.view),
                     ),
                 },
@@ -8000,7 +8063,10 @@ impl Renderer {
         self.prepare_coronas(scene, lighting.night, lighting.inside.as_ref().filter(|v| point_in_vehicle_box(camera.position, v)));
         self.prepare_smoke(scene, camera.position);
         // ambient occlusion only for the real picture, not for the mirrors
-        let ao_on = with_overlays && self.options.ssao && self.ssao_pipeline.is_some() && omsi_cfg::env::var_os("OMSI_NO_AO").is_none();
+        // Enhanced+: the window's picture traces its sun shadow and ambient occlusion (not the
+        // mirrors, a headset's eyes or a triple screen's panels: they keep the shadow map)
+        let rt_frame = self.rt.is_some() && enhanced && with_overlays && projection.is_none() && omsi_cfg::env::var_os("OMSI_NO_RT_FRAME").is_none();
+        let ao_on = with_overlays && self.rt.is_none() && self.options.ssao && self.ssao_pipeline.is_some() && omsi_cfg::env::var_os("OMSI_NO_AO").is_none();
         // the enhanced path's shading is costly: the depth prepass keeps it to the visible
         // surface (without multisampling, see `share_depth`)
         let prepass_on = ao_on || puddles_wanted || glass_on || (enhanced && (with_overlays || xr_view));
@@ -8009,6 +8075,11 @@ impl Renderer {
             scene.dirty = true;
             scene.model_buf = None;
             self.hdr_targets.clear();
+        }
+        if rt_frame && self.rt.as_mut().is_some_and(|rt| rt.ensure_targets(&self.device, width, height)) {
+            // the camera bind group must point at the new lighting texture
+            scene.dirty = true;
+            scene.model_buf = None;
         }
         if masked_frame {
             self.hdr_targets(width, height);
@@ -8201,7 +8272,8 @@ impl Renderer {
                 lighting.cloud_density,
                 lighting.cloud_offset[0],
                 lighting.cloud_offset[1],
-                if ao_on { 1.0 } else { 0.0 },
+                // (2: the traced lighting, full size, see `ao_at`)
+                if rt_frame { 2.0 } else if ao_on { 1.0 } else { 0.0 },
             ],
             // (w: the heading the sphere maps are laid out by in the headset, see
             // `set_env_heading`; flagged by cam_up.w)
@@ -8253,6 +8325,11 @@ impl Renderer {
         };
         self.queue
             .write_buffer(&self.camera_buf, 0, bytemuck::bytes_of(&cu));
+        if rt_frame {
+            let proj = Mat4::perspective_rh(camera.fov_deg.to_radians(), aspect, camera.far, camera.near);
+            self.prepare_ray_tracing(scene, camera, lighting, vp_mat, proj, width, height, dt);
+            stage(self, "ray tracing", "mirror.ray tracing");
+        }
         // (a mirror takes the window's light - its own call would move the exposure on -
         // unless it comes before the window's first frame)
         let probe_redraw = enhanced
@@ -8326,6 +8403,12 @@ impl Renderer {
                     if cut_body {
                         kind = PIPE_ALPHA_TEST;
                     }
+                    // (Enhanced+: what is solid casts its shadow by the traced rays; the
+                    // close and near maps keep the cut-out leaves and fences, whose texels
+                    // the rays cannot see)
+                    if rt_frame && kind == PIPE_OPAQUE {
+                        kind = PIPE_KINDS;
+                    }
                     ranges.push((kind, ri as u32, *slot, mat_id));
                 }
                 for (cascade, &(range, lvp, min_radius)) in boxes.iter().enumerate() {
@@ -8351,6 +8434,14 @@ impl Renderer {
                         log::info!("shadow: caster r={r:.1} at {:?} slots {:?}", inst.origin, ranges.iter().map(|x| x.0).collect::<Vec<_>>());
                     }
                     for &(kind, ri, slot, mat_id) in &ranges {
+                        let kind = if kind == PIPE_KINDS {
+                            if cascade != 1 {
+                                continue;
+                            }
+                            PIPE_OPAQUE
+                        } else {
+                            kind
+                        };
                         out[cascade].push(DrawItem {
                             pipe: kind,
                             mesh: inst.mesh as u32,
@@ -9256,6 +9347,9 @@ impl Renderer {
                 pass.draw(0..3, 0..1);
             }
         }
+        if rt_frame {
+            self.encode_ray_tracing(&mut prepass_encoder, scene, tset.as_ref(), &mut timed);
+        }
         // --- the enhanced sky cube: a face a frame (all six the first time and for a new
         // sky), drawn in the window's frame only
         if enhanced && (lead_view || probe_redraw) {
@@ -9493,10 +9587,22 @@ impl Renderer {
                             resolve_target: None,
                             ops: wgpu::Operations { load: if first { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) } else { wgpu::LoadOp::Load }, store: wgpu::StoreOp::Store },
                         }),
+                        hdr.and_then(|h| h.gbuf.as_ref()).map(|g| wgpu::RenderPassColorAttachment {
+                            view: g[0].0.as_ref().unwrap_or(&g[0].1),
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations { load: if first { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) } else { wgpu::LoadOp::Load }, store: wgpu::StoreOp::Store },
+                        }),
+                        hdr.and_then(|h| h.gbuf.as_ref()).map(|g| wgpu::RenderPassColorAttachment {
+                            view: g[1].0.as_ref().unwrap_or(&g[1].1),
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations { load: if first { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) } else { wgpu::LoadOp::Load }, store: wgpu::StoreOp::Store },
+                        }),
                     ];
                     let mut pass = part.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("main part"),
-                        color_attachments: if part_colors[1].is_some() { &part_colors[..] } else { &part_colors[..1] },
+                        color_attachments: if part_colors[2].is_some() { &part_colors[..] } else if part_colors[1].is_some() { &part_colors[..2] } else { &part_colors[..1] },
                         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                             view: depth_view,
                             depth_ops: Some(wgpu::Operations { load: if first { depth_first } else { wgpu::LoadOp::Load }, store: wgpu::StoreOp::Store }),
@@ -9534,8 +9640,22 @@ impl Renderer {
                         },
                     },
                 });
-            let colors = [main_attachment, mask_attachment];
-            let colors = if colors[1].is_some() { &colors[..] } else { &colors[..1] };
+            let gbuf_attachments = hdr.and_then(|h| h.gbuf.as_ref()).map(|g| {
+                g.each_ref().map(|(msaa, view)| {
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: msaa.as_ref().unwrap_or(view),
+                        depth_slice: None,
+                        resolve_target: msaa.as_ref().map(|_| view),
+                        ops: wgpu::Operations {
+                            load: if parts > 1 { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) },
+                            store: if msaa.is_some() { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store },
+                        },
+                    })
+                })
+            });
+            let [g0, g1] = gbuf_attachments.unwrap_or([None, None]);
+            let colors = [main_attachment, mask_attachment, g0, g1];
+            let colors = if colors[2].is_some() { &colors[..] } else if colors[1].is_some() { &colors[..2] } else { &colors[..1] };
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main"),
                 // drawn with MSAA samples and resolved into the real target at the end
@@ -9627,7 +9747,12 @@ impl Renderer {
         }
         // Weather alone is insufficient: leave the allocation and reflection passes out when
         // the visible batches contain no moisture-tagged surface (a showroom, bare terrain).
+        // Enhanced+: the traced reflections (wet roads' too) in place of the puddles' rays
+        if rt_frame {
+            self.encode_rt_reflections(&mut encoder, width, height, tset.as_ref(), &mut timed);
+        }
         let puddles_on = puddles_wanted
+            && !rt_frame
             && main_batches.iter().any(|b| scene.materials[b.material as usize].uniform.params2[2] > 0.0)
             && self.prepare_puddle_reflections(width, height, camera, aspect, projection, &cu, lighting, ro);
         if puddles_on {
@@ -9659,11 +9784,19 @@ impl Renderer {
                     view: &h.mask, depth_slice: None, resolve_target: None,
                     ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
                 }),
+                hdr.and_then(|h| h.gbuf.as_ref()).map(|g| wgpu::RenderPassColorAttachment {
+                    view: &g[0].1, depth_slice: None, resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                }),
+                hdr.and_then(|h| h.gbuf.as_ref()).map(|g| wgpu::RenderPassColorAttachment {
+                    view: &g[1].1, depth_slice: None, resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                }),
             ];
             let pipes = &self.main_pass(enhanced, reflection_frame).rain_pipelines;
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("rain on current scene"),
-                color_attachments: &colours[..if hdr.is_some() { 2 } else { 1 }],
+                color_attachments: &colours[..if colours[2].is_some() { 4 } else if hdr.is_some() { 2 } else { 1 }],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.ao.as_ref().unwrap().depth_view,
                     depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }),
@@ -10123,6 +10256,10 @@ fn buffer_init(device: &wgpu::Device, queue: &wgpu::Queue, label: Option<&str>, 
     buf
 }
 
+/// Meshes are made for the ray tracer's acceleration structures as well (Enhanced+ on a
+/// device with ray queries: their buffers are its geometry input).
+static RT_BUFFERS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The GPU buffers of a mesh.
 fn make_mesh(device: &wgpu::Device, queue: &wgpu::Queue, data: &MeshData) -> GpuMesh {
     let verts: Vec<Vertex> = data
@@ -10136,8 +10273,9 @@ fn make_mesh(device: &wgpu::Device, queue: &wgpu::Queue, data: &MeshData) -> Gpu
             uv: uv.to_array(),
         })
         .collect();
-    let vertex_buf = buffer_init(device, queue, None, bytemuck::cast_slice(&verts), wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
-    let index_buf = buffer_init(device, queue, None, bytemuck::cast_slice(&data.indices), wgpu::BufferUsages::INDEX);
+    let blas = if RT_BUFFERS.load(std::sync::atomic::Ordering::Relaxed) { wgpu::BufferUsages::BLAS_INPUT } else { wgpu::BufferUsages::empty() };
+    let vertex_buf = buffer_init(device, queue, None, bytemuck::cast_slice(&verts), wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST | blas);
+    let index_buf = buffer_init(device, queue, None, bytemuck::cast_slice(&data.indices), wgpu::BufferUsages::INDEX | blas);
     let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for p in &data.positions {
         lo = lo.min(*p);
@@ -10613,6 +10751,8 @@ fn scene_shader_text(gl: bool) -> String {
         include_str!("enhanced.wgsl"),
     ]
     .join("\n");
+    // Enhanced+: the enhanced pass writes the reflections' surfaces as well (`GBUF_FORMAT`)
+    let src = if rt_gbuf() { src.replace("//RT ", "") } else { src };
     if !gl {
         return src;
     }
@@ -11261,12 +11401,12 @@ fn record_bundles(
     format: wgpu::TextureFormat,
     samples: u32,
 ) -> Vec<wgpu::RenderBundle> {
-    let color_formats = [Some(format), Some(MASK_FORMAT)];
+    let color_formats = [Some(format), Some(MASK_FORMAT), Some(GBUF_FORMAT), Some(AUX_FORMAT)];
     let record = |chunk: &[Batch]| -> wgpu::RenderBundle {
         let mut bundle =
             device.create_render_bundle_encoder(&wgpu::RenderBundleEncoderDescriptor {
                 label: Some("main pass part"),
-                color_formats: &color_formats[..if format == HDR_FORMAT { 2 } else { 1 }],
+                color_formats: &color_formats[..if format != HDR_FORMAT { 1 } else if rt_gbuf() { 4 } else { 2 }],
                 depth_stencil: Some(wgpu::RenderBundleDepthStencil {
                     format: DEPTH_FORMAT,
                     depth_read_only: false,

@@ -229,6 +229,11 @@ pub(crate) struct Args {
     /// automatic exposure, a glow around real highlights and the PBR Neutral tone curve).
     #[arg(long)]
     pub(crate) enhanced: bool,
+    /// Enhanced+ graphics, as the settings' `graphics=enhanced_plus`: Enhanced with
+    /// ray-traced sun shadows, ambient occlusion and reflections (where the graphics card
+    /// can trace rays).
+    #[arg(long)]
+    pub(crate) enhanced_plus: bool,
     /// Open the launcher (the default when the program is started without arguments).
     #[arg(long)]
     pub(crate) launcher: bool,
