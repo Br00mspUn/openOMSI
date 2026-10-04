@@ -11256,6 +11256,11 @@ struct PreparedVehicles {
 impl VehiclePrefetch {
     /// Read what uploading `vt` in `scheme` will ask for and the GPU does not have.
     pub fn prefetch(&self, vt: &omsi_sim::VehicleType, scheme: Option<usize>) {
+        // OpenGL has one adapter context; GPU uploads from this worker can time out while
+        // the render thread holds it, so let the normal vehicle upload handle them.
+        if omsi_render::gl_backend() {
+            return;
+        }
         for (name, dirs) in vehicle_texture_names(&self.root, vt, scheme) {
             let refs: Vec<&Path> = dirs.iter().map(|p| p.as_path()).collect();
             let Some(path) = omsi_texture::find_texture(&name, &refs) else {
