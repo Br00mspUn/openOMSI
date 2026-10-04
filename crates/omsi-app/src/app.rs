@@ -1131,6 +1131,7 @@ pub(crate) fn blend_local(a: &omsi_vehicle::Camera, b: &omsi_vehicle::Camera, k:
         yaw,
         pitch,
         extra: b.extra,
+        fixed: b.fixed,
     }
 }
 

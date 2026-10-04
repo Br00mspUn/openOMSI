@@ -501,6 +501,8 @@ rim the reflection running on away from the camera.
   .bus: rear-view mirror cameras (yaw clockwise from forward: 201 = back, turned towards
   the bus flank). Camera N draws into the texture named `reflexionN.bmp` on the model's
   mirror mesh; the mesh UVs are already mirrored, so the camera image is used as is.
+  `[add_camera_reflexion_static]` (openOMSI, see MODDING.md) is a camera that looks along
+  its own yaw and pitch; a rear section's cameras are numbered on after the front's.
 * `[isshadow]` mesh (`D_schatten.o3d` with `Shadow.tga`, alpha blend, no z check/write):
   the vehicle's shadow blob lying at model z = 0; OMSI draws it on the ground under the
   vehicle. Scenery objects use it the same way. A vehicle's z = 0 is the plane its tyres

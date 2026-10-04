@@ -87,6 +87,21 @@ Normal, roughness, metalness and occlusion maps beside a texture, up to 4096 × 
   `[spotlight]`'s, it is not moved onto the vehicle's front. A rear section's model may have
   its own; their variables are the bus's.
 
+## Screens: static cameras
+
+`[add_camera_reflexion_static]` in the `.bus` adds a camera for a screen - a CCTV monitor
+of the doors, a reversing camera - to the mirrors. It takes the numbers of an
+`[add_camera_reflexion]` (x, y, z, distance, field of view, yaw, pitch) and counts with the
+mirrors: camera N draws into the texture `reflexionN.bmp`. Unlike a mirror's, its picture
+does not move with the driver's head: it looks along its yaw (degrees clockwise from the
+vehicle's forward) and pitch (up), as a driver camera does. Its picture is what it sees,
+not a mirror image, so map the screen's texture the right way round.
+
+The reflection cameras of an articulated bus's rear sections count on from those of the
+section in front: with mirrors 0 to 3 in the front section's `.bus`, a camera in the rear
+section's `.bus` is number 4, and a screen in the cab showing `reflexion4.bmp` shows what
+that camera sees from the rear section.
+
 ## Models
 
 - `.o3d` files with 32-bit indices (the long-index flag) are drawn with their full vertex
