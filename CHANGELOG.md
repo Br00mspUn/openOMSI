@@ -4,6 +4,17 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1541 - 2026-10-04
+
+### Merged pull requests
+- Performance: vehicle scripts run about a quarter faster [#1328](https://github.com/openOMSI-Project/openOMSI/pull/1328), and finding the ground under the wheels costs about a quarter less CPU [#1334](https://github.com/openOMSI-Project/openOMSI/pull/1334), with the same results.
+- Texture memory: on Linux with NVIDIA's driver the card's memory is read from Vulkan, and cards over 6 GB get more automatic texture memory [#1320](https://github.com/openOMSI-Project/openOMSI/pull/1320).
+- Automatic start-up no longer releases the starter too early (Volvo 7900H, HH109, WSW C2), the stock buses unchanged [#1147](https://github.com/openOMSI-Project/openOMSI/pull/1147).
+- Trains: cars whose bogies are declared reversed face the right way, and cars are spaced by their declared couplings as in OMSI 2 [#1186](https://github.com/openOMSI-Project/openOMSI/pull/1186).
+- Camera: an optional precision curve for zooming with both mouse buttons, and a zoom cursor while the right button zooms [#903](https://github.com/openOMSI-Project/openOMSI/pull/903); the driver's eye is back on the authored seat point [#1337](https://github.com/openOMSI-Project/openOMSI/pull/1337).
+- Repository: new issues are sorted by topic and milestone, repeated crash reports point to the existing issue, and pull requests get translation and file size checks; dependency updates and a weekly security audit [#1329](https://github.com/openOMSI-Project/openOMSI/pull/1329).
+- Code clean-ups after review [#1322](https://github.com/openOMSI-Project/openOMSI/pull/1322).
+
 ## 0.1.1518 - 2026-10-04
 
 ### New
