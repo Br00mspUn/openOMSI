@@ -2612,6 +2612,7 @@ impl Renderer {
                     cull: bool,
                     bias: i32,
                     alpha_to_coverage: bool,
+                    terrain_paint: bool,
                     samples: u32| {
             let use_alpha_to_coverage = alpha_to_coverage && samples > 1;
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -2656,8 +2657,8 @@ impl Renderer {
                         if fs == "fs_surface_depth" { wgpu::ColorWrites::empty() } else { wgpu::ColorWrites::ALL },
                         fs != "fs_surface_depth",
                     ),
-                    // only the alpha-tested pipelines keep their `discard` (see ALPHA_TEST
-                    // in shader.wgsl): early depth testing for everything else
+                    // Only cutouts and painted terrain keep their discard; opaque and
+                    // ordinary blended materials retain early depth testing.
                     compilation_options: wgpu::PipelineCompilationOptions {
                         constants: &[
                             ("ALPHA_TEST", if alpha_to_coverage { 1.0 } else { 0.0 }),
@@ -2665,6 +2666,7 @@ impl Renderer {
                                 "ALPHA_TO_COVERAGE",
                                 if use_alpha_to_coverage { 1.0 } else { 0.0 },
                             ),
+                            ("TERRAIN_PAINT", if terrain_paint { 1.0 } else { 0.0 }),
                         ],
                         ..Default::default()
                     },
@@ -2681,9 +2683,9 @@ impl Renderer {
         let scene_pipelines = |f: wgpu::TextureFormat, fs: &str, samples: u32| -> Vec<wgpu::RenderPipeline> {
             let mut out = Vec::with_capacity(PIPE_KINDS as usize * 4);
             for kind in 0..PIPE_KINDS {
-                let blend = (kind == PIPE_BLEND || kind == PIPE_BLEND_NO_WRITE)
+                let blend = matches!(kind, PIPE_BLEND | PIPE_BLEND_NO_WRITE | PIPE_TERRAIN_PAINT)
                     .then_some(wgpu::BlendState::ALPHA_BLENDING);
-                let depth_write = kind != PIPE_BLEND_NO_WRITE;
+                let depth_write = kind != PIPE_BLEND_NO_WRITE && kind != PIPE_TERRAIN_PAINT;
                 for cull in [false, true] {
                     for surface in [false, true] {
                         out.push(make(
@@ -2694,6 +2696,7 @@ impl Renderer {
                             cull,
                             if surface { bias } else { 0 },
                             kind == PIPE_ALPHA_TEST,
+                            kind == PIPE_TERRAIN_PAINT && fs == "fs_enhanced",
                             samples,
                         ));
                     }
@@ -8987,6 +8990,19 @@ impl Renderer {
                         } else {
                             PIPE_BLEND
                         };
+                        // Only tile painting gets the zero-coverage fast path. Other
+                        // no-write blends (splines, glass, decals) keep their shader.
+                        let kind = if kind == PIPE_BLEND_NO_WRITE
+                            && mat.alpha == AlphaMode::Blend
+                            && inst.ground_layer
+                            && !inst.presurface
+                            && mat.uniform.extra[0] > 0.5
+                            && mat.transmap.is_some_and(|(_, alpha)| alpha)
+                        {
+                            PIPE_TERRAIN_PAINT
+                        } else {
+                            kind
+                        };
                         let item = DrawItem {
                             pipe: pipe_code(
                                 kind,
@@ -9027,12 +9043,18 @@ impl Renderer {
             prepass_batches = pre_batches;
         }
         // OMSI_SKIP_PIPE=3,1: leave pipeline kinds out of the main pass (0 opaque, 1 alpha
-        // tested, 2 blended, 3 blended without depth writes, 4 surface depth) - with
+        // tested, 2 blended, 3 blended without depth writes, 4 surface depth, 5 terrain
+        // paint; 3 includes its specialized terrain variant) - with
         // OMSI_GPU_TIMERS_RAW, what each kind costs the GPU
         if let Ok(skip) = omsi_cfg::env::var("OMSI_SKIP_PIPE") {
             let skip: Vec<u8> = skip.split(',').filter_map(|x| x.trim().parse().ok()).collect();
-            main_batches.retain(|b| !skip.contains(&(b.pipe / 4)));
-            cab_batches.retain(|b| !skip.contains(&(b.pipe / 4)));
+            let include = |b: &Batch| {
+                let kind = b.pipe / 4;
+                !skip.contains(&kind)
+                    && !(kind == PIPE_TERRAIN_PAINT && skip.contains(&PIPE_BLEND_NO_WRITE))
+            };
+            main_batches.retain(include);
+            cab_batches.retain(include);
         }
         if debug_draws {
             log::info!("  main pass: {} opaque/alpha-tested and {} blended draws in {} batches; prepass {} batches; draw list {} entries", main_draws[0], main_draws[1], main_batches.len(), prepass_batches.len(), list.len());
@@ -11060,13 +11082,14 @@ fn encode_batches_filtered<'a, E: wgpu::util::RenderEncoder<'a>>(
 }
 
 /// Main pass pipeline kinds (`pipe_code`): opaque, alpha-tested, blended, blended
-/// without depth write, and the depth-only coverage of composed ground surfaces.
+/// without depth write, depth-only surface coverage, and painted terrain without depth write.
 const PIPE_OPAQUE: u8 = 0;
 const PIPE_ALPHA_TEST: u8 = 1;
 const PIPE_BLEND: u8 = 2;
 const PIPE_BLEND_NO_WRITE: u8 = 3;
 const PIPE_SURFACE_DEPTH: u8 = 4;
-const PIPE_KINDS: u8 = 5;
+const PIPE_TERRAIN_PAINT: u8 = 5;
+const PIPE_KINDS: u8 = 6;
 
 fn effective_render_phase(instance: &Instance) -> RenderPhase {
     if instance.presurface {
@@ -11947,6 +11970,180 @@ mod tests {
 
     #[test]
     #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
+    fn terrain_paint_fast_path_preserves_composition() {
+        fn quad(
+            renderer: &Renderer,
+            scene: &mut Scene,
+            rect: [f32; 4],
+            z: f32,
+            mat: MaterialId,
+        ) -> usize {
+            let [left, right, bottom, top] = rect;
+            let mesh = renderer.add_mesh(
+                scene,
+                &MeshData {
+                    positions: vec![
+                        Vec3::new(left, bottom, z),
+                        Vec3::new(right, bottom, z),
+                        Vec3::new(right, top, z),
+                        Vec3::new(left, top, z),
+                    ],
+                    normals: vec![Vec3::Z; 4],
+                    uvs: vec![
+                        glam::Vec2::ZERO,
+                        glam::Vec2::X,
+                        glam::Vec2::ONE,
+                        glam::Vec2::Y,
+                    ],
+                    indices: vec![0, 1, 2, 0, 2, 3],
+                    ranges: vec![(0, 6, 0)],
+                    one_sided: false,
+                },
+            );
+            renderer.add_surface_instance(scene, mesh, DVec3::ZERO, Mat4::IDENTITY, vec![mat])
+        }
+        for msaa in [1, 4] {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+            let mut renderer = pollster::block_on(Renderer::new_with(
+                &instance,
+                None,
+                Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+                RenderOptions {
+                    msaa,
+                    ssao: false,
+                    shadow_size: 1024,
+                    fxaa: false,
+                    render_scale: 1.0,
+                    ..Default::default()
+                },
+            ))
+            .expect("test renderer");
+            let mut scene = renderer.new_scene();
+            let base = renderer.add_terrain_material(&mut scene, None, None, None, 1.0, None, 1.0);
+            let ground = quad(&renderer, &mut scene, [-6.0, 6.0, -6.0, 6.0], 0.0, base);
+            scene.instances[ground].render_phase = RenderPhase::Terrain;
+            let mut paint_materials = Vec::new();
+            for (rgb, alphas) in [
+                ([160, 40, 40], [0, 0, 112, 128, 160, 255, 255]),
+                ([40, 160, 40], [255, 255, 160, 128, 112, 0, 0]),
+            ] {
+                let diffuse = renderer.add_texture(
+                    &mut scene,
+                    &omsi_texture::Image {
+                        width: 1,
+                        height: 1,
+                        rgba: vec![rgb[0], rgb[1], rgb[2], 255],
+                        has_alpha: false,
+                    },
+                    false,
+                );
+                let mask = renderer.add_texture(
+                    &mut scene,
+                    &omsi_texture::Image {
+                        width: 7,
+                        height: 1,
+                        rgba: alphas
+                            .into_iter()
+                            .flat_map(|a| [255, 255, 255, a])
+                            .collect(),
+                        has_alpha: true,
+                    },
+                    false,
+                );
+                let mat = renderer.add_terrain_layer_material(
+                    &mut scene,
+                    Some(diffuse),
+                    mask,
+                    None,
+                    1.0,
+                    None,
+                    1.0,
+                );
+                paint_materials.push(mat);
+                let layer = quad(&renderer, &mut scene, [-6.0, 6.0, -6.0, 6.0], 0.0, mat);
+                scene.instances[layer].ground_layer = true;
+                scene.instances[layer].render_phase = RenderPhase::Terrain;
+            }
+            let blue = renderer.add_material(
+                &mut scene,
+                None,
+                AlphaMode::Opaque,
+                [0.0, 0.0, 1.0, 1.0],
+                true,
+            );
+            let road = quad(&renderer, &mut scene, [-6.0, 6.0, -0.7, 0.7], 0.02, blue);
+            scene.instances[road].render_phase = RenderPhase::Spline;
+            let camera = Camera {
+                position: DVec3::new(0.0, -0.105, 6.0),
+                yaw: 0.0,
+                pitch: -89.0,
+                roll: 0.0,
+                fov_deg: 90.0,
+                near: 0.1,
+                far: 100.0,
+            };
+            // Compare identical scene data through the specialized and original no-write
+            // pipelines, including water's opacity and wet-ground reflection coverage.
+            for (wetness, water) in [(0.0, false), (1.0, false), (1.0, true)] {
+                if water {
+                    for &mat in &paint_materials {
+                        scene.materials[mat].uniform.ambient[3] = 2.0;
+                        renderer.queue.write_buffer(
+                            &scene.materials[mat].buf,
+                            0,
+                            bytemuck::bytes_of(&scene.materials[mat].uniform),
+                        );
+                    }
+                }
+                let lighting = Lighting {
+                    enhanced: true,
+                    shadows: false,
+                    fog_density: 0.0,
+                    wetness,
+                    ..Default::default()
+                };
+                let actual = renderer
+                    .render_to_image(&mut scene, 64, 64, &camera, &lighting)
+                    .unwrap();
+                let pp = renderer.hdr_pass.as_mut().unwrap();
+                let mut saved = Vec::new();
+                for variant in 0..4 {
+                    let original = pp.pipelines[PIPE_BLEND_NO_WRITE as usize * 4 + variant].clone();
+                    saved.push(std::mem::replace(
+                        &mut pp.pipelines[PIPE_TERRAIN_PAINT as usize * 4 + variant],
+                        original,
+                    ));
+                }
+                let expected = renderer
+                    .render_to_image(&mut scene, 64, 64, &camera, &lighting)
+                    .unwrap();
+                for (variant, pipeline) in saved.into_iter().enumerate() {
+                    renderer.hdr_pass.as_mut().unwrap().pipelines
+                        [PIPE_TERRAIN_PAINT as usize * 4 + variant] = pipeline;
+                }
+                let delta = actual
+                    .iter()
+                    .zip(&expected)
+                    .map(|(a, b)| a.abs_diff(*b))
+                    .max()
+                    .unwrap();
+                assert!(
+                    delta <= 2,
+                    "paint composition changed by {delta}: MSAA {msaa}, wet {wetness}, water {water}"
+                );
+                let centre = &actual[(32 * 64 + 32) * 4..(32 * 64 + 32) * 4 + 3];
+                if debug_view() <= 0.5 {
+                    assert!(
+                        centre[2] > centre[0] + 30 && centre[2] > centre[1] + 30,
+                        "paint hid the road: {centre:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
     fn cached_bounds_follow_transforms_skinning_and_recycled_resources() {
         let adapter = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let renderer = pollster::block_on(Renderer::new_with(
@@ -12810,6 +13007,8 @@ mod tests {
         use wgpu::naga;
         let modules = [
             ("scene", scene_shader_source(false)),
+            ("scene opaque", scene_shader_source(false)),
+            ("scene terrain paint", scene_shader_source(false)),
             ("sky", sky_shader_source()),
             ("corona", corona_shader_source()),
             ("post", include_str!("post.wgsl").to_string()),
@@ -12838,12 +13037,19 @@ mod tests {
             )
             .validate(&module)
             .unwrap_or_else(|e| panic!("{name}: {e:?}"));
-            // the backends take no override: resolved to their defaults as wgpu does
+            // Exercise the painted-ground specialization as well as the default shader.
+            let mut constants = naga::back::PipelineConstants::default();
+            if name.starts_with("scene ") {
+                constants.insert("ALPHA_TEST".into(), 0.0);
+            }
+            if *name == "scene terrain paint" {
+                constants.insert("TERRAIN_PAINT".into(), 1.0);
+            }
             let (module, info) = naga::back::pipeline_constants::process_overrides(
                 &module,
                 &info,
                 None,
-                &Default::default(),
+                &constants,
             )
             .unwrap_or_else(|e| panic!("{name}: overrides: {e:?}"));
             let (module, info) = (module.into_owned(), info.into_owned());
@@ -12913,8 +13119,10 @@ mod tests {
         let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())
             .validate(&module)
             .expect("validate");
+        let constants = [("ALPHA_TEST".into(), 0.0), ("TERRAIN_PAINT".into(), 1.0)]
+            .into_iter().collect();
         let (module, info) =
-            naga::back::pipeline_constants::process_overrides(&module, &info, None, &Default::default()).expect("overrides");
+            naga::back::pipeline_constants::process_overrides(&module, &info, None, &constants).expect("overrides");
         for version in [glsl::Version::Embedded { version: 310, is_webgl: false }, glsl::Version::Desktop(430)] {
             let options = glsl::Options { version, ..Default::default() };
             for entry in &module.entry_points {

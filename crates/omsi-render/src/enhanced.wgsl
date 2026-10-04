@@ -7,6 +7,9 @@
 // it is, the o3d specular power how rough a surface without one is, [matl_bumpmap] bends
 // the normal. Everything is drawn pre-exposed into the high-range target.
 
+// Only painted terrain may skip empty brush-mask pixels.
+override TERRAIN_PAINT: bool = false;
+
 @group(0) @binding(12) var t_probe: texture_cube<f32>;
 
 fn d_ggx(nh: f32, a: f32) -> f32 {
@@ -397,6 +400,12 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         alpha = 1.0;
     }
     alpha = alpha * in.params.x;
+    // Sparse brush masks still cover the whole tile mesh. Empty pixels contribute
+    // neither colour nor reflection coverage, so avoid lighting them. Keep fractional
+    // edges, debug views, and water (whose Fresnel can raise zero alpha) unchanged.
+    if (TERRAIN_PAINT && alpha == 0.0 && enh.debug.x <= 0.5 && material.ambient.w <= 1.5) {
+        discard;
+    }
     let pre = enh.exposure.x;
     let to_cam = eye - in.world;
     let dist = length(to_cam);
