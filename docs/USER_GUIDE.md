@@ -418,7 +418,9 @@ A station is an MP3, AAC or Ogg stream, or an `.m3u` / `.pls` playlist that poin
 The address is the one a media player opens - on the station's website, or in a directory
 such as radio-browser.info. Streams in HE-AAC with a program config element (some `.aacp`
 stations) cannot be played. `volume` (0..1) is the radio's loudness on top of the knob.
-The file is read when the game starts.
+The file is read when the game starts. The launcher's Settings → Sound → *Radio stations*
+edits the same list: a name and an address a station, the bin removes one, *Add a station*
+adds one, saved at once (the file's comments, `volume` and frequencies stay as they are).
 
 **Stations of a radio plugin.** Stations already set up for an OMSI radio plugin (SuperRadio
 and the like) are taken over: every line with an http(s) address in the text files under

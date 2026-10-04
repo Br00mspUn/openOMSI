@@ -881,7 +881,47 @@ fn sound_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, cols: [Rect; 2]) -> [f
     }
     toggle_setting(ui, s, dirty, c.row(), "Doppler effect", "doppler");
     sel_setting(ui, s, dirty, "s-voices", c.row(), "Passenger voices", "pax_voices", &[("all", "Greetings and tickets"), ("tickets", "Only the ticket asked for"), ("off", "Silent")]);
-    [c.used(), 0.0]
+    [c.used(), radio_stations(ui, cols[1])]
+}
+
+thread_local! {
+    /// The radio stations as the Sound settings edit them (`radio.cfg`, read the first time).
+    static RADIO: std::cell::RefCell<Option<Vec<(String, String)>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The bus radios' internet stations (`radio.cfg`, see `radio`): each with its name and
+/// address, removed or added here, saved at once (#857). Returns the column's height.
+fn radio_stations(ui: &mut Ui, r: Rect) -> f32 {
+    let mut c = Col::new(ui, r, "Radio stations");
+    c.y += ui.paragraph("A radio's station button n plays the n-th station, a cassette player the first; Shift+R steps through them. An address is an MP3, AAC or Ogg stream or an .m3u/.pls playlist.", Vec2::new(c.inner.x, c.y), c.inner.w, 12.5, Weight::Regular, TEXT_DIM) + 8.0;
+    RADIO.with(|cell| {
+        let mut cell = cell.borrow_mut();
+        let list = cell.get_or_insert_with(crate::radio::own_stations);
+        let mut changed = false;
+        let mut remove = None;
+        for (k, (name, address)) in list.iter_mut().enumerate() {
+            let row = c.row();
+            let nw = (row.w * 0.3).round();
+            changed |= ui.text_input(&format!("radio-name-{k}"), Rect::new(row.x, row.y, nw, row.h), name, "Name", None);
+            changed |= ui.text_input(&format!("radio-url-{k}"), Rect::new(row.x + nw + 8.0, row.y, row.w - nw - 8.0 - 36.0, row.h), address, "https://…", None);
+            if ui.icon_button(&format!("radio-del-{k}"), Vec2::new(row.right() - 16.0, row.center().y), 14.0, "delete", "Remove this station") {
+                remove = Some(k);
+            }
+        }
+        if let Some(k) = remove {
+            list.remove(k);
+            changed = true;
+        }
+        if ui.button("radio-add", c.row(), "Add a station", Some("add"), ButtonKind::Normal) {
+            list.push((String::new(), String::new()));
+        }
+        if changed {
+            if let Err(e) = crate::radio::save_stations(list) {
+                log::warn!("radio.cfg: {e}");
+            }
+        }
+    });
+    c.used()
 }
 
 /// How the world behaves: passengers, traffic, collisions, wear, the clock.
@@ -2527,7 +2567,8 @@ mod settings_tests {
         if cfg!(windows) {
             camera.extend(["set-vr", "s-vr-scale", "s-vr-head-smoothing", "s-vr-mirror-rate", "set-vr_desktop_mirror", "s-go-vr-keys"]);
         }
-        let sound = vec!["s-vol", "s-volai", "s-volsc", "set-doppler", "s-voices"];
+        // (the radio stations: one, see `frame`)
+        let sound = vec!["s-vol", "s-volai", "s-volsc", "set-doppler", "s-voices", "radio-name-0", "radio-url-0", "radio-del-0", "radio-add"];
         let gameplay = vec![
             "s-board", "set-exact_fare", "s-pax", "set-get_up", "s-unsched", "s-maxsched", "s-maxpark",
             "s-maint", "set-collision_vehicles", "set-collision_objects", "set-collision_pedestrians", "set-use_real_time", "set-use_real_date", "set-time_sync", "set-metar_sync", "s-timespeed",
@@ -2553,8 +2594,12 @@ mod settings_tests {
         Outside { update: Status::Idle, check_updates: false, reset: false, controls: None }
     }
 
-    /// One frame of tab `tab`, its two columns tall enough that nothing is cut off.
+    /// One frame of tab `tab`, its two columns tall enough that nothing is cut off. The Sound
+    /// tab lists one radio station (not the radio.cfg of whoever runs the tests).
     fn frame(ui: &mut Ui, tab: usize, s: &mut Value, out: &mut Outside) {
+        RADIO.with(|r| {
+            r.borrow_mut().get_or_insert_with(|| vec![("One".into(), "https://example.org/one.mp3".into())]);
+        });
         ui.begin(Vec2::new(1200.0, 2000.0), 1.0, 1.0 / 60.0);
         let mut dirty = 0.0;
         settings_tab(ui, tab, s, &mut dirty, out, [Rect::new(0.0, 0.0, 580.0, 2000.0), Rect::new(620.0, 0.0, 580.0, 2000.0)]);
