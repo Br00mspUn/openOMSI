@@ -1039,6 +1039,7 @@ impl ApplicationHandler for App {
                                 look,
                                 &self.view,
                                 self.settings.seat_pitch_deg,
+                                vr_on,
                             );
                             // what turns the bus's own camera into the picture: the head's turn,
                             // the field of view setting and the zoom (for the camera left in a
