@@ -13645,7 +13645,7 @@ mod tests {
             path: dir.join("tile_0_0.map"),
             base_terrain: Terrain::flat(),
             align: Vec::new(),
-            hole_outlines: Vec::new(),
+            hole_rims: Vec::new(),
             water: None,
             bakes_light_map: false,
             splines: Vec::new(),
