@@ -1733,7 +1733,7 @@ fn gl_worker_turn() -> Option<std::sync::MutexGuard<'static, ()>> {
 
 /// The card's own memory in MB where the system tells it: Windows, through DXGI, for
 /// whichever backend draws; Linux, through the DRM driver's sysfs (amdgpu; not
-/// NVIDIA's own driver) - wgpu does not say.
+/// NVIDIA's own driver, whose memory [`vulkan_vram_mb`] reads from Vulkan instead).
 fn dedicated_vram_mb(info: &wgpu::AdapterInfo) -> Option<u64> {
     #[cfg(windows)]
     unsafe {
@@ -1791,7 +1791,7 @@ fn vulkan_vram_mb(adapter: &wgpu::Adapter) -> Option<u64> {
     let props = unsafe { hal.shared_instance().raw_instance().get_physical_device_memory_properties(hal.raw_physical_device()) };
     props.memory_heaps[..props.memory_heap_count as usize]
         .iter()
-        .filter(|h| h.flags.as_raw() & 1 != 0)
+        .filter(|h| h.flags.contains(ash::vk::MemoryHeapFlags::DEVICE_LOCAL))
         .map(|h| h.size >> 20)
         .max()
 }
