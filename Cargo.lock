@@ -3402,6 +3402,7 @@ name = "omsi-render"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ash",
  "bytemuck",
  "glam",
  "hashbrown 0.15.5",
