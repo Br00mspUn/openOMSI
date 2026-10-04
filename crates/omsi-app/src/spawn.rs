@@ -451,6 +451,7 @@ pub(crate) fn spawn_player(
         side_lights_by_l: false,
         driver: None,
         ibis_duty: None,
+        blind_pick: None,
         ibis_typist: None,
         duty_typed: false,
         html_next_stop: None,

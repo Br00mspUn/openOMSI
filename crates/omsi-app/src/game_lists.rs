@@ -102,7 +102,8 @@ fn numeric_ibis_line(line: &str) -> bool {
 }
 
 /// The route number on the bus's IBIS and display, as picked or typed in the destination
-/// list (the destination stays: the one on the display now, else the first).
+/// list (the destination stays: the one on the display now, else the first -
+/// `schedule::shown_destination`).
 pub(crate) fn set_route_by_hand(app: &mut App, line: &str) {
     let line = line.trim();
     if line.is_empty() {
@@ -111,19 +112,10 @@ pub(crate) fn set_route_by_hand(app: &mut App, line: &str) {
     if let Some(p) = app.player.as_mut() {
         if numeric_ibis_line(line) {
             let hof = p.vehicle.host.hof.clone();
-            let code = p.vehicle.var("IBIS_TerminusCode").unwrap_or(-1.0) as i32;
-            let named = |t: &&omsi_vehicle::hof::Terminus| t.strings.first().is_some_and(|s| !s.trim().is_empty());
-            // (by its place in the depot file: by name it was the first of that name)
-            let index = p.vehicle.var("IBIS_TerminusIndex").filter(|i| *i >= 0.0).map(|i| i.round() as usize);
-            let term = hof.as_ref().and_then(|h| {
-                let ti = index
-                    .filter(|&i| h.termini.get(i).is_some_and(|t| t.code == code))
-                    .or_else(|| h.termini.iter().position(|t| t.code == code))
-                    .or_else(|| h.termini.iter().position(|t| named(&t)))?;
-                Some((h, ti))
-            });
-            if let Some((hof, ti)) = term {
-                crate::schedule::set_player_destination_at(&mut p.vehicle, hof, line, ti, &[]);
+            if let Some(hof) = hof.as_deref() {
+                if let Some(ti) = crate::schedule::shown_destination(&p.vehicle, hof, p.blind_pick.as_ref()) {
+                    p.set_destination_by_hand(hof, line, ti);
+                }
             }
         } else {
             // OMSI's route-number field is also used as arbitrary display text. Do not
@@ -718,7 +710,7 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                     // (the line on the IBIS stays; only the destination changes)
                     let line = p.vehicle.var("IBIS_LinieKurs").filter(|l| *l > 0.0).map(|l| format!("{}", l as i64)).unwrap_or_default();
                     let name = t.strings.iter().find(|s| !s.trim().is_empty()).cloned().unwrap_or_default();
-                    crate::schedule::set_player_destination_at(&mut p.vehicle, hof, &line, ti, &[]);
+                    p.set_destination_by_hand(hof, &line, ti);
                     log::info!("destination display set by hand: {} {} (terminus code now {:?})", t.code, name.trim(), p.vehicle.var("IBIS_TerminusCode"));
                     app.service_msg = Some((format!("Destination: {}", name.trim()), 3.0));
                 }

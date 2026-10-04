@@ -172,6 +172,9 @@ pub(crate) struct Player {
     /// The duty's trip to type into the IBIS once the auto-start has the electrics on:
     /// (line, terminus, the trip's stops, the stop the bus is at: its index and name).
     pub(crate) ibis_duty: Option<(String, String, Vec<String>, (usize, String))>,
+    /// A destination picked by hand for the bus's roller blind, kept until the electrics are
+    /// on and the auto-start is done (`schedule::turn_roller_blind`).
+    pub(crate) blind_pick: Option<schedule::BlindPick>,
     /// The IBIS being typed, with the line and terminus it is typed for.
     pub(crate) ibis_typist: Option<(omsi_sim::ibis::Typist, String, String, Vec<String>)>,
     /// The duty is typed into the IBIS by itself (after Shift+U or `--autostart`): a new
@@ -1069,6 +1072,7 @@ impl Player {
     pub(crate) fn tick_startup(&mut self, dt: f32) -> bool {
         self.apply_html_requests();
         self.tick_ibis(dt);
+        schedule::turn_roller_blind(&mut self.vehicle, &mut self.blind_pick, self.startup.is_some());
         let Some(mut s) = self.startup.take() else {
             return false;
         };
@@ -1203,6 +1207,8 @@ impl Player {
         if let Some((mut old, ..)) = self.ibis_typist.take() {
             old.abandon(&mut self.vehicle);
         }
+        // (the trip's destination, not one picked by hand before)
+        self.blind_pick = None;
         let hof = self.vehicle.host.hof.clone();
         // the keys a driver reaches: the cockpit's clickable switches and the keyboard's
         let mut keys: hashbrown::HashSet<String> = self
@@ -1319,9 +1325,20 @@ impl Player {
                     if let Some((mut old, ..)) = self.ibis_typist.take() {
                         old.abandon(&mut self.vehicle);
                     }
-                    schedule::set_player_destination_at(&mut self.vehicle, &hof, &line, ti, &[]);
+                    self.set_destination_by_hand(&hof, &line, ti);
                 }
             }
+        }
+    }
+
+    /// Row `ti` of the depot file on the destination display, set by hand (the destination
+    /// list, a bus page): on the IBIS now, on a roller blind once it can be turned
+    /// (`schedule::turn_roller_blind`).
+    pub(crate) fn set_destination_by_hand(&mut self, hof: &omsi_vehicle::hof::Hof, line: &str, ti: usize) {
+        self.blind_pick = schedule::set_player_destination_at(&mut self.vehicle, hof, line, ti, &[]);
+        schedule::turn_roller_blind(&mut self.vehicle, &mut self.blind_pick, self.startup.is_some());
+        if let Some(p) = &self.blind_pick {
+            log::info!("roller blind: destination {} kept until the bus is switched on", p.row);
         }
     }
 

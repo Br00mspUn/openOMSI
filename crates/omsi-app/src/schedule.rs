@@ -2828,15 +2828,81 @@ pub fn set_player_destination_directly(
 /// The same with terminus number `ti` of the depot file, for a destination picked from
 /// the list of them: termini often share a name (four "ul. Xutorskaya" of codes 92, 120,
 /// 123 and 124, one per route), and looked up by its name the pick always gave the first
-/// of them (#738).
+/// of them (#738). On a bus with a hand-cranked roller blind, what the blind is to be
+/// turned to ([`turn_roller_blind`]).
 pub fn set_player_destination_at(
     v: &mut omsi_sim::VehicleInstance,
     hof: &omsi_vehicle::Hof,
     line: &str,
     ti: usize,
     stops: &[&str],
-) {
-    set_destination_at(v, hof, line, ti, stops, true)
+) -> Option<BlindPick> {
+    set_destination_at(v, hof, line, ti, stops, true);
+    (has_roller_blind(v) && ti < hof.termini.len()).then(|| BlindPick { row: ti, line: line.trim().to_string() })
+}
+
+/// A destination picked by hand for a hand-cranked roller blind: its row of the depot file
+/// and the route number for the number rollers (`SetLineTo`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlindPick {
+    pub row: usize,
+    pub line: String,
+}
+
+/// Turn a hand-cranked roller blind to the destination picked for it (`pick`, taken once
+/// done), as Omsi.exe's line and destination dialog sets the driven bus
+/// (Tform_setline.Button1Click: TRoadVehicleInst.virtual_10, the AI's way - `SetLineTo`,
+/// `AI_target_index`, the `ai_scheduled_settarget` trigger, from which the stock blinds take
+/// their place): written into the IBIS alone, a pick never reached an SD77's blind, and the
+/// passengers go by the blind. Not before the main switch is on and the start-up
+/// (`starting`) is done, as for a duty ([`player_ibis`]): the stock trigger switches the
+/// main switch on itself, and the start-up's toggle then switched the electrics off again.
+/// A bus picked for cold keeps the pick until it is switched on.
+pub fn turn_roller_blind(v: &mut omsi_sim::VehicleInstance, pick: &mut Option<BlindPick>, starting: bool) {
+    if pick.is_none() || starting || !v.var("elec_busbar_main_sw").is_some_and(|x| x > 0.5) {
+        return;
+    }
+    let Some(p) = pick.take() else { return };
+    set_line_to(v, &p.line);
+    v.set_var("AI_target_index", p.row as f32);
+    v.trigger("ai_scheduled_settarget");
+    log::info!("roller blind turned to destination {} on route '{}'", p.row, p.line);
+}
+
+/// The row of the depot file a hand-cranked roller blind shows, as its script gives
+/// `target_index_int` (the stock rollband.osc's rollband_refreshIntIndex): its plug-in sign's
+/// (`rlbnd_steckschild_Termindex`, put up for a code above 1000) where it names a row with a
+/// sign text, else the row the blind is turned to (`rlbnd_ziel_target`). None for a bus
+/// without one or without the blind's variable.
+pub(crate) fn roller_blind_row(v: &omsi_sim::VehicleInstance, hof: &omsi_vehicle::Hof) -> Option<usize> {
+    if !has_roller_blind(v) {
+        return None;
+    }
+    let row = |name: &str| v.var(name).filter(|i| *i >= 0.0).map(|i| i.round() as usize).filter(|&i| i < hof.termini.len());
+    let plugged = row("rlbnd_steckschild_Termindex")
+        .filter(|&i| hof.termini[i].strings.first().is_some_and(|s| !s.is_empty()));
+    plugged.or_else(|| row("rlbnd_ziel_target"))
+}
+
+/// The row of the depot file whose destination the bus shows, which a route number set by
+/// hand keeps: a roller blind's - the one picked for it and not turned to yet (`pick`), else
+/// the one it shows ([`roller_blind_row`]; cranked by hand, the IBIS knows nothing of it, and
+/// a route pick turned the blind back to the IBIS's empty row) - else the IBIS's, by its place
+/// in the depot file (by name it was the first of that name), else the first of the IBIS's
+/// code, else the first with a name.
+pub(crate) fn shown_destination(
+    v: &omsi_sim::VehicleInstance,
+    hof: &omsi_vehicle::Hof,
+    pick: Option<&BlindPick>,
+) -> Option<usize> {
+    let code = v.var("IBIS_TerminusCode").unwrap_or(-1.0) as i32;
+    let index = v.var("IBIS_TerminusIndex").filter(|i| *i >= 0.0).map(|i| i.round() as usize);
+    pick.map(|p| p.row)
+        .filter(|&i| i < hof.termini.len())
+        .or_else(|| roller_blind_row(v, hof))
+        .or_else(|| index.filter(|&i| hof.termini.get(i).is_some_and(|t| t.code == code)))
+        .or_else(|| hof.termini.iter().position(|t| t.code == code))
+        .or_else(|| hof.termini.iter().position(|t| t.strings.first().is_some_and(|s| !s.trim().is_empty())))
 }
 
 /// What the IBIS shows once a driver has typed a trip's codes, standing at the timetable's
@@ -2895,7 +2961,7 @@ pub fn ibis_target(
 }
 
 /// A hand-cranked roller blind (SD79 or SD83 type), known by its own keys.
-fn has_roller_blind(v: &omsi_sim::VehicleInstance) -> bool {
+pub(crate) fn has_roller_blind(v: &omsi_sim::VehicleInstance) -> bool {
     ["rollband_sync", "rlbnd_ziel_start"]
         .iter()
         .any(|t| v.ty.program.trigger(t).is_some())
@@ -5104,14 +5170,23 @@ mod tests {
 
     /// A vehicle that declares the IBIS variables a destination is written to.
     fn ibis_test_vehicle() -> omsi_sim::VehicleInstance {
-        let dir = std::env::temp_dir().join(format!("omsi_ibis_dest_{}", std::process::id()));
+        script_test_vehicle("{frame}\n{end}\n", "IBIS_LinieKurs\nIBIS_TerminusIndex\nIBIS_TerminusCode\n", "IBIS_terminus_name\n")
+    }
+
+    /// A vehicle of the script `osc` that declares the variables `varlist` and the string
+    /// variables `stringvarlist` (one a line).
+    fn script_test_vehicle(osc: &str, varlist: &str, stringvarlist: &str) -> omsi_sim::VehicleInstance {
+        // (a folder of its own: tests run side by side)
+        static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("omsi_ibis_dest_{}_{n}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let script = dir.join("ibis.osc");
         let vars = dir.join("vars.txt");
         let strings = dir.join("strings.txt");
-        std::fs::write(&vars, "IBIS_LinieKurs\nIBIS_TerminusIndex\nIBIS_TerminusCode\n").unwrap();
-        std::fs::write(&strings, "IBIS_terminus_name\n").unwrap();
-        std::fs::write(&script, "{frame}\n{end}\n").unwrap();
+        std::fs::write(&vars, varlist).unwrap();
+        std::fs::write(&strings, stringvarlist).unwrap();
+        std::fs::write(&script, osc).unwrap();
         let program = omsi_script::compile(&omsi_script::CompileInput {
             scripts: vec![script],
             varlists: vec![vars],
@@ -5154,6 +5229,85 @@ mod tests {
         // (by its name it is the first of them, as the list used to set it)
         set_player_destination_directly(&mut v, Some(&hof), "39", "ul. Xutorskaya", &[]);
         assert_eq!(v.var("IBIS_TerminusCode"), Some(92.0));
+    }
+
+    /// A destination picked from the list (or a route number) turns a hand-cranked roller
+    /// blind to its row, as OMSI 2's line and destination dialog does: the AI's way, the
+    /// stock blinds' ai_scheduled_settarget taking AI_target_index for the blind's place.
+    /// On a bus not switched on yet (#1098: the SD77 is put on the road cold) once the main
+    /// switch is on and the start-up is done.
+    #[test]
+    fn a_destination_picked_from_the_list_turns_the_roller_blind() {
+        let osc = "{trigger:rollband_sync}\n{end}\n{trigger:ai_scheduled_settarget}\n(L.L.AI_target_index) (S.L.rlbnd_ziel_target)\n(L.$.SetLineTo) (S.$.rlbnd_line)\n{end}\n";
+        let vars = "IBIS_LinieKurs\nIBIS_TerminusIndex\nIBIS_TerminusCode\nAI_target_index\nrlbnd_ziel_target\nelec_busbar_main_sw\n";
+        let t = |code: i32, id: &str| omsi_vehicle::hof::Terminus { code, texture_id: id.into(), strings: vec![id.to_uppercase()], ..Default::default() };
+        let hof = omsi_vehicle::Hof { termini: vec![t(0, "Empty"), t(205, "U Ruhleben"), t(154, "U Rathaus Spandau")], ..Default::default() };
+        let mut v = script_test_vehicle(osc, vars, "SetLineTo\nrlbnd_line\nIBIS_terminus_name\n");
+        v.set_var("elec_busbar_main_sw", 1.0);
+        let mut pick = set_player_destination_at(&mut v, &hof, "145", 2, &[]);
+        turn_roller_blind(&mut v, &mut pick, false);
+        assert_eq!(pick, None);
+        assert_eq!(v.var("rlbnd_ziel_target"), Some(2.0));
+        assert_eq!(v.str_var("rlbnd_line"), "145");
+        // (and the IBIS as before)
+        assert_eq!(v.var("IBIS_TerminusCode"), Some(154.0));
+        // with the main switch off the pick waits for it (the stock trigger switches it on
+        // itself, and the start-up's toggle then switched it off again), and for the start-up
+        v.set_var("elec_busbar_main_sw", 0.0);
+        let mut pick = set_player_destination_at(&mut v, &hof, "145", 1, &[]);
+        turn_roller_blind(&mut v, &mut pick, false);
+        assert_eq!(v.var("rlbnd_ziel_target"), Some(2.0));
+        assert_eq!(v.var("IBIS_TerminusCode"), Some(205.0));
+        v.set_var("elec_busbar_main_sw", 1.0);
+        turn_roller_blind(&mut v, &mut pick, true);
+        assert_eq!(v.var("rlbnd_ziel_target"), Some(2.0));
+        turn_roller_blind(&mut v, &mut pick, false);
+        assert_eq!(v.var("rlbnd_ziel_target"), Some(1.0));
+        assert_eq!(pick, None);
+        // a bus without a roller blind has nothing to turn
+        let mut ibis = ibis_test_vehicle();
+        assert_eq!(set_player_destination_at(&mut ibis, &hof, "145", 1, &[]), None);
+    }
+
+    /// A route number set by hand keeps the destination a roller blind shows: the row it
+    /// was cranked to, of which the IBIS knows nothing (taken from the IBIS, at its empty
+    /// row, a route pick turned the blind back to Empty), its plug-in sign's where one is up,
+    /// and a pick still waiting for the electrics before either.
+    #[test]
+    fn a_route_picked_by_hand_keeps_the_roller_blinds_destination() {
+        let osc = "{trigger:rollband_sync}\n{end}\n{trigger:ai_scheduled_settarget}\n(L.L.AI_target_index) (S.L.rlbnd_ziel_target)\n(L.$.SetLineTo) (S.$.rlbnd_line)\n{end}\n";
+        let vars = "IBIS_LinieKurs\nIBIS_TerminusIndex\nIBIS_TerminusCode\nAI_target_index\nrlbnd_ziel_target\nrlbnd_steckschild_Termindex\nelec_busbar_main_sw\n";
+        let t = |code: i32, id: &str, sign: &str| omsi_vehicle::hof::Terminus { code, texture_id: id.into(), strings: vec![sign.into()], ..Default::default() };
+        let hof = omsi_vehicle::Hof {
+            termini: vec![t(0, "Empty", ""), t(205, "U Ruhleben", "U RUHLEBEN"), t(154, "U Rathaus Spandau", "U RATHAUS SPANDAU"), t(1001, "Falkensee Bhf", "FALKENSEE BHF")],
+            ..Default::default()
+        };
+        let mut v = script_test_vehicle(osc, vars, "SetLineTo\nrlbnd_line\nIBIS_terminus_name\n");
+        v.set_var("elec_busbar_main_sw", 1.0);
+        v.set_var("rlbnd_steckschild_Termindex", -1.0);
+        // cranked by hand to row 2; the IBIS (none on the bus) still at the empty row
+        v.set_var("rlbnd_ziel_target", 2.0);
+        v.set_var("IBIS_TerminusIndex", 0.0);
+        v.set_var("IBIS_TerminusCode", 0.0);
+        let ti = shown_destination(&v, &hof, None);
+        assert_eq!(ti, Some(2));
+        let mut pick = set_player_destination_at(&mut v, &hof, "5", ti.unwrap(), &[]);
+        turn_roller_blind(&mut v, &mut pick, false);
+        assert_eq!(v.var("rlbnd_ziel_target"), Some(2.0));
+        assert_eq!(v.str_var("rlbnd_line"), "  5");
+        assert_eq!(v.var("IBIS_TerminusCode"), Some(154.0));
+        // a plug-in sign up: its row (the script's target_index_int); not one of no sign text
+        v.set_var("rlbnd_steckschild_Termindex", 3.0);
+        assert_eq!(shown_destination(&v, &hof, None), Some(3));
+        v.set_var("rlbnd_steckschild_Termindex", 0.0);
+        assert_eq!(shown_destination(&v, &hof, None), Some(2));
+        // a destination picked before the bus was switched on, not turned to yet
+        assert_eq!(shown_destination(&v, &hof, Some(&BlindPick { row: 1, line: "5".into() })), Some(1));
+        // a bus without a roller blind: the IBIS's row
+        let mut ibis = ibis_test_vehicle();
+        ibis.set_var("IBIS_TerminusIndex", 1.0);
+        ibis.set_var("IBIS_TerminusCode", 205.0);
+        assert_eq!(shown_destination(&ibis, &hof, None), Some(1));
     }
 
     /// A depot file with a row of one destination per route, each of its own code (#738's
