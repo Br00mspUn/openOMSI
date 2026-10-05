@@ -28,6 +28,7 @@ _version: 2
   tl: "Kasalukuyang oras"
   zh: "当前时间"
   hi: "वर्तमान समय"
+  ca: "Hora actual"
 
 "Current date":
   de: "Aktuelles Datum"
@@ -55,6 +56,7 @@ _version: 2
   tl: "Kasalukuyang petsa"
   zh: "当前日期"
   hi: "वर्तमान तिथि"
+  ca: "Data actual"
 
 "Smooth mouse steering":
   ca: "Direcció suau amb el ratolí"
