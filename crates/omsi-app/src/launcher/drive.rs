@@ -231,6 +231,7 @@ fn duty_panel(l: &mut Launcher, body: Rect) {
         }
         l.ui.tooltip(leave, "Back to driving alone: the map, the clock and the weather are your own again");
         y += ROW + 12.0;
+        y += server_content_banner(l, Rect::new(body.x, y, body.w, 64.0));
     } else {
         let maps: Vec<(String, String)> = l.state.maps.iter().map(|m| (m.file.clone(), format!("{}{}{}", if l.state.fresh.contains_key(&m.file) { "★ NEW · " } else { "" }, if m.friendly.is_empty() { &m.name } else { &m.friendly }, if m.installed { "  (mod)" } else { "" }))).collect();
         let mut sel = maps.iter().position(|m| m.0 == l.state.choice.map).unwrap_or(0);
@@ -813,6 +814,82 @@ fn manufacturer_matches(model: &BusManufacturer, q: &str) -> bool {
     q.is_empty() || model.name.to_lowercase().contains(q) || model.variants.iter().any(|v| variant_matches(v, q))
 }
 
+/// On a server whose content (its map, the buses it offers, what they use) is not all
+/// installed here, or changed there since it was downloaded: how much, and a button that
+/// downloads it - or how that download goes. `r` is where it goes (its height is the
+/// banner's); returns the height used (0: nothing to say).
+fn server_content_banner(l: &mut Launcher, r: Rect) -> f32 {
+    use std::sync::atomic::Ordering;
+    if l.state.choice.lan_mode != "join" {
+        return 0.0;
+    }
+    let address = l.state.joined_server.clone().unwrap_or_else(|| l.state.choice.lan_addr.clone());
+    let dl = l.state.server_download.clone().filter(|d| d.address == address);
+    let lack = l.state.server_check.as_ref().filter(|c| c.address == address).and_then(|c| c.lacking());
+    let norm = |f: &str| f.replace('\\', "/").to_lowercase();
+    let (offered, buses_missing) = match l.state.host_vehicles() {
+        Some(list) => {
+            let have: std::collections::HashSet<String> = l.state.vehicles.iter().map(|v| norm(&v.file)).collect();
+            (list.len(), list.iter().filter(|f| !have.contains(&norm(f))).count())
+        }
+        None => (0, 0),
+    };
+    let server_map = l.state.server_info.get(&address).and_then(|x| x.1.as_ref().ok()).map(|i| i.map.replace('\\', "/")).unwrap_or_default();
+    let map_missing = !server_map.is_empty() && !l.state.maps.is_empty() && !l.state.maps.iter().any(|m| m.file.eq_ignore_ascii_case(&server_map));
+    let to_fetch = lack.as_ref().map(|x| x.missing + x.outdated).unwrap_or(0);
+    // (until the server has said what is missing, what the lists show)
+    let wanted = match &lack {
+        Some(_) => to_fetch > 0,
+        None => buses_missing > 0 || map_missing,
+    };
+    if dl.is_none() && !wanted {
+        return 0.0;
+    }
+    l.ui.p().rounded(r, RADIUS, FIELD);
+    l.ui.p().rounded_border(r, RADIUS, 1.0, EDGE);
+    let btn_w = 130.0_f32.min(r.w * 0.4);
+    let text = Rect::new(r.x + 12.0, r.y + 8.0, r.w - btn_w - 36.0, 20.0);
+    let sub = Rect::new(r.x + 12.0, r.y + 32.0, r.w - btn_w - 36.0, 20.0);
+    let btn = Rect::new(r.right() - btn_w - 12.0, r.y + (r.h - ROW) * 0.5, btn_w, ROW);
+    let finished = dl.as_ref().and_then(|d| d.finished.lock().ok().and_then(|f| f.clone()));
+    match (&dl, finished) {
+        (Some(d), None) => {
+            let (done, total) = (d.done.load(Ordering::Relaxed), d.total.load(Ordering::Relaxed));
+            let doing = d.doing.lock().map(|s| s.clone()).unwrap_or_default();
+            let head = if total > 0 { format!("{} {}% ({:.1} / {:.1} GB)", omsi_ui::tr("Downloading the server's content:"), done * 100 / total.max(1), done as f64 / 1e9, total as f64 / 1e9) } else { omsi_ui::tr("Downloading the server's content…").to_string() };
+            l.ui.text_in(&head, text, 12.5, Weight::Medium, TEXT, Align::Left);
+            l.ui.progress(Rect::new(sub.x, sub.y + 4.0, sub.w * 0.4, 6.0), if total > 0 { done as f32 / total as f32 } else { 0.0 }, total == 0);
+            l.ui.text_in(&doing, Rect::new(sub.x + sub.w * 0.4 + 10.0, sub.y, sub.w * 0.6 - 10.0, 20.0), 11.0, Weight::Regular, TEXT_DIM, Align::Left);
+            if l.ui.button("server-download-cancel", btn, "Cancel", Some("close"), ButtonKind::Normal) {
+                d.cancel.store(true, Ordering::Relaxed);
+            }
+        }
+        (_, finished) => {
+            let head = match &lack {
+                Some(x) if x.outdated > 0 && x.missing == 0 => format!("{} {} ({:.1} GB)", omsi_ui::tr("Changed on the server:"), x.outdated, x.bytes as f64 / 1e9),
+                Some(x) if x.missing > 0 => format!("{} {} ({:.1} GB){}", omsi_ui::tr("Server files missing:"), x.missing + x.outdated, x.bytes as f64 / 1e9, if x.map_missing { format!(" · {}", omsi_ui::tr("with its map")) } else { String::new() }),
+                _ if buses_missing > 0 => format!("{} {buses_missing} / {offered}", omsi_ui::tr("Server buses missing:")),
+                _ if map_missing => omsi_ui::tr("The server's map is not installed").to_string(),
+                _ => omsi_ui::tr("The server's content is installed").to_string(),
+            };
+            let (line, line_c) = match &finished {
+                Some(Ok(m)) => (m.clone(), OK),
+                Some(Err(e)) => (format!("{} {e}", omsi_ui::tr("The download failed:")), DANGER),
+                None => (omsi_ui::tr("Download it from the server: it is installed as a mod you can remove under Mods, and kept up to date with the server.").to_string(), TEXT_DIM),
+            };
+            l.ui.text_in(&head, text, 12.5, Weight::Medium, TEXT, Align::Left);
+            l.ui.tooltip(text, &head);
+            l.ui.text_in(&line, sub, 11.0, Weight::Regular, line_c, Align::Left);
+            l.ui.tooltip(sub, &line);
+            let label = if lack.as_ref().is_some_and(|x| x.missing == 0 && x.outdated > 0) { "Update" } else { "Download" };
+            if wanted && l.ui.button("server-download", btn, label, Some("download"), ButtonKind::Primary) {
+                l.state.download_server_content(&address);
+            }
+        }
+    }
+    r.h + 8.0
+}
+
 fn step_bus(l: &mut Launcher, r: Rect) {
     l.ui.heading(Rect::new(r.x, r.y, r.w, 24.0), "Choose a bus", None);
     let search = Rect::new(r.x, r.y + 32.0, r.w, ROW);
@@ -854,7 +931,9 @@ fn step_bus(l: &mut Launcher, r: Rect) {
         l.drive.only_favourites = only_now;
         l.ui.scroll.remove(&id_of("bus-model-list"));
     }
-    let list_y = search.bottom() + 32.0;
+    let mut list_y = search.bottom() + 32.0;
+    // a server's buses (and map) that are not installed here: they can be downloaded from it
+    list_y += server_content_banner(l, Rect::new(r.x, list_y, r.w, 64.0));
     let settings_h = if l.drive.vehicle_settings_open { 164.0 } else { 0.0 };
     let list = Rect::new(r.x, list_y, r.w, (r.bottom() - list_y - 132.0 - settings_h).max(100.0));
     l.ui.p().rounded(list, RADIUS, FIELD);

@@ -23616,3 +23616,44 @@ _version: 2
   vi: "Đã gán các số của cần số chữ H. Nếu cần số không có nút số trung gian, hãy bật về số trung gian trong Cài đặt → Lái xe → Tay cầm chơi game."
   id: "Gigi tuas H sudah ditetapkan. Jika tuas Anda tidak punya tombol netral, aktifkan kembali ke netral di Pengaturan → Mengemudi → Pengontrol game."
   ms: "Gear tuil H telah ditetapkan. Jika tuil anda tiada butang neutral, hidupkan kembali ke neutral di Tetapan → Pemanduan → Pengawal permainan."
+"Update":
+  ru: "Обновить"
+
+"Download":
+  ru: "Скачать"
+
+"Downloading the server's content:":
+  ru: "Загрузка контента сервера:"
+
+"Downloading the server's content…":
+  ru: "Загрузка контента сервера…"
+
+"Changed on the server:":
+  ru: "Изменилось на сервере:"
+
+"Server files missing:":
+  ru: "Не хватает файлов сервера:"
+
+"with its map":
+  ru: "вместе с картой"
+
+"Server buses missing:":
+  ru: "Не установлены автобусы сервера:"
+
+"The server's map is not installed":
+  ru: "Карта сервера не установлена"
+
+"The server's content is installed":
+  ru: "Контент сервера установлен"
+
+"The download failed:":
+  ru: "Загрузка не удалась:"
+
+"Download it from the server: it is installed as a mod you can remove under Mods, and kept up to date with the server.":
+  ru: "Скачайте его с сервера: он установится как мод (его можно удалить в разделе «Моды») и будет обновляться вместе с сервером."
+
+"This server allows only its own buses: choose one of them (or download them on the Bus step).":
+  ru: "На этом сервере можно ездить только на его автобусах: выберите один из них (или скачайте их на шаге «Автобус»)."
+
+"The server has not answered yet: try again in a moment.":
+  ru: "Сервер ещё не ответил: попробуйте через минуту."
