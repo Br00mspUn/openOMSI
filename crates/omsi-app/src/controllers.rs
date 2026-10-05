@@ -226,6 +226,23 @@ impl Analog {
 /// Below this a steering value counts as the wheel at its centre (see `stick_steers`).
 const CENTRE_SNAP: f32 = 0.03;
 
+/// How far the X axis of a device nobody set up must leave its centre before it steers.
+const FREE_AXIS_MOVED: f32 = 0.15;
+
+/// Whether the X axis (at `x`) of a device nobody set up steers: once it has left its
+/// centre, and from then on (`moved` keeps the devices that have).
+fn free_axis_steers(moved: &mut Vec<String>, name: &str, x: f32) -> bool {
+    if moved.iter().any(|n| n == name) {
+        return true;
+    }
+    if x.abs() < FREE_AXIS_MOVED {
+        return false;
+    }
+    log::info!("game controller {name}: its X axis moved, it steers now");
+    moved.push(name.to_string());
+    true
+}
+
 /// Whether a pad's left stick at `x` steers, given what steers already (`current`) and whether
 /// that is a device set up to steer. Only the first device used to: an idle joystick, wheel or
 /// virtual pad nobody set up (its X axis lends the steering) held the wheel at its centre and
@@ -968,6 +985,9 @@ pub struct Controllers {
     pub actions: Vec<(String, bool)>,
     /// Devices told about in the log (and on the screen) as not set up.
     announced: Vec<String>,
+    /// Devices nobody set up whose X axis has left its centre: only from then on does it
+    /// steer (an idle joystick beside the keyboard took the arrow keys for looking, #1476).
+    moved: Vec<String>,
     /// A message for the screen: a wheel that is not set up.
     pub notice: Option<String>,
     /// The steering device: its name, physical position (-1..1, before dead zone
@@ -1040,7 +1060,7 @@ impl Controllers {
     }
 
     fn with_devices(devices: Devices, cfg: Vec<DeviceCfg>) -> Controllers {
-        Controllers { settled: Vec::new(), devices, focused: true, cfg, held: HeldButtons::default(), editing: false, raw_buttons: Vec::new(), deadzone: 0.0, right_stick_look: true, pedal_throttle: 1.0, pedal_brake: 1.0, disabled: Vec::new(), ff_invert: false, ff_enabled: true, ff_road: 1.0, ff_engine: 1.0, ff_fade: FF_FADE, steer_gain: 1.0, enabled: true, actions: Vec::new(), announced: Vec::new(), notice: None, steer: None, ff_t: 0.0, ff_lateral: 0.0, ff_bump: 0.0, ff_bump_age: 0.0, ff_micro: Micro::default(), ff_vib: ScriptVib::default(), ff_rumble: 0.0, ff_source_logged: None, rumble: Vec::new(), #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel: None, #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel_tried: None }
+        Controllers { settled: Vec::new(), devices, focused: true, cfg, held: HeldButtons::default(), editing: false, raw_buttons: Vec::new(), deadzone: 0.0, right_stick_look: true, pedal_throttle: 1.0, pedal_brake: 1.0, disabled: Vec::new(), ff_invert: false, ff_enabled: true, ff_road: 1.0, ff_engine: 1.0, ff_fade: FF_FADE, steer_gain: 1.0, enabled: true, actions: Vec::new(), announced: Vec::new(), moved: Vec::new(), notice: None, steer: None, ff_t: 0.0, ff_lateral: 0.0, ff_bump: 0.0, ff_bump_age: 0.0, ff_micro: Micro::default(), ff_vib: ScriptVib::default(), ff_rumble: 0.0, ff_source_logged: None, rumble: Vec::new(), #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel: None, #[cfg(all(target_os = "linux", target_pointer_width = "64"))] wheel_tried: None }
     }
 
     /// A wheel or joystick steers the bus (then the arrow keys look around, as in OMSI:
@@ -1135,6 +1155,9 @@ impl Controllers {
                         self.notice = Some(format!("{} is not set up: it steers; set up its pedals and buttons in the launcher (Controls → Game controllers)", c.name));
                     }
                     if let Some((_, v)) = c.axes.iter().find(|(k, _)| *k == 0) {
+                        if !free_axis_steers(&mut self.moved, &c.name, *v) {
+                            continue;
+                        }
                         // (a joystick's centre is slack, so it gets a little dead zone; a
                         // force-feedback wheel's is not: 2 % of it held a 1080° wheel's
                         // picture 11° behind the rim, #866)
@@ -2626,6 +2649,19 @@ mod hot_reload_tests {
         assert_eq!((c.ff_vib.amp, c.ff_vib.period, c.ff_vib.t, c.ff_rumble), (0.4, 2.0, 0.12, 0.6));
         assert_eq!(c.actions.last(), Some(&("kw_s_1_fest".into(), false)));
         assert_eq!(c.configuration()[0].ff_invert, Some(false));
+    }
+
+    #[test]
+    fn a_device_nobody_set_up_steers_only_once_its_axis_moved() {
+        let mut moved = Vec::new();
+        // idle at its centre (or a little off it): it does not steer, so the arrow keys
+        // switch the interior camera as with no device at all
+        assert!(!free_axis_steers(&mut moved, "4 axes, 25 buttons, joystick", 0.0));
+        assert!(!free_axis_steers(&mut moved, "4 axes, 25 buttons, joystick", -0.1));
+        // turned: it steers, also when back at the centre
+        assert!(free_axis_steers(&mut moved, "4 axes, 25 buttons, joystick", 0.4));
+        assert!(free_axis_steers(&mut moved, "4 axes, 25 buttons, joystick", 0.0));
+        assert!(!free_axis_steers(&mut moved, "another joystick", 0.0));
     }
 
     #[test]
