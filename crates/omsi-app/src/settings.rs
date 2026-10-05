@@ -620,7 +620,14 @@ impl Settings {
         // `graphics` decides; a file without it (older builds) says only `enhanced`, and
         // its vanilla renderer is what is now called Vanilla+
         s.graphics = graphics.unwrap_or_else(|| if s.enhanced { "enhanced" } else { "vanilla_plus" }.to_string());
-        s.enhanced = s.graphics == "enhanced";
+        s.enhanced = s.graphics == "enhanced" || s.graphics == "enhanced_plus";
+        // Enhanced+ is Enhanced with ray tracing: its shadows, ambient occlusion and
+        // reflections are traced and belong to it - they cannot be switched off apart
+        if s.ray_tracing() {
+            s.shadows = true;
+            s.ssao = true;
+            s.reflections = true;
+        }
         if s.classic() {
             s.shadows = false;
             s.ssao = false;
@@ -661,6 +668,12 @@ impl Settings {
         text.push_str(&format!("right_stick_look={}\n", self.right_stick_look as u8));
         text.push_str(&format!("voice_chat={}\n", self.voice_chat as u8));
         text
+    }
+
+    /// Enhanced+ graphics: Enhanced with ray-traced sun shadows, ambient occlusion and
+    /// reflections (and the graded look that goes with them).
+    pub fn ray_tracing(&self) -> bool {
+        self.graphics == "enhanced_plus"
     }
 
     /// Vanilla graphics: the picture as OMSI 2 draws it.
@@ -704,13 +717,14 @@ impl Settings {
     }
 
     pub fn render_options(&self) -> omsi_render::RenderOptions {
-        omsi_render::RenderOptions { msaa: self.msaa, anisotropy: self.anisotropy, shadow_size: self.shadow_size, ssao: self.ssao, render_scale: self.render_scale, compress_textures: self.texture_compression, fxaa: self.post_aa != "off", min_obj_size: self.min_obj_size, max_obj_dist: self.object_distance(), omsi_shadow_casters: self.shadow_casters == "omsi", shadow_blobs: self.shadow_blobs, reflections: self.reflections, no_enhanced: graphics_mode(&self.graphics) != "enhanced" }
+        omsi_render::RenderOptions { msaa: self.msaa, anisotropy: self.anisotropy, shadow_size: self.shadow_size, ssao: self.ssao, render_scale: self.render_scale, compress_textures: self.texture_compression, fxaa: self.post_aa != "off", min_obj_size: self.min_obj_size, max_obj_dist: self.object_distance(), omsi_shadow_casters: self.shadow_casters == "omsi", shadow_blobs: self.shadow_blobs, reflections: self.reflections, no_enhanced: !matches!(graphics_mode(&self.graphics), "enhanced" | "enhanced_plus"), ray_tracing: self.ray_tracing() || crate::ENHANCED_PLUS.load(std::sync::atomic::Ordering::Relaxed) }
     }
 }
 
-/// `vanilla`, `vanilla_plus` or `enhanced` from the ways a file may spell them.
+/// `vanilla`, `vanilla_plus`, `enhanced` or `enhanced_plus` from the ways a file may spell them.
 pub fn graphics_mode(v: &str) -> &'static str {
     match v.trim().to_ascii_lowercase().replace(['-', ' '], "_").as_str() {
+        "enhanced_plus" | "enhanced+" | "enhancedplus" | "enhanced_+" | "2" => "enhanced_plus",
         "enhanced" | "1" => "enhanced",
         "vanilla" | "classic" | "original" | "omsi" | "omsi2" | "omsi_2" => "vanilla",
         _ => "vanilla_plus",
@@ -799,6 +813,10 @@ mod tests {
         assert!(Settings::from_text("graphics=enhanced\nenhanced=0\n").enhanced);
         assert_eq!(graphics_mode("Vanilla+"), "vanilla_plus");
         assert_eq!(graphics_mode("OMSI 2"), "vanilla");
+        assert_eq!(graphics_mode("Enhanced+"), "enhanced_plus");
+        let rt = Settings::from_text("graphics=enhanced_plus\nshadows=0\nssao=0\nreflections=0\n");
+        assert!(rt.enhanced && rt.ray_tracing() && rt.shadows && rt.ssao && rt.reflections);
+        assert!(rt.render_options().ray_tracing && !rt.render_options().no_enhanced);
         let s = Settings { graphics: "enhanced".into(), enhanced: true, ..Default::default() };
         assert_eq!(Settings::from_text(&s.to_text()), s);
     }

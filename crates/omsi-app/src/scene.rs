@@ -640,7 +640,7 @@ const SPLINE_OVERHEAD: f32 = 2.0;
 /// towards the eye by their depth bias instead, and an object lying that close over one
 /// went under it: a depot's parking bays were all gone (#1009).
 fn paint_at_foot(sco: &SceneryObject, meshes: &[(MeshData, Vec<omsi_o3d::Material>, Vec<MaterialDef>)]) -> bool {
-    if !matches!(sco.render_type, omsi_scenery::sco::RenderType::Normal) || sco.surface || meshes.is_empty() || meshes.iter().any(|(m, _, _)| m.positions.is_empty()) {
+    if sco.render_type.is_ground_layer() || sco.surface || meshes.is_empty() || meshes.iter().any(|(m, _, _)| m.positions.is_empty()) {
         return false;
     }
     let (lo, hi) = meshes.iter().flat_map(|(m, _, _)| m.positions.iter()).fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p.z), hi.max(p.z)));
@@ -5043,7 +5043,7 @@ impl World {
                 }
                 continue;
             }
-            let is_surface = !matches!(ot.sco.render_type, omsi_scenery::sco::RenderType::Normal)
+            let is_surface = ot.sco.render_type.is_ground_layer()
                 || ot.sco.surface;
             if check_objects && is_surface {
                 let over = pos.z - ground_at(pos.x, pos.y);
@@ -5585,7 +5585,7 @@ impl World {
                         // Laid on the ground (the terrain is cut under it): a `[surface]` object
                         // and one drawn as a ground layer (`[rendertype]`).
                         let surface =
-                            !matches!(ot.sco.render_type, omsi_scenery::sco::RenderType::Normal)
+                            ot.sco.render_type.is_ground_layer()
                                 || ot.sco.surface;
                         if !surface {
                             continue;
@@ -7166,7 +7166,7 @@ impl World {
                         (t.meshes.clone(), t.variants.clone(), t.lods.clone(), t.auto_night, t.lod0_lo, t.lod0_max, t.terrain_slots.clone())
                     };
                     let surface =
-                        !matches!(ot.sco.render_type, omsi_scenery::sco::RenderType::Normal)
+                        ot.sco.render_type.is_ground_layer()
                             || ot.sco.surface;
                     let render_phase = scenery_render_phase(ot.sco.render_type);
                     let has_lower = !type_lods.is_empty();
@@ -7961,7 +7961,7 @@ impl World {
                 continue;
             }
             let Some(ot) = types.iter().find(|t| t.sco.path == eo.sco) else { continue };
-            if ot.sco.surface || !matches!(ot.sco.render_type, omsi_scenery::sco::RenderType::Normal) {
+            if ot.sco.surface || ot.sco.render_type.is_ground_layer() {
                 continue;
             }
             let (mut n, mut inn, mut z0, mut z1) = (0usize, 0usize, f32::MAX, f32::MIN);
