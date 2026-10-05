@@ -165,6 +165,28 @@ omsi.every(60, function()
 end)
 ```
 
+#### Talking to other programs
+
+`omsi.send(port, text)` sends `text` as one UDP datagram to `127.0.0.1:port`: to another
+program on this computer (an overlay, a dashboard, a company's tracker), never over the
+network. It does not wait and nothing comes back: a message sent while no program listens
+is lost, so keep what must not be lost in `omsi.data` as well.
+
+| Returns | When |
+| --- | --- |
+| `true` | the message was handed to the system |
+| `false`, reason | the port is below 1024, the plugin sent 100 messages in the last second already, or the system refused it (a message longer than a datagram holds, about 64 KB) |
+
+```lua
+-- plugins/live.lua: the speed and the next stop, twice a second, for a program on port 47800
+omsi.every(0.5, function()
+  local i = omsi.info()
+  omsi.send(47800, string.format('{"speed":%.1f,"next_stop":%q}', i.speed or 0, i.next_stop or ""))
+end)
+```
+
+`nc -lu 47800` in a terminal shows what arrives.
+
 ### A bigger example: a stop announcer
 
 ```lua
@@ -190,7 +212,8 @@ end
 A Lua plugin gets Lua 5.4 with the safe libraries only: `string`, `table`, `math`, `utf8`,
 `coroutine`, `require` for its own folder, and `os.clock/time/date/difftime`. There is no
 `io`, no `os.execute`, no C modules and no `dofile`, so a plugin you download cannot touch
-your files beyond its own saved data.
+your files beyond its own saved data. It cannot reach the network either: `omsi.send` talks
+only to programs on this computer, and only to ports from 1024 up.
 
 * An error in a handler is written to `game.log` and shown on the screen; the other
   plugins and the game carry on. After 10 errors the plugin is switched off until you

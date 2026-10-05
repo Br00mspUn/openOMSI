@@ -8,12 +8,14 @@
 //!
 //! Each plugin has its own Lua state with the safe libraries only: no `io`, no `os`
 //! beyond the clock, no C modules and no `dofile`; `require` finds modules in the
-//! plugin's own folder. A call that runs longer than a second is stopped, and a plugin
+//! plugin's own folder. The one way out to other programs is `omsi.send`: UDP datagrams
+//! to this computer only. A call that runs longer than a second is stopped, and a plugin
 //! whose handlers keep failing is switched off for the session.
 
 use crate::PluginIo;
 use mlua::{Function, HookTriggers, Lua, LuaOptions, MultiValue, StdLib, Table, Value, VmState};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::net::{Ipv4Addr, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant, SystemTime};
@@ -24,6 +26,9 @@ const PRELUDE: &str = include_str!("prelude.lua");
 const CALL_BUDGET: Duration = Duration::from_secs(1);
 /// Failed calls after which a plugin is switched off.
 const MAX_ERRORS: u32 = 10;
+/// Most `omsi.send` messages of a plugin in one second, so a plugin cannot flood a program
+/// on this computer.
+const SEND_PER_SECOND: u32 = 100;
 
 /// The game's side while a plugin runs: set only for the length of a call.
 type IoSlot = Rc<Cell<Option<*mut (dyn PluginIo + 'static)>>>;
@@ -314,6 +319,18 @@ impl LuaPlugin {
             })?,
         )?;
 
+        // omsi.send(port, text): one UDP datagram to another program on this computer
+        let sender = RefCell::new(Sender::default());
+        omsi.set(
+            "send",
+            lua.create_function(move |_, (port, text): (i64, mlua::String)| {
+                Ok(match sender.borrow_mut().send(port, &text.as_bytes()) {
+                    Ok(()) => (true, None),
+                    Err(why) => (false, Some(why)),
+                })
+            })?,
+        )?;
+
         // saved data, only the plugin's own file
         let data_path = self.data_path.clone();
         omsi.set("_read_data", lua.create_function(move |_, ()| Ok(std::fs::read_to_string(&data_path).ok()))?)?;
@@ -409,6 +426,41 @@ impl LuaPlugin {
             self.call(io, |lua| lua.globals().get::<Table>("omsi")?.get::<Function>("_save")?.call::<()>(()));
         }
         self.lua = None;
+    }
+}
+
+/// A plugin's `omsi.send`: its socket, opened on the first message, and the messages of
+/// the current second.
+#[derive(Default)]
+struct Sender {
+    socket: Option<UdpSocket>,
+    second: Option<Instant>,
+    sent: u32,
+}
+
+impl Sender {
+    /// Send `data` to `127.0.0.1:port`, never waiting: with nobody listening it is lost,
+    /// as UDP is. Err says why it was not sent (the system's reason for a message longer
+    /// than a datagram holds, about 64 KB).
+    fn send(&mut self, port: i64, data: &[u8]) -> Result<(), String> {
+        let port = u16::try_from(port).ok().filter(|p| *p >= 1024).ok_or("the port must be 1024-65535")?;
+        if self.second.is_none_or(|t| t.elapsed() >= Duration::from_secs(1)) {
+            self.second = Some(Instant::now());
+            self.sent = 0;
+        }
+        if self.sent >= SEND_PER_SECOND {
+            return Err(format!("more than {SEND_PER_SECOND} messages in a second"));
+        }
+        if self.socket.is_none() {
+            let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|e| e.to_string())?;
+            socket.set_nonblocking(true).map_err(|e| e.to_string())?;
+            self.socket = Some(socket);
+        }
+        let socket = self.socket.as_ref().expect("opened above");
+        socket.send_to(data, (Ipv4Addr::LOCALHOST, port)).map_err(|e| e.to_string())?;
+        // (only what went out counts)
+        self.sent += 1;
+        Ok(())
     }
 }
 
