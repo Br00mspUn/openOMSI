@@ -1742,6 +1742,7 @@ pub const LANGUAGES: &[(&str, &str, &str, &[&str])] = &[
     ("CZE", "Čeština", "cs", &["cs", "cz", "czech", "čeština", "ces"]),
     ("HUN", "Magyar", "hu", &["hu", "hungarian", "magyar"]),
     ("ESP", "Español", "es", &["es", "spa", "spanish", "español"]),
+    ("CAT", "Català", "ca", &["ca", "cat", "ca-es", "ca-ad", "catalan", "català", "catala"]),
     ("PTB", "Português (Brasil)", "pt", &["pt", "br", "pt-br", "por", "portuguese", "português"]),
     ("PTP", "Português (Portugal)", "pt-pt", &["pt-pt", "pt_pt", "pt-portugal", "portuguese-portugal", "português (portugal)", "português de portugal"]),
     ("ITA", "Italiano", "it", &["it", "italian", "italiano"]),
@@ -2868,6 +2869,18 @@ mod tests {
         assert_eq!(language_iso("PTB"), "pt");
         assert_eq!(language_code("pt-PT"), "PTP");
         assert_eq!(language_iso("PTP"), "pt-pt");
+    }
+
+    #[test]
+    fn catalan_survives_settings_round_trip() {
+        for alias in ["CAT", "ca", "ca-ES", "ca-AD", "Català", "catala", "Catalan"] {
+            assert_eq!(language_code(alias), "CAT");
+            assert_eq!(language_iso(alias), "ca");
+            let settings = settings_from_text(Some(&format!("language={alias}\n")));
+            assert_eq!(settings["language"], "CAT");
+            let saved = settings_to_text(&settings, None);
+            assert_eq!(settings_from_text(Some(&saved))["language"], "CAT");
+        }
     }
 
     #[test]
