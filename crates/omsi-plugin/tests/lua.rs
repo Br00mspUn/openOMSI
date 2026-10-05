@@ -124,3 +124,45 @@ fn errors_and_runaway_loops_are_contained() {
     assert!(bus.messages.iter().any(|m| m.contains("boom")));
 }
 
+
+#[test]
+fn send_reaches_a_program_on_this_computer_only() {
+    let listener = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    listener.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let d = dir("send");
+    std::fs::write(
+        d.join("sender.lua"),
+        format!(
+            r#"
+            local done = false
+            function on_frame()
+              if done then return end
+              done = true
+              assert(omsi.send({port}, "hello"))
+              local ok, why = omsi.send(80, "x")
+              assert(not ok and why:find("1024"), why)
+              -- (no limit of its own: a large message goes, one too large for a datagram not)
+              assert(omsi.send({port}, string.rep("x", 32 * 1024)))
+              ok, why = omsi.send({port}, string.rep("x", 70 * 1024))
+              assert(not ok and why, "a message over 64 KB")
+              local sent = 2
+              for _ = 1, 150 do
+                if omsi.send({port}, "tick") then sent = sent + 1 end
+              end
+              omsi.message("sent " .. sent)
+            end
+            "#
+        ),
+    )
+    .unwrap();
+    let mut plugins = Plugins::load(&[d.clone()], &HostConfig::default());
+    let mut bus = Bus { vehicle: true, ..Default::default() };
+    plugins.frame(&mut bus);
+    assert_eq!(bus.messages, ["sent 100"], "at most 100 messages in a second");
+    let mut buf = vec![0u8; 64 * 1024];
+    let (n, from) = listener.recv_from(&mut buf).unwrap();
+    assert_eq!(&buf[..n], b"hello");
+    assert!(from.ip().is_loopback());
+    assert_eq!(listener.recv(&mut buf).unwrap(), 32 * 1024, "the large message whole");
+}
