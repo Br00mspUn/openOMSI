@@ -41,7 +41,7 @@ glam = "0.30"
 rayon = "1.10"
 walkdir = "2"
 clap = { version = "4", features = ["derive"] }
-hashbrown = "0.15"
+hashbrown = "0.17"
 smallvec = "1"
 parking_lot = "0.12"
 rand = "0.9"
