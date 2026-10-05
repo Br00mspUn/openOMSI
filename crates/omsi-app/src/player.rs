@@ -67,7 +67,6 @@ mod driver_head_look_tests {
     }
 }
 
-
 /// The vehicle actions of the keys held whose `Inputs/keyboard.cfg` entry has the "held"
 /// flag ([`omsi_content::input::KEY_HOLD`], the key list's " *"), by scan code: Omsi.exe
 /// (0x6466b8) gives the vehicle their action again every frame the key stays down, not
