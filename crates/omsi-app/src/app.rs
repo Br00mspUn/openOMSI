@@ -251,6 +251,9 @@ pub(crate) struct App {
     pub(crate) own_keys: std::collections::HashSet<i32>,
     /// The same for keys held with Shift (a Shift+number of the player's own is not a door key).
     pub(crate) own_shift: std::collections::HashSet<i32>,
+    /// A binding chosen in the pause menu that is waiting for the next physical key:
+    /// (true: [game], false: [vehicles], index in that section).
+    pub(crate) key_capture: Option<(bool, usize)>,
     /// Whether the game stood paused before the menu opened (closing it goes back to that).
     pub(crate) menu_prev_pause: bool,
     /// OMSI's information bar (`view_toggle_informationdisplay`, Ctrl+Y): time, speed, the

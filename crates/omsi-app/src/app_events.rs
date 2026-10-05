@@ -683,9 +683,8 @@ impl ApplicationHandler for App {
                 ctl.ff_engine = self.settings.ff_engine_vib;
                 ctl.ff_fade = self.settings.ff_fade;
                 ctl.steer_gain = if self.settings.wheel_lock >= 45.0 { (self.settings.wheel_range / self.settings.wheel_lock).clamp(0.1, 20.0) } else { 1.0 };
-                if ctl.disabled.is_empty() && !self.settings.ctrl_off.is_empty() {
-                    ctl.disabled = self.settings.ctrl_off.split('|').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-                }
+                ctl.disabled = self.settings.ctrl_off.split('|').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                ctl.set_editing(self.game_menu.is_some() || self.chooser.is_some());
                 let analog = ctl.poll();
                 let actions = std::mem::take(&mut ctl.actions);
                 let moved = match (analog.steering, self.last_ctl_steer) {
@@ -737,6 +736,7 @@ impl ApplicationHandler for App {
                     micro: 0.0,
                     dt,
                 });
+                crate::game_controller_menu::frame(self);
                 // OMSI's mouse control: the cursor's place across steers, above the middle
                 // of the window is the throttle, below it the brake.
                 // Steering as Omsi.exe has it (0x6f4284..0x6f447b): the whole width of the
@@ -845,9 +845,11 @@ impl ApplicationHandler for App {
                 // the controller's view buttons are the game's, not the bus's: looking around
                 // while held (`view_look_*`), and OMSI's view actions (other cameras, views)
                 let mut actions = actions;
-                if self.game_menu.is_none() {
+                {
+                    let menu_open = self.game_menu.is_some() || self.chooser.is_some();
                     let mut game: Vec<String> = Vec::new();
                     actions.retain(|(name, down)| {
+                        if menu_open && *down { return false; }
                         let n = name.to_ascii_lowercase();
                         if let Some(k) = ["view_look_left", "view_look_right", "view_look_up", "view_look_down"].iter().position(|x| *x == n) {
                             self.pad_look[k] = *down;
@@ -881,8 +883,8 @@ impl ApplicationHandler for App {
                     p.axes.red_steer_spd = self.settings.red_steer_spd;
                     p.axes.pedal_hold = self.settings.brake_hold;
                     p.analog = analog;
-                    if self.game_menu.is_none() {
-                        for (name, down) in actions {
+                    for (name, down) in actions {
+                        if !down || (self.game_menu.is_none() && self.chooser.is_none()) {
                             p.action(&name, down);
                         }
                     }
