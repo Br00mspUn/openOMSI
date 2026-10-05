@@ -465,7 +465,7 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Vec<(String, String)> {
                     .termini
                     .iter()
                     .enumerate()
-                    .map(|(i, t)| (t.strings.iter().find(|s| !s.trim().is_empty()).cloned().unwrap_or_else(|| t.code.to_string()), t.code, i))
+                    .map(|(i, t)| (t.menu_name(), t.code, i))
                     .collect();
                 // (alphabetical, by name; picked by its row: several may share a name or a code)
                 termini.sort_by_key(|(name, ..)| name.trim().to_lowercase());
@@ -945,7 +945,7 @@ pub(crate) fn run_move(app: &mut App, kind: &ListKind, action: &str, mv: Move) -
                 if let Some((hof, t)) = hof.as_ref().and_then(|h| h.termini.get(ti).map(|t| (h, t))) {
                     // (the line on the IBIS stays; only the destination changes)
                     let line = destination_line(&p.vehicle);
-                    let name = t.strings.iter().find(|s| !s.trim().is_empty()).cloned().unwrap_or_default();
+                    let name = t.menu_name();
                     p.set_destination_by_hand(hof, &line, ti);
                     log::info!("destination display set by hand: {} {} (terminus code now {:?})", t.code, name.trim(), p.vehicle.var("IBIS_TerminusCode"));
                     app.service_msg = Some((format!("Destination: {}", name.trim()), 3.0));

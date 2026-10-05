@@ -3400,15 +3400,22 @@ fn set_destination_at(
     };
     // the original's way: SetLineTo + AI_target_index, then the ai_scheduled_settarget trigger
     set_line_to(v, line);
-    if !player {
-        v.set_var("AI_target_index", ti as f32);
-        if v.trigger("ai_scheduled_settarget") {
-            v.set_var(
-                "IBIS_RouteIndex",
-                route_index.map(|r| r as f32).unwrap_or(-1.0),
-            );
-            return;
+    v.set_var("AI_target_index", ti as f32);
+    let pending_blind = player.then(|| v.var("rlbnd_ziel_target")).flatten();
+    let target_triggered = v.trigger("ai_scheduled_settarget");
+    // The trigger also feeds destination displays, but a hand-cranked blind must remain
+    // pending until `turn_roller_blind` applies the driver's selection.
+    if player {
+        if let Some(row) = pending_blind {
+            v.set_var("rlbnd_ziel_target", row);
         }
+    }
+    if !player && target_triggered {
+        v.set_var(
+            "IBIS_RouteIndex",
+            route_index.map(|r| r as f32).unwrap_or(-1.0),
+        );
+        return;
     }
     v.set_var("IBIS_LinieKurs", line_num);
     v.set_var("IBIS_Linie_Complex", line_code as f32);
@@ -3428,7 +3435,7 @@ fn set_destination_at(
     set_str(
         v,
         "IBIS_terminus_name",
-        hof.termini[ti].strings.first().cloned().unwrap_or_default(),
+        hof.termini[ti].display_name(),
     );
     let complex = if line_num > 0.0 {
         complex_line_text(line, line_num)
@@ -5411,6 +5418,17 @@ pub(crate) mod tests {
         // a bus without a roller blind has nothing to turn
         let mut ibis = ibis_test_vehicle();
         assert_eq!(set_player_destination_at(&mut ibis, &hof, "145", 1, &[]), None);
+    }
+
+    #[test]
+    fn a_destination_picked_from_the_list_updates_display_target() {
+        let osc = "{trigger:ai_scheduled_settarget}\n(L.L.AI_target_index) (S.L.display_target)\n{end}\n";
+        let vars = "IBIS_LinieKurs\nIBIS_TerminusIndex\nIBIS_TerminusCode\nAI_target_index\ndisplay_target\n";
+        let t = |code: i32, id: &str| omsi_vehicle::hof::Terminus { code, texture_id: id.into(), strings: vec![id.into()], ..Default::default() };
+        let hof = omsi_vehicle::Hof { termini: vec![t(100, "First"), t(200, "Second")], ..Default::default() };
+        let mut v = script_test_vehicle(osc, vars, "IBIS_terminus_name\n");
+        set_player_destination_at(&mut v, &hof, "10", 1, &[]);
+        assert_eq!(v.var("display_target"), Some(1.0));
     }
 
     /// A route number set by hand keeps the destination a roller blind shows: the row it
