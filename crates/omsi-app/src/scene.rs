@@ -11216,6 +11216,7 @@ pub struct VehiclePrefetch {
     meshes_on_gpu: Arc<Mutex<HashMap<(PathBuf, usize), (MeshId, usize)>>>,
     ready: Arc<Mutex<PreparedVehicles>>,
     gpu: (wgpu::Device, wgpu::Queue),
+    mesh_pages: bool,
 }
 
 /// Vehicle meshes and textures made on a worker, by (bus file, mesh) and by file.
@@ -11279,6 +11280,7 @@ impl VehiclePrefetch {
                     .or_insert((t, data.format));
             }
         }
+        let mut todo = Vec::new();
         for i in 0..vt.meshes.len() {
             let key = (vt.def.path.clone(), i);
             if self.meshes_on_gpu.lock().contains_key(&key)
@@ -11287,9 +11289,14 @@ impl VehiclePrefetch {
                 continue;
             }
             if let Some(d) = vt.mesh_data(i) {
-                let m = omsi_render::prepare_mesh(&self.gpu.0, &self.gpu.1, &d);
-                self.ready.lock().meshes.entry(key).or_insert(m);
+                todo.push((key, d));
             }
+        }
+        let data: Vec<&omsi_geometry::MeshData> = todo.iter().map(|(_, d)| d.as_ref()).collect();
+        let meshes = omsi_render::prepare_meshes(&self.gpu.0, &self.gpu.1, &data, self.mesh_pages);
+        let mut ready = self.ready.lock();
+        for ((key, _), m) in todo.into_iter().zip(meshes) {
+            ready.meshes.entry(key).or_insert(m);
         }
     }
 }
@@ -11446,6 +11453,7 @@ impl World {
             meshes_on_gpu: self.vehicle_meshes.clone(),
             ready: self.vehicle_ready.clone(),
             gpu: (renderer.device.clone(), renderer.queue.clone()),
+            mesh_pages: renderer.mesh_pages(),
         }
     }
 

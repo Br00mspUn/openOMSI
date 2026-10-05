@@ -728,6 +728,17 @@ pub type MaterialId = usize;
 pub struct GpuMesh {
     vertex_buf: wgpu::Buffer,
     index_buf: wgpu::Buffer,
+    /// Where the mesh lies in its page's buffers (pages hold many meshes); `page` is its
+    /// page in the scene's list, `u32::MAX` for a page of its own.
+    page: u32,
+    base_vertex: i32,
+    first_index: u32,
+    vertex_offset: u64,
+    vertex_bytes: u64,
+    index_bytes: u64,
+    /// Which mesh this is (a page's range handed to another mesh is another): what the ray
+    /// tracer's structures are kept by, with the mesh's place.
+    gen: u64,
     pub ranges: Vec<(u32, u32, u32)>,
     pub bounds_center: Vec3,
     pub bounds_radius: f32,
@@ -1165,6 +1176,7 @@ pub struct Scene {
     /// their entries are rewritten. Rebuilding the whole per-draw buffer for 17 000 objects
     /// because one bus moved was the biggest single CPU cost of a frame.
     changed: Vec<usize>,
+    mesh_pages: Vec<MeshPage>,
     changed_mark: Vec<bool>,
     origin_moved: bool,
     cache_bounds: bool,
@@ -1249,22 +1261,24 @@ impl Scene {
             .unwrap_or_default()
     }
 
+    /// Bytes the meshes' pages take on the GPU, each page once, whatever share of it is in use.
+    pub fn mesh_page_bytes(&self) -> u64 {
+        let shared: u64 = self.mesh_pages.iter().map(|p| p.vertex.size() + p.index.size()).sum();
+        let mut own: Vec<&wgpu::Buffer> = Vec::new();
+        for m in self.meshes.iter().filter(|m| m.page == u32::MAX && !m.ranges.is_empty()) {
+            if !own.contains(&&m.vertex_buf) {
+                own.push(&m.vertex_buf);
+                own.push(&m.index_buf);
+            }
+        }
+        shared + own.iter().map(|b| b.size()).sum::<u64>()
+    }
+
     /// Bytes on the GPU: (textures, mesh buffers, per-draw and light buffers). Freed slots
     /// share one small placeholder, which is not counted.
     pub fn gpu_bytes(&self) -> (u64, u64, u64) {
         let tex = self.textures.iter().map(|t| t.bytes).sum();
-        let mut seen: std::collections::HashSet<*const ()> = std::collections::HashSet::new();
-        let mut mesh = 0u64;
-        for m in &self.meshes {
-            if m.ranges.is_empty() {
-                continue;
-            }
-            for b in [&m.vertex_buf, &m.index_buf] {
-                if seen.insert(b as *const wgpu::Buffer as *const ()) {
-                    mesh += b.size();
-                }
-            }
-        }
+        let mesh = self.mesh_page_bytes();
         let other = [&self.model_buf, &self.params_buf, &self.light_buf, &self.grid_buf, &self.draw_buf]
             .iter()
             .filter_map(|b| b.as_ref())
@@ -2072,6 +2086,8 @@ pub struct Renderer {
     freed: std::cell::OnceCell<Freed>,
     /// Enhanced+: the ray tracer (on a device with ray queries, see `RenderOptions::ray_tracing`).
     rt: Option<rt::RayTracer>,
+    /// Meshes share pages of buffers (the adapter draws with a base vertex).
+    mesh_pages: bool,
 }
 
 /// The placeholders freed scene slots share: an empty vertex and index buffer and a plain
@@ -2557,8 +2573,9 @@ impl Renderer {
             format,
             options,
         );
+        let mesh_pages = adapter.get_downlevel_capabilities().flags.contains(wgpu::DownlevelFlags::BASE_VERTEX);
         match scope.pop().await {
-            None => Ok(renderer),
+            None => Ok(Renderer { mesh_pages, ..renderer }),
             Some(e) if options.msaa > 1 => {
                 log::error!(
                     "{}x MSAA failed on {}: {}; drawing without multisampling",
@@ -2567,13 +2584,13 @@ impl Renderer {
                     gpu_error_text(&e)
                 );
                 drop(renderer);
-                Ok(Self::build(
+                Ok(Renderer { mesh_pages, ..Self::build(
                     device,
                     queue,
                     format!("{} ({:?})", info.name, info.backend),
                     format,
                     RenderOptions { msaa: 1, ..options },
-                ))
+                ) })
             }
             Some(e) => Err(anyhow!("renderer pipelines: {}", gpu_error_text(&e))),
         }
@@ -4419,6 +4436,7 @@ impl Renderer {
             pending_meshes: Default::default(),
             freed: std::cell::OnceCell::new(),
             rt,
+            mesh_pages: false,
         }
     }
 
@@ -4543,6 +4561,7 @@ impl Renderer {
             overlay_res: Vec::new(),
             dirty: true,
             changed: Vec::new(),
+            mesh_pages: Vec::new(),
             changed_mark: Vec::new(),
             origin_moved: false,
             cache_bounds: omsi_cfg::env::var_os("OMSI_NO_BOUNDS_CACHE").is_none(),
@@ -4599,7 +4618,7 @@ impl Renderer {
             .collect();
         let bytes: &[u8] = bytemuck::cast_slice(&verts);
         let m = &mut scene.meshes[id];
-        if (m.vertex_buf.size() as usize) < bytes.len() {
+        if (m.vertex_bytes as usize) < bytes.len() {
             return;
         }
         {
@@ -4634,16 +4653,35 @@ impl Renderer {
         for (id, b) in &pending {
             let Some(m) = scene.meshes.get(*id) else { continue };
             let len = (b.len() as u64) / 4 * 4;
-            if len == 0 || m.vertex_buf.size() < len {
+            if len == 0 || m.vertex_bytes < len {
                 continue;
             }
-            self.queue.write_buffer(&m.vertex_buf, 0, &b[..len as usize]);
+            self.queue.write_buffer(&m.vertex_buf, m.vertex_offset, &b[..len as usize]);
         }
     }
 
     pub fn add_mesh(&self, scene: &mut Scene, data: &MeshData) -> MeshId {
-        scene.meshes.push(make_mesh(&self.device, &self.queue, data));
+        let (vb, ib) = mesh_page_bytes(data);
+        let mesh = if vb > MESH_PAGE_VERTEX_BYTES / 4 || ib > MESH_PAGE_INDEX_BYTES / 4 || !self.mesh_pages {
+            make_meshes(&self.device, &self.queue, &[data], true).pop().expect("one mesh")
+        } else {
+            let found = scene.mesh_pages.iter_mut().enumerate().find_map(|(k, p)| p.take(vb, ib).map(|at| (k, at)));
+            let (k, at) = found.unwrap_or_else(|| {
+                let mut page = MeshPage::new(&self.device, MESH_PAGE_VERTEX_BYTES, MESH_PAGE_INDEX_BYTES);
+                let at = page.take(vb, ib).expect("a new page holds a mesh a quarter its size");
+                scene.mesh_pages.push(page);
+                (scene.mesh_pages.len() - 1, at)
+            });
+            scene.mesh_pages[k].place(&self.queue, data, k as u32, at)
+        };
+        scene.meshes.push(mesh);
         scene.meshes.len() - 1
+    }
+
+    /// Whether this renderer's adapter draws meshes from shared pages (it can draw with a
+    /// base vertex); [`prepare_meshes`] is told it.
+    pub fn mesh_pages(&self) -> bool {
+        self.mesh_pages
     }
 
     /// Put a mesh made on another thread ([`prepare_mesh`]) into the scene.
@@ -4774,13 +4812,7 @@ impl Renderer {
     /// Bytes the meshes' vertex and index buffers take on the GPU (the freed ones' shared
     /// placeholder not counted).
     pub fn mesh_bytes(&self, scene: &Scene) -> u64 {
-        let freed = self.freed.get().map(|f| (f.vertex_buf.clone(), f.index_buf.clone()));
-        scene
-            .meshes
-            .iter()
-            .filter(|m| freed.as_ref().is_none_or(|(v, _)| m.vertex_buf != *v))
-            .map(|m| m.vertex_buf.size() + m.index_buf.size())
-            .sum()
+        scene.mesh_page_bytes()
     }
 
     pub fn texture_bytes(&self, scene: &Scene) -> u64 {
@@ -7743,13 +7775,14 @@ impl Renderer {
             msaa: 1,
             ..self.options
         };
-        *self = Self::build(
+        let mesh_pages = self.mesh_pages;
+        *self = Renderer { mesh_pages, ..Self::build(
             self.device.clone(),
             self.queue.clone(),
             self.adapter_name.clone(),
             self.format,
             options,
-        );
+        ) };
         scene.dirty = true;
         scene.model_buf = None;
         scene.params_buf = None;
@@ -10505,10 +10538,126 @@ fn buffer_init(device: &wgpu::Device, queue: &wgpu::Queue, label: Option<&str>, 
 /// device with ray queries: their buffers are its geometry input).
 static RT_BUFFERS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// The GPU buffers of a mesh.
-fn make_mesh(device: &wgpu::Device, queue: &wgpu::Queue, data: &MeshData) -> GpuMesh {
-    let verts: Vec<Vertex> = data
-        .positions
+/// Vertex and index buffers holding several meshes; the space a freed mesh leaves is
+/// handed to the next that fits.
+struct MeshPage {
+    vertex: wgpu::Buffer,
+    index: wgpu::Buffer,
+    vertex_top: u64,
+    index_top: u64,
+    vertex_free: Vec<(u64, u64)>,
+    index_free: Vec<(u64, u64)>,
+}
+
+const MESH_PAGE_VERTEX_BYTES: u64 = 32 << 20;
+const MESH_PAGE_INDEX_BYTES: u64 = 16 << 20;
+
+/// First fit of `len` bytes in `free` (offset, length) or at `top` under `cap`.
+fn page_take(free: &mut Vec<(u64, u64)>, top: &mut u64, cap: u64, len: u64) -> Option<u64> {
+    if len == 0 {
+        return Some(0);
+    }
+    if let Some(k) = free.iter().position(|&(_, l)| l >= len) {
+        let (o, l) = free[k];
+        if l == len {
+            free.remove(k);
+        } else {
+            free[k] = (o + len, l - len);
+        }
+        return Some(o);
+    }
+    (*top + len <= cap).then(|| {
+        *top += len;
+        *top - len
+    })
+}
+
+/// Give `len` bytes at `at` back, joined to the free space beside them.
+fn page_give(free: &mut Vec<(u64, u64)>, top: &mut u64, at: u64, len: u64) {
+    if len == 0 {
+        return;
+    }
+    let k = free.partition_point(|&(o, _)| o < at);
+    free.insert(k, (at, len));
+    if k + 1 < free.len() && free[k].0 + free[k].1 == free[k + 1].0 {
+        free[k].1 += free[k + 1].1;
+        free.remove(k + 1);
+    }
+    if k > 0 && free[k - 1].0 + free[k - 1].1 == free[k].0 {
+        free[k - 1].1 += free[k].1;
+        free.remove(k);
+    }
+    if let Some(&(o, l)) = free.last() {
+        if o + l == *top {
+            *top = o;
+            free.pop();
+        }
+    }
+}
+
+impl MeshPage {
+    fn new(device: &wgpu::Device, vertex_bytes: u64, index_bytes: u64) -> MeshPage {
+        let blas = if RT_BUFFERS.load(std::sync::atomic::Ordering::Relaxed) { wgpu::BufferUsages::BLAS_INPUT } else { wgpu::BufferUsages::empty() };
+        let buffer = |size: u64, usage| device.create_buffer(&wgpu::BufferDescriptor { label: Some("mesh page"), size: size.max(32), usage: usage | wgpu::BufferUsages::COPY_DST | blas, mapped_at_creation: false });
+        MeshPage {
+            vertex: buffer(vertex_bytes, wgpu::BufferUsages::VERTEX),
+            index: buffer(index_bytes, wgpu::BufferUsages::INDEX),
+            vertex_top: 0,
+            index_top: 0,
+            vertex_free: Vec::new(),
+            index_free: Vec::new(),
+        }
+    }
+
+    /// Room for a mesh of these sizes: its vertex and index offsets.
+    fn take(&mut self, vertex_bytes: u64, index_bytes: u64) -> Option<(u64, u64)> {
+        let v = page_take(&mut self.vertex_free, &mut self.vertex_top, self.vertex.size(), vertex_bytes)?;
+        match page_take(&mut self.index_free, &mut self.index_top, self.index.size(), index_bytes) {
+            Some(i) => Some((v, i)),
+            None => {
+                page_give(&mut self.vertex_free, &mut self.vertex_top, v, vertex_bytes);
+                None
+            }
+        }
+    }
+
+    fn give(&mut self, m: &GpuMesh) {
+        page_give(&mut self.vertex_free, &mut self.vertex_top, m.vertex_offset, m.vertex_bytes);
+        page_give(&mut self.index_free, &mut self.index_top, m.first_index as u64 * 4, m.index_bytes);
+    }
+
+    /// Write the mesh at these offsets.
+    fn place(&self, queue: &wgpu::Queue, data: &MeshData, page: u32, at: (u64, u64)) -> GpuMesh {
+        let verts = mesh_vertices(data);
+        let (vb, ib): (&[u8], &[u8]) = (bytemuck::cast_slice(&verts), bytemuck::cast_slice(&data.indices));
+        if !vb.is_empty() {
+            queue.write_buffer(&self.vertex, at.0, vb);
+        }
+        if !ib.is_empty() {
+            queue.write_buffer(&self.index, at.1, ib);
+        }
+        let (center, radius) = mesh_bounds(data);
+        GpuMesh {
+            vertex_buf: self.vertex.clone(),
+            index_buf: self.index.clone(),
+            page,
+            base_vertex: (at.0 / std::mem::size_of::<Vertex>() as u64) as i32,
+            first_index: (at.1 / 4) as u32,
+            vertex_offset: at.0,
+            vertex_bytes: vb.len() as u64,
+            index_bytes: ib.len() as u64,
+            gen: next_gen(),
+            ranges: data.ranges.clone(),
+            bounds_center: center,
+            bounds_radius: radius,
+            one_sided: data.one_sided,
+            source: None,
+        }
+    }
+}
+
+fn mesh_vertices(data: &MeshData) -> Vec<Vertex> {
+    data.positions
         .iter()
         .zip(&data.normals)
         .zip(&data.uvs)
@@ -10517,10 +10666,15 @@ fn make_mesh(device: &wgpu::Device, queue: &wgpu::Queue, data: &MeshData) -> Gpu
             normal: n.to_array(),
             uv: uv.to_array(),
         })
-        .collect();
-    let blas = if RT_BUFFERS.load(std::sync::atomic::Ordering::Relaxed) { wgpu::BufferUsages::BLAS_INPUT } else { wgpu::BufferUsages::empty() };
-    let vertex_buf = buffer_init(device, queue, None, bytemuck::cast_slice(&verts), wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST | blas);
-    let index_buf = buffer_init(device, queue, None, bytemuck::cast_slice(&data.indices), wgpu::BufferUsages::INDEX | blas);
+        .collect()
+}
+
+fn mesh_page_bytes(data: &MeshData) -> (u64, u64) {
+    let v = data.positions.len().min(data.normals.len()).min(data.uvs.len());
+    ((v * std::mem::size_of::<Vertex>()) as u64, (data.indices.len() * 4) as u64)
+}
+
+fn mesh_bounds(data: &MeshData) -> (Vec3, f32) {
     let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for p in &data.positions {
         lo = lo.min(*p);
@@ -10531,15 +10685,26 @@ fn make_mesh(device: &wgpu::Device, queue: &wgpu::Queue, data: &MeshData) -> Gpu
         hi = Vec3::ZERO;
     }
     let center = (lo + hi) * 0.5;
-    GpuMesh {
-        vertex_buf,
-        index_buf,
-        ranges: data.ranges.clone(),
-        bounds_center: center,
-        bounds_radius: (hi - center).length(),
-        one_sided: data.one_sided,
-        source: None,
+    (center, (hi - center).length())
+}
+
+/// The meshes in one page of their own, sized to them (each in a page of its own where the
+/// adapter cannot draw with a base vertex: `paged` false).
+fn make_meshes(device: &wgpu::Device, queue: &wgpu::Queue, data: &[&MeshData], paged: bool) -> Vec<GpuMesh> {
+    if data.is_empty() {
+        return Vec::new();
     }
+    if !paged {
+        return data.iter().map(|d| make_meshes(device, queue, &[d], true).pop().expect("one mesh")).collect();
+    }
+    let sizes: Vec<(u64, u64)> = data.iter().map(|d| mesh_page_bytes(d)).collect();
+    let page = MeshPage::new(device, sizes.iter().map(|s| s.0).sum(), sizes.iter().map(|s| s.1).sum());
+    let mut at = (0, 0);
+    data.iter().zip(&sizes).map(|(d, s)| {
+        let m = page.place(queue, d, u32::MAX, at);
+        at = (at.0 + s.0, at.1 + s.1);
+        m
+    }).collect()
 }
 
 /// A mesh on the GPU, made on a worker thread; [`Renderer::add_prepared_mesh`] puts it into
@@ -10548,8 +10713,14 @@ pub struct PreparedMesh(GpuMesh);
 
 /// Make a mesh's GPU buffers on any thread (the device takes calls from all of them).
 pub fn prepare_mesh(device: &wgpu::Device, queue: &wgpu::Queue, data: &MeshData) -> PreparedMesh {
+    prepare_meshes(device, queue, &[data], false).pop().expect("one mesh")
+}
+
+/// [`prepare_mesh`] for several meshes at once, which share one page of buffers.
+/// `paged`: [`Renderer::mesh_pages`] of the renderer the meshes are for.
+pub fn prepare_meshes(device: &wgpu::Device, queue: &wgpu::Queue, data: &[&MeshData], paged: bool) -> Vec<PreparedMesh> {
     let _turn = gl_worker_turn();
-    PreparedMesh(make_mesh(device, queue, data))
+    make_meshes(device, queue, data, paged).into_iter().map(PreparedMesh).collect()
 }
 
 /// A texture on the GPU, made on a worker thread; [`Renderer::add_prepared_texture`] puts it
@@ -11654,6 +11825,8 @@ fn encode_batches_filtered<'a, E: wgpu::util::RenderEncoder<'a>>(
     pipeline: impl Fn(u8) -> &'a wgpu::RenderPipeline,
 ) {
     let (mut pipe, mut mesh, mut material) = (u8::MAX, u32::MAX, u32::MAX);
+    let mut page: Option<(&wgpu::Buffer, &wgpu::Buffer)> = None;
+    let (mut base_vertex, mut first_index) = (0i32, 0u32);
     for b in batches {
         if !include(b) {
             continue;
@@ -11664,8 +11837,12 @@ fn encode_batches_filtered<'a, E: wgpu::util::RenderEncoder<'a>>(
         }
         if b.mesh != mesh {
             let m = &scene.meshes[b.mesh as usize];
-            pass.set_vertex_buffer(0, m.vertex_buf.slice(..));
-            pass.set_index_buffer(m.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+            if page.is_none_or(|(v, i)| *v != m.vertex_buf || *i != m.index_buf) {
+                pass.set_vertex_buffer(0, m.vertex_buf.slice(..));
+                pass.set_index_buffer(m.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+                page = Some((&m.vertex_buf, &m.index_buf));
+            }
+            (base_vertex, first_index) = (m.base_vertex, m.first_index);
             mesh = b.mesh;
         }
         if b.material != material {
@@ -11676,7 +11853,7 @@ fn encode_batches_filtered<'a, E: wgpu::util::RenderEncoder<'a>>(
             );
             material = b.material;
         }
-        pass.draw_indexed(b.first..b.first + b.count, 0, b.instances.clone());
+        pass.draw_indexed(first_index + b.first..first_index + b.first + b.count, base_vertex, b.instances.clone());
     }
 }
 
@@ -12138,9 +12315,18 @@ impl Renderer {
             let f = self.freed(scene);
             (f.vertex_buf.clone(), f.index_buf.clone())
         };
+        if let Some(page) = scene.mesh_pages.get_mut(scene.meshes[id].page as usize) {
+            page.give(&scene.meshes[id]);
+        }
         let m = &mut scene.meshes[id];
         m.vertex_buf = vertex_buf;
         m.index_buf = index_buf;
+        m.page = u32::MAX;
+        m.base_vertex = 0;
+        m.first_index = 0;
+        m.vertex_offset = 0;
+        m.vertex_bytes = 0;
+        m.index_bytes = 0;
         m.ranges.clear();
         m.bounds_center = Vec3::ZERO;
         m.bounds_radius = 0.0;
@@ -12570,6 +12756,80 @@ mod tests {
             b[0] > b[1] + 30 && b[0] > b[2] + 30,
             "foliage cutout must reveal red: {b:?}"
         );
+    }
+
+    #[test]
+    fn a_mesh_page_hands_freed_space_to_the_next_mesh_and_joins_its_holes() {
+        let (mut free, mut top) = (Vec::new(), 0u64);
+        let a = page_take(&mut free, &mut top, 1000, 100).unwrap();
+        let b = page_take(&mut free, &mut top, 1000, 200).unwrap();
+        let c = page_take(&mut free, &mut top, 1000, 300).unwrap();
+        assert_eq!((a, b, c, top), (0, 100, 300, 600));
+        page_give(&mut free, &mut top, b, 200);
+        assert_eq!(free, vec![(100, 200)]);
+        assert_eq!(page_take(&mut free, &mut top, 1000, 150), Some(100));
+        assert_eq!(free, vec![(250, 50)]);
+        page_give(&mut free, &mut top, a, 100);
+        page_give(&mut free, &mut top, 100, 150);
+        assert_eq!(free, vec![(0, 300)]);
+        page_give(&mut free, &mut top, c, 300);
+        assert_eq!((free.len(), top), (0, 0));
+        assert_eq!(page_take(&mut free, &mut top, 1000, 1001), None);
+    }
+
+    #[test]
+    #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
+    fn meshes_coming_and_going_tile_by_tile_keep_the_pages_from_growing() {
+        let adapter = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let renderer = pollster::block_on(Renderer::new_with(
+            &adapter, None, Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            RenderOptions { msaa: 1, shadow_size: 1024, ..Default::default() },
+        )).expect("test renderer");
+        if !renderer.mesh_pages() {
+            return;
+        }
+        let mut scene = renderer.new_scene();
+        let mesh = |n: usize| {
+            let positions: Vec<Vec3> = (0..n).map(|i| Vec3::new(i as f32, (i % 7) as f32, 0.0)).collect();
+            let indices: Vec<u32> = (0..n as u32 / 3 * 3).collect();
+            MeshData { normals: vec![Vec3::Z; n], uvs: vec![glam::Vec2::ZERO; n], ranges: vec![(0, indices.len() as u32, 0)], positions, indices, ..Default::default() }
+        };
+        // tiles of a few thousand meshes of every size, loaded and unloaded in no order, as
+        // a long drive across a map brings them; the scene's pages must not keep growing
+        let mut tiles: Vec<Vec<MeshId>> = Vec::new();
+        let mut seed = 0x1234_5678u64;
+        let mut rand = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let mut most = 0;
+        for round in 0..300 {
+            let tile: Vec<MeshId> = (0..400).map(|_| renderer.add_mesh(&mut scene, &mesh(3 + (rand() % 600) as usize))).collect();
+            tiles.push(tile);
+            if tiles.len() > 12 {
+                let gone = tiles.remove((rand() % tiles.len() as u64) as usize);
+                for id in gone {
+                    renderer.free_mesh(&mut scene, id);
+                }
+            }
+            if round == 50 {
+                most = scene.mesh_pages.len();
+            }
+        }
+        assert!(scene.mesh_pages.len() <= most + 1, "the pages grew from {most} to {} over the drive", scene.mesh_pages.len());
+        let held = scene.mesh_page_bytes();
+        let used: u64 = scene.meshes.iter().filter(|m| m.page != u32::MAX).map(|m| m.vertex_bytes + m.index_bytes).sum();
+        assert!(held < used * 3, "{held} bytes of pages held for {used} in use");
+        for t in &tiles {
+            for &id in t {
+                let m = &scene.meshes[id];
+                assert_eq!(m.vertex_offset % std::mem::size_of::<Vertex>() as u64, 0);
+                assert!(m.vertex_offset + m.vertex_bytes <= m.vertex_buf.size());
+                assert!(m.first_index as u64 * 4 + m.index_bytes <= m.index_buf.size());
+            }
+        }
     }
 
     #[test]
