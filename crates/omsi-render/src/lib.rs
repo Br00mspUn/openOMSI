@@ -739,6 +739,9 @@ pub struct GpuMesh {
     vertex_offset: u64,
     vertex_bytes: u64,
     index_bytes: u64,
+    /// Which mesh this is (a page's range handed to another mesh is another): what the ray
+    /// tracer's structures are kept by, with the mesh's place.
+    gen: u64,
     pub ranges: Vec<(u32, u32, u32)>,
     pub bounds_center: Vec3,
     pub bounds_radius: f32,
@@ -10646,6 +10649,7 @@ impl MeshPage {
             vertex_offset: at.0,
             vertex_bytes: vb.len() as u64,
             index_bytes: ib.len() as u64,
+            gen: next_gen(),
             ranges: data.ranges.clone(),
             bounds_center: center,
             bounds_radius: radius,
