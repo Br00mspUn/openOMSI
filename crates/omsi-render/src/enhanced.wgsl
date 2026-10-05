@@ -170,7 +170,7 @@ fn headlamp(t: vec3<f32>, dir: vec3<f32>, low: bool) -> f32 {
         return 0.0;
     }
     let across = abs(t.x * fwd.y - t.y * fwd.x) / ahead;
-    let wide = 0.2 * smoothstep(1.0, 0.55, across) + 0.8 * exp(-across * across / 0.2);
+    let wide = 0.12 * smoothstep(1.0, 0.45, across) + 0.88 * exp(-across * across / 0.06);
     let drop = -t.z / max(length(t.xy), 1e-3);
     // full out to where the road is 0.06 under the lamp's horizon, then less as the cube of
     // the drop and a little more: the road is lit evenly from the bumper on, a little
@@ -178,8 +178,11 @@ fn headlamp(t: vec3<f32>, dir: vec3<f32>, low: bool) -> f32 {
     var up = min(1.0, pow(0.06 / max(abs(drop), 1e-4), 3.4));
     if (low) {
         up = up * smoothstep(-0.012, 0.025, drop);
+        return wide * up;
     }
-    return wide * up;
+    // a full beam reaches far: a narrow, bright core along the lamp's horizon
+    let hot = exp(-across * across / 0.012 - drop * drop / 0.0004);
+    return wide * up + 6.0 * hot;
 }
 
 // The point and spot lights of the pixel's grid cell: diffuse and specular.
@@ -236,7 +239,9 @@ fn lamp_light(p: vec3<f32>, n: vec3<f32>, v: vec3<f32>, sf: Surface, thin: bool)
         let irr = l.color.rgb * l.color.w * enh.lights.y * e;
         let nl = dot(n, ld);
         if (thin) {
-            sum = sum + irr * (0.45 + 0.25 * nl) * sf.albedo / PI;
+            // a headlamp skims the grass: it lights the tips, not a crown's every side
+            let wrap = select(0.45 + 0.25 * nl, 0.15 + 0.6 * max(nl, 0.0), l.extra.z != 0.0);
+            sum = sum + irr * wrap * sf.albedo / PI;
             continue;
         }
         if (nl <= 0.0) {
