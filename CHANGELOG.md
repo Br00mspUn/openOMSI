@@ -4,6 +4,11 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1553 - 2026-10-05
+
+### Fixes
+- Enhanced+ no longer stops drawing at the end of the loading screen on Windows and Linux: its ray tracing is used on Apple silicon (Metal) only for now, and elsewhere Enhanced+ draws as Enhanced. The graphics library's ray tracing on Vulkan and Direct3D 12 is still experimental; `OMSI_RT=1` tries it.
+
 ## 0.1.1552 - 2026-10-05
 
 ### Fixes

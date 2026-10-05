@@ -349,8 +349,9 @@ moment, with a camera's middle-tone contrast; street lamps are bright points wit
 glare in clear air and wide halos in mist and rain.
 
 `graphics=enhanced_plus` (Enhanced+ in the launcher, `--enhanced-plus`) is Enhanced with
-hardware ray tracing, where the graphics card traces rays (Apple M3/M4 and newer, RTX and
-RDNA 2 cards through Vulkan; elsewhere it draws as Enhanced). Every solid mesh within
+hardware ray tracing, where the graphics card traces rays (Apple M3/M4 and newer; on
+Vulkan and Direct3D 12 the ray tracing of the graphics library is still experimental, so
+there Enhanced+ draws as Enhanced for now - `OMSI_RT=1` tries it on an RTX or RDNA 2 card). Every solid mesh within
 420 m of the camera goes into an acceleration structure each frame, and the window's
 picture traces the sun's shadow per pixel (soft away from its caster, crisp at the
 contact; cut-out leaves and fences keep the shadow map, whose texels they need), the

@@ -2423,16 +2423,23 @@ impl Renderer {
             // textures are decoded to RGBA by upload_texture on this device.
             required_features = wgpu::Features::empty();
         }
-        // Enhanced+: hardware ray queries where the device has them (Apple silicon from the
-        // M3/A17 on, RTX and RDNA2+ cards through Vulkan); OMSI_NO_RT=1 leaves them out
+        // Enhanced+: hardware ray queries where the device has them and they are known to
+        // work - Metal (Apple silicon from the M3/A17 on). wgpu's ray queries are still
+        // experimental on Vulkan and Direct3D 12: there the game stopped drawing at the end
+        // of the loading screen (sounds and controls going on behind it), so those take
+        // them only with OMSI_RT=1, for testing. OMSI_NO_RT=1 leaves them out everywhere.
+        let rt_backend_ok = info.backend == wgpu::Backend::Metal || omsi_cfg::env::var_os("OMSI_RT").is_some();
         let ray_query = options.ray_tracing
             && !intel_vulkan_safe
             && info.backend != wgpu::Backend::Noop
+            && rt_backend_ok
             && adapter.features().contains(wgpu::Features::EXPERIMENTAL_RAY_QUERY)
             && omsi_cfg::env::var_os("OMSI_NO_RT").is_none();
         if ray_query {
             required_features |= wgpu::Features::EXPERIMENTAL_RAY_QUERY;
             limits = limits.using_acceleration_structure_values(adapter.limits());
+        } else if options.ray_tracing && !rt_backend_ok && adapter.features().contains(wgpu::Features::EXPERIMENTAL_RAY_QUERY) {
+            log::warn!("{}: ray tracing on {:?} is not ready yet; Enhanced+ is drawn as Enhanced (OMSI_RT=1 tries it)", info.name, info.backend);
         } else if options.ray_tracing {
             log::warn!("{}: no hardware ray queries; Enhanced+ is drawn as Enhanced", info.name);
         }
