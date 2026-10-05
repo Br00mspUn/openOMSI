@@ -11,7 +11,7 @@ use super::theme::*;
 use super::ui::{id_of, ButtonKind};
 use super::Launcher;
 use glam::{DVec2, Vec2};
-use omsi_launcher_lib::{display_bus_name, vehicle_type_label};
+use omsi_launcher_lib::{display_bus_name, vehicle_type_label, WeatherInfo};
 use omsi_ui::paint::Align;
 use omsi_ui::{Color, Rect, Weight};
 
@@ -184,6 +184,23 @@ pub fn draw(l: &mut Launcher, area: Rect) {
         l.map_interact(lay.view, lay.clear);
     } else {
         l.showroom_pointer(lay.view);
+    }
+}
+
+/// The icon a weather file deserves: what it says about itself.
+fn weather_icon_of(w: &WeatherInfo) -> &'static str {
+    if w.snow || w.precip.starts_with("snow") {
+        "weather_snowy"
+    } else if w.precip.starts_with("rain") {
+        "rainy"
+    } else if w.fog_m < 1500.0 {
+        "foggy"
+    } else if w.clouds.to_lowercase().contains("overcast") {
+        "cloud"
+    } else if w.clouds.to_lowercase().contains("cumulus") {
+        "partly_cloudy_day"
+    } else {
+        "wb_sunny"
     }
 }
 
@@ -1267,20 +1284,7 @@ fn step_time(l: &mut Launcher, r: Rect) {
             continue;
         }
         let vis = if w.fog_m >= 20000.0 { "clear air".to_string() } else { format!("{:.0} m", w.fog_m) };
-        let icon = if w.snow || w.precip.starts_with("snow") {
-            "weather_snowy"
-        } else if w.precip.starts_with("rain") {
-            "rainy"
-        } else if w.fog_m < 1500.0 {
-            "foggy"
-        } else if w.clouds.to_lowercase().contains("overcast") {
-            "cloud"
-        } else if w.clouds.to_lowercase().contains("cumulus") {
-            "partly_cloudy_day"
-        } else {
-            "wb_sunny"
-        };
-        items.push((w.file.clone(), w.name.clone(), format!("{:.0} °C · {} · {vis}", w.temp, w.precip), icon.into(), l.state.fresh.contains_key(&w.file)));
+        items.push((w.file.clone(), w.name.clone(), format!("{:.0} °C · {} · {vis}", w.temp, w.precip), weather_icon_of(&w).into(), l.state.fresh.contains_key(&w.file)));
     }
     if let Some(code) = metar.as_ref() {
         let root = std::path::PathBuf::from(&l.state.config.root);
