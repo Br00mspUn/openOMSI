@@ -54,16 +54,10 @@ fn cs_trace(@builtin(global_invocation_id) gid: vec3<u32>) {
         let sb = basis(p.sun.xyz);
         let sr = sqrt(su.x) * p.sun.w;
         let sd = normalize(p.sun.xyz + sb[0] * cos(6.2831853 * su.y) * sr + sb[1] * sin(6.2831853 * su.y) * sr);
-        var rq: ray_query;
-        rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_TERMINATE_ON_FIRST_HIT, MASK_SHADOW, 0.0, 2000.0, o, sd));
-        rayQueryProceed(&rq);
-        vis = select(1.0, 0.0, rayQueryGetCommittedIntersection(&rq).kind != RAY_QUERY_INTERSECTION_NONE);
+        vis = select(1.0, 0.0, ray_hit(RT_FORCE_OPAQUE | RT_FIRST_HIT, MASK_SHADOW, 0.0, 2000.0, o, sd).kind != RAY_QUERY_INTERSECTION_NONE);
         if (vis > 0.0) {
             // through a bus's or a car's window: tinted glass lets only part of it in
-            var gq: ray_query;
-            rayQueryInitialize(&gq, acc, RayDesc(RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_TERMINATE_ON_FIRST_HIT, MASK_GLASS, 0.0, 200.0, o, sd));
-            rayQueryProceed(&gq);
-            vis = select(1.0, 0.45, rayQueryGetCommittedIntersection(&gq).kind != RAY_QUERY_INTERSECTION_NONE);
+            vis = select(1.0, 0.45, ray_hit(RT_FORCE_OPAQUE | RT_FIRST_HIT, MASK_GLASS, 0.0, 200.0, o, sd).kind != RAY_QUERY_INTERSECTION_NONE);
         }
     }
     // --- the sky's occlusion
