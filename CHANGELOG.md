@@ -4,6 +4,11 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1727 - 2026-10-05
+
+### Fixes
+- The Linux build of the release no longer runs out of disk space after the workspace tests (the release of 0.1.1726 did not build).
+
 ## 0.1.1726 - 2026-10-05
 
 ### Merged pull requests
