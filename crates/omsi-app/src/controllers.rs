@@ -273,6 +273,10 @@ pub fn gamepad_steering(x: f32, kmh: f32) -> f32 {
     curve * reach
 }
 
+fn mapped_device_is_gamepad(mapped: bool, force_feedback_wheel: bool) -> bool {
+    mapped && !force_feedback_wheel
+}
+
 /// Bus steering follows its characteristic, dead zone and range; feedback follows the physical
 /// wheel position, so it can keep returning even inside the input dead zone.
 fn wheel_steering(axis: f32, reversed: bool, flags: i32, deadzone: f32, gain: f32) -> (f32, f32) {
@@ -310,6 +314,10 @@ pub(crate) struct Devices {
     gilrs: Option<Gilrs>,
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     calibration_wheel: Option<crate::evdev_ff::Wheel>,
+    /// Whether a gilrs device is also a native evdev constant-force wheel.
+    /// `connected()` runs every frame, so cache the /sys lookup by device name.
+    #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+    ff_wheels: std::cell::RefCell<std::collections::HashMap<String, bool>>,
     /// Linux: devices with buttons only (a gear shifter), which gilrs does not list
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
     button_devices: crate::evdev_buttons::ButtonDevices,
@@ -349,6 +357,8 @@ impl Devices {
             #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
             calibration_wheel: None,
             #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+            ff_wheels: Default::default(),
+            #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
             button_devices: crate::evdev_buttons::ButtonDevices::new(),
             #[cfg(windows)]
             di,
@@ -366,6 +376,12 @@ impl Devices {
     #[cfg(target_os = "macos")]
     pub(crate) fn hid_wheel(&self, name: &str) -> bool {
         self.hid_axes.iter().any(|(n, axes)| names_match(n, name) && axes.iter().any(|(c, _)| matches!(*c, 0x10036 | 0x10037) || (*c >> 16) == 2))
+    }
+
+    #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+    fn linux_ff_wheel(&self, name: &str) -> bool {
+        let mut wheels = self.ff_wheels.borrow_mut();
+        *wheels.entry(name.to_string()).or_insert_with(|| crate::evdev_ff::wheel_named(name))
     }
 
     fn direct_input(&self) -> bool {
@@ -538,8 +554,13 @@ impl Devices {
         let _ = xinput_pads;
         if let Some(g) = self.gilrs.as_ref() {
             for (_, pad) in g.gamepads() {
+                let mapped = pad.mapping_source() != gilrs::MappingSource::None;
+                #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+                let force_feedback_wheel = mapped && self.linux_ff_wheel(pad.name());
+                #[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
+                let force_feedback_wheel = false;
                 #[allow(unused_mut)]
-                let mut gamepad = pad.mapping_source() != gilrs::MappingSource::None;
+                let mut gamepad = mapped_device_is_gamepad(mapped, force_feedback_wheel);
                 // (macOS: a device with sliders or the simulation page's axes is a wheel or
                 // pedals, whatever SDL's list calls it - the HORI Truck Control System was
                 // taken as a gamepad: its left stick steered, with a gamepad's dead zone)
@@ -2580,6 +2601,16 @@ mod button_tests {
 }
 
 #[cfg(test)]
+mod device_kind_tests {
+    #[test]
+    fn a_mapped_constant_force_wheel_is_not_a_gamepad() {
+        assert!(super::mapped_device_is_gamepad(true, false));
+        assert!(!super::mapped_device_is_gamepad(true, true));
+        assert!(!super::mapped_device_is_gamepad(false, true));
+    }
+}
+
+#[cfg(test)]
 mod stick_steering_tests {
     #[test]
     fn an_idle_device_nobody_set_up_does_not_hold_the_sticks_steering() {
@@ -2641,6 +2672,8 @@ mod hot_reload_tests {
             gilrs: None,
             #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
             calibration_wheel: None,
+            #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+            ff_wheels: Default::default(),
             #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
             button_devices: crate::evdev_buttons::ButtonDevices::new(),
             #[cfg(windows)]
