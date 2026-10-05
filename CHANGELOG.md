@@ -4,6 +4,11 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1711 - 2026-10-05
+
+### Fixes
+- The launcher's download of a server's map and buses before joining (#1486, with #1511) is taken out again for now.
+
 ## 0.1.1707 - 2026-10-05
 
 ### Merged pull requests
