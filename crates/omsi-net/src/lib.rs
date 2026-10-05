@@ -104,6 +104,7 @@ pub use wire::{
 /// 6: up to 63 sound and moving-part values in a state (a 6-bit count: the AA-FR Agora's
 /// sound variables alone filled the 31 there was room for).
 pub const PROTOCOL: u32 = 6;
+/// (omsi-plugin's `MULTIPLAYER_PORTS` keeps `omsi.send` off this one and the `PORT_RANGE` after it.)
 pub const DEFAULT_PORT: u16 = 27015;
 /// Ports a host tries after the default one when that is taken (a second session on the
 /// same machine).

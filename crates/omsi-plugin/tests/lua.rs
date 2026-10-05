@@ -230,10 +230,13 @@ fn send_reaches_a_program_on_this_computer_only() {
               assert(omsi.send({port}, "hello"))
               local ok, why = omsi.send(80, "x")
               assert(not ok and why:find("1024"), why)
-              -- (no limit of its own: a large message goes, one too large for a datagram not)
-              assert(omsi.send({port}, string.rep("x", 32 * 1024)))
-              ok, why = omsi.send({port}, string.rep("x", 70 * 1024))
-              assert(not ok and why, "a message over 64 KB")
+              -- (the game's own multiplayer ports are not for plugins)
+              ok, why = omsi.send(27016, "x")
+              assert(not ok and why:find("multiplayer"), why)
+              -- 8 KB goes (macOS takes datagrams of at most 9 KB), more does not
+              assert(omsi.send({port}, string.rep("x", 8 * 1024)))
+              ok, why = omsi.send({port}, string.rep("x", 8 * 1024 + 1))
+              assert(not ok and why:find("8 KB"), why)
               local sent = 2
               for _ = 1, 150 do
                 if omsi.send({port}, "tick") then sent = sent + 1 end
@@ -252,5 +255,5 @@ fn send_reaches_a_program_on_this_computer_only() {
     let (n, from) = listener.recv_from(&mut buf).unwrap();
     assert_eq!(&buf[..n], b"hello");
     assert!(from.ip().is_loopback());
-    assert_eq!(listener.recv(&mut buf).unwrap(), 32 * 1024, "the large message whole");
+    assert_eq!(listener.recv(&mut buf).unwrap(), 8 * 1024, "the large message whole");
 }

@@ -175,7 +175,7 @@ is lost, so keep what must not be lost in `omsi.data` as well.
 | Returns | When |
 | --- | --- |
 | `true` | the message was handed to the system |
-| `false`, reason | the port is below 1024, the plugin sent 100 messages in the last second already, or the system refused it (a message longer than a datagram holds, about 64 KB) |
+| `false`, reason | the port is below 1024 or one of the game's multiplayer ports (27015-27024), the message is longer than 8 KB, the plugin sent 100 messages in the last second already, or the system refused it |
 
 ```lua
 -- plugins/live.lua: the speed and the next stop, twice a second, for a program on port 47800

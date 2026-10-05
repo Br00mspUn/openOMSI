@@ -29,6 +29,12 @@ const MAX_ERRORS: u32 = 10;
 /// Most `omsi.send` messages of a plugin in one second, so a plugin cannot flood a program
 /// on this computer.
 const SEND_PER_SECOND: u32 = 100;
+/// Longest `omsi.send` message: the same on every system (macOS takes UDP datagrams of at
+/// most 9 KB by default, Windows and Linux about 64 KB).
+const SEND_MAX: usize = 8 * 1024;
+/// The game's multiplayer ports (`omsi_net::DEFAULT_PORT` and the `PORT_RANGE` after it): a
+/// plugin's messages must not reach a session hosted on this computer.
+const MULTIPLAYER_PORTS: std::ops::Range<u16> = 27015..27025;
 
 /// The game's side while a plugin runs: set only for the length of a call.
 type IoSlot = Rc<Cell<Option<*mut (dyn PluginIo + 'static)>>>;
@@ -440,10 +446,15 @@ struct Sender {
 
 impl Sender {
     /// Send `data` to `127.0.0.1:port`, never waiting: with nobody listening it is lost,
-    /// as UDP is. Err says why it was not sent (the system's reason for a message longer
-    /// than a datagram holds, about 64 KB).
+    /// as UDP is. Err says why it was not sent.
     fn send(&mut self, port: i64, data: &[u8]) -> Result<(), String> {
         let port = u16::try_from(port).ok().filter(|p| *p >= 1024).ok_or("the port must be 1024-65535")?;
+        if MULTIPLAYER_PORTS.contains(&port) {
+            return Err(format!("ports {}-{} are the game's multiplayer", MULTIPLAYER_PORTS.start, MULTIPLAYER_PORTS.end - 1));
+        }
+        if data.len() > SEND_MAX {
+            return Err(format!("a message is at most 8 KB ({} bytes given)", data.len()));
+        }
         if self.second.is_none_or(|t| t.elapsed() >= Duration::from_secs(1)) {
             self.second = Some(Instant::now());
             self.sent = 0;
