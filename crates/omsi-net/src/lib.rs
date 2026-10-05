@@ -2571,7 +2571,12 @@ impl LanSession {
                             "the host turned us away: {reason}"
                         )));
                     }
-                    self.turned_away = Some(reason.clone());
+                    // (the game ends on a door closed before it ever played there, or on a ban;
+                    // a reconnect refused for now - the session full, say - leaves it playing
+                    // on to `/reconnect` later)
+                    if self.welcomes == 0 || reason.contains("sent you away") {
+                        self.turned_away = Some(reason.clone());
+                    }
                     self.rejected = Some(reason);
                     self.connected = false;
                 }
