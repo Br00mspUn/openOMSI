@@ -71,8 +71,11 @@ pub(crate) fn game_info(app: &crate::App) -> Vec<(&'static str, InfoValue)> {
     v.push(("on_foot", Bool(app.on_foot.is_some())));
     v.push(("multiplayer", Bool(app.lan.is_some())));
     // the situation the game started from (the launcher's "continue": `laststn.osn`)
+    // (relative to the OMSI folder, `/`-separated, whether the launcher passed it absolute or not)
     if let Some(s) = app.args.situation.as_ref() {
-        v.push(("situation", Text(s.clone())));
+        let p = std::path::Path::new(s);
+        let rel = p.strip_prefix(&app.args.root).unwrap_or(p);
+        v.push(("situation", Text(rel.to_string_lossy().replace('\\', "/"))));
     }
     // this session's, as the personnel file counts them
     v.push(("crashes", Num(app.career.crashes[0] as f64)));
