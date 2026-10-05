@@ -1355,10 +1355,7 @@ fn step_roadbook(l: &mut Launcher, r: Rect) {
         y - v.y
     });
     if let Some((index, dep)) = start_at {
-        let time = (dep / 60.0).floor() as i32;
-        l.state.choice.time = time;
-        l.state.choice.start_trip = Some((line.name.clone(), tour.number.clone(), index, time));
-        l.state.touched();
+        l.state.pick_trip(index, dep);
     }
     ibis_box(l, Rect::new(r.x, r.bottom() - ibis_h, r.w, ibis_h));
 }
