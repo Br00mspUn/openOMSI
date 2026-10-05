@@ -518,6 +518,7 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         pane_scroll_drag: None,
         pane_scroll: None,
         plugin_keys: Vec::new(),
+        plugin_events: Vec::new(),
         clock_hold: 0.0,
         pad_look: [false; 4],
         arrow_glance: false,
