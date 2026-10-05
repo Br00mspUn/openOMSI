@@ -1096,24 +1096,8 @@ fn online(l: &mut Launcher, body: Rect) {
             l.state.set_status("Your next game is hosted: its code shows in the game for your friends", false);
         }
     }
-    let sr = Rect::new(inner.x, hr.bottom() + 8.0, inner.w, 44.0);
-    l.ui.p().rounded(sr, 12.0, FIELD);
-    l.ui.text_in("Share session mods", Rect::new(sr.x + 16.0, sr.y, sr.w - 120.0, sr.h), 14.0, Weight::Medium, TEXT, Align::Left);
-    let mut share_mods = l.state.choice.lan_share_mods;
-    if l.ui.toggle("po-share-mods", Rect::new(sr.right() - 70.0, sr.y + 8.0, 56.0, 28.0), &mut share_mods, "") {
-        l.state.choice.lan_share_mods = share_mods;
-        l.state.touched();
-    }
-    let dr = Rect::new(inner.x, sr.bottom() + 8.0, inner.w, 44.0);
-    l.ui.p().rounded(dr, 12.0, FIELD);
-    l.ui.text_in("Download missing host mods", Rect::new(dr.x + 16.0, dr.y, dr.w - 120.0, dr.h), 14.0, Weight::Medium, TEXT, Align::Left);
-    let mut download_mods = l.state.choice.lan_download_mods;
-    if l.ui.toggle("po-download-mods", Rect::new(dr.right() - 70.0, dr.y + 8.0, 56.0, 28.0), &mut download_mods, "") {
-        l.state.choice.lan_download_mods = download_mods;
-        l.state.touched();
-    }
     // the other servers of the list, plus the phone-native manager for adding/removing them.
-    let manage = Rect::new(inner.x, dr.bottom() + 10.0, inner.w, 38.0);
+    let manage = Rect::new(inner.x, hr.bottom() + 10.0, inner.w, 38.0);
     if l.ui.button("po-manage-servers", manage, "Manage saved servers", Some("dns"), ButtonKind::Normal) {
         open(l, Sheet::Servers);
     }

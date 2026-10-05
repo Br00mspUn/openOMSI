@@ -714,10 +714,8 @@ switches it off, `OMSI_DEBUG_VAR_SYNC=<variable>` logs what arrives for one vari
 (its map, bus, objects, splines, AI vehicles and people from the content folder or archives,
 also a content folder inside the OMSI 2 folder) is listed with a SHA-256 per file and served
 over TCP on the session's port; a joining game fetches what it lacks before it loads the map
-and keeps the downloads for the next time (`~/.openomsi/lan-store`). On the Multiplayer page,
-the host can turn off sharing session mods and a joining player can independently turn off
-downloading missing mods; both remain on by default. Listing a big add-on map takes the host
-a while after it starts (Novi Sad, 27 000 files: 20 s on a fast computer); a joining game waits
+and keeps the downloads for the next time (`~/.openomsi/lan-store`). Listing a big add-on map
+takes the host a while after it starts (Novi Sad, 27 000 files: 20 s on a fast computer); a joining game waits
 for it. Maps installed straight into the OMSI 2 folder are not passed on: both players need
 them.
 

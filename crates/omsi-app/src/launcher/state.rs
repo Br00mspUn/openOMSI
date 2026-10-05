@@ -121,10 +121,6 @@ pub struct Choice {
     /// off, host, join
     pub lan_mode: String,
     pub lan_addr: String,
-    /// Offer the host's non-stock session content to joining players.
-    pub lan_share_mods: bool,
-    /// Download missing non-stock session content when joining another player/server.
-    pub lan_download_mods: bool,
     /// 2: `entry` may be -1 (automatic); older files had a fixed entry point there.
     pub version: u32,
 }
@@ -155,8 +151,6 @@ impl Default for Choice {
             on_foot: false,
             lan_mode: "off".into(),
             lan_addr: String::new(),
-            lan_share_mods: true,
-            lan_download_mods: true,
             version: 2,
         }
     }
@@ -659,8 +653,6 @@ impl State {
             profile: Some(self.config.profile.clone()).filter(|p| !p.is_empty()),
             lan: Some(lan),
             lan_name: None,
-            lan_share_mods: Some(c.lan_share_mods),
-            lan_download_mods: Some(c.lan_download_mods),
             season: Some(c.season.clone()).filter(|s| s != "auto"),
             tutorial: None,
             situation: None,
@@ -1380,8 +1372,6 @@ mod choice_tests {
     fn an_old_duty_file_loads_and_a_typed_plate_is_kept() {
         let old: super::Choice = serde_json::from_str(r#"{"bus":"Vehicles/x.bus","map":"maps/x/global.cfg"}"#).unwrap();
         assert_eq!(old.plate, "");
-        assert!(old.lan_share_mods);
-        assert!(old.lan_download_mods);
         let mut c = super::Choice::default();
         c.plate = "B-AB 1234".into();
         let back: super::Choice = serde_json::from_str(&serde_json::to_string(&c).unwrap()).unwrap();

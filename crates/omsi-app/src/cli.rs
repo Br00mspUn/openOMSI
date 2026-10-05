@@ -67,12 +67,6 @@ pub(crate) struct Args {
     /// LAN play: join the host at ip[:port], or `auto` to find one on the local network.
     #[arg(long)]
     pub(crate) lan_join: Option<String>,
-    /// Host a LAN session without offering its non-stock map/vehicle content to joiners.
-    #[arg(long)]
-    pub(crate) no_lan_share_mods: bool,
-    /// Join a LAN session without downloading missing non-stock content from its host.
-    #[arg(long)]
-    pub(crate) no_lan_download_mods: bool,
     /// Dedicated server: host a session from this server.cfg (written with the defaults when
     /// missing), with no window, no sound and no graphics card.
     #[arg(long)]
