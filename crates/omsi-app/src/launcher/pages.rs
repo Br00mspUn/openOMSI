@@ -633,12 +633,12 @@ fn driving_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
     toggle_setting(ui, s, dirty, c.row(), "Indicators cancel themselves (as the bus's script does)", "blinker_cancel");
     toggle_setting(ui, s, dirty, c.row(), "The keyboard brake stays on until the throttle (as in OMSI)", "brake_hold");
     toggle_setting(ui, s, dirty, c.row(), "Automatic clutch (manual gearboxes)", "auto_clutch");
-    toggle_setting(ui, s, dirty, c.row(), "Hold manual gear buttons (release returns to neutral)", "momentary_gears");
     if ui.button("s-go-keys", c.row(), "Change the keys", Some("keyboard"), ButtonKind::Normal) {
         out.controls = Some(0);
     }
     let left = c.used();
     let mut c = Col::new(ui, cols[1], "Game controllers");
+    toggle_setting(ui, s, dirty, c.row(), "H-pattern shifter: return to neutral when the gear is released", "momentary_gears");
     // steering wheels: the wheel's own rotation and how much of it is the bus's full lock
     // (a real bus: about two and a half turns), force feedback the other way round
     let mut range = get(s, "wheel_range").as_f64().unwrap_or(900.0) as f32;
@@ -1428,6 +1428,12 @@ fn game_controllers(l: &mut Launcher, body: Rect) {
         connected = io.connected();
     }
     let devices = pv.devices.get_or_insert_with(Vec::new);
+    let mut body = body;
+    if !l.state.settings.get("momentary_gears").and_then(|v| v.as_bool()).unwrap_or(false) && crate::hpattern::has_held_bindings(devices) {
+        let height = l.ui.paragraph("H-pattern gears are assigned. Enable return to neutral under Settings → Driving → Game controllers if your shifter has no neutral button.", Vec2::new(body.x + 12.0, body.y + 8.0), body.w - 24.0, 12.5, Weight::Regular, TEXT_DIM);
+        body.y += height + 20.0;
+        body.h -= height + 20.0;
+    }
     // devices connected but not set up yet can be added
     let list_w = (body.w * 0.32).min(360.0);
     let left = Rect::new(body.x, body.y, list_w, body.h);

@@ -23328,3 +23328,13 @@ _version: 2
 
 "A right click ends the mouse steering":
   zh-tw: "按一下滑鼠右鍵即可停止滑鼠轉向"
+
+"H-pattern shifter: return to neutral when the gear is released":
+  pt: "Câmbio em H: voltar ao neutro ao soltar a marcha"
+  pt-pt: "Caixa em H: voltar ao ponto morto ao soltar a mudança"
+"For a manual shifter without a neutral button; releasing a gear selects neutral immediately":
+  pt: "Para câmbios manuais sem botão de neutro; soltar a marcha seleciona o neutro imediatamente"
+  pt-pt: "Para caixas manuais sem botão de ponto morto; soltar a mudança seleciona o ponto morto imediatamente"
+"H-pattern gears are assigned. Enable return to neutral under Settings → Driving → Game controllers if your shifter has no neutral button.":
+  pt: "Há marchas de câmbio em H configuradas. Ative o retorno ao neutro em Configurações → Direção → Controles de jogo se o seu câmbio não tiver botão de neutro."
+  pt-pt: "Há mudanças de caixa em H configuradas. Ative o retorno ao ponto morto em Definições → Condução → Comandos de jogo se a sua caixa não tiver botão de ponto morto."

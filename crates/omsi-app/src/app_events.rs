@@ -881,8 +881,8 @@ impl ApplicationHandler for App {
                     p.axes.red_steer_spd = self.settings.red_steer_spd;
                     p.axes.pedal_hold = self.settings.brake_hold;
                     p.analog = analog;
-                    if self.game_menu.is_none() {
-                        for (name, down) in actions {
+                    for (name, down) in actions {
+                        if !down || (self.game_menu.is_none() && self.chooser.is_none()) {
                             p.action(&name, down);
                         }
                     }
