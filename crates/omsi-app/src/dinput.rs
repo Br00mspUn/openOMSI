@@ -136,6 +136,12 @@ fn state_release_events(name: &str, state: &RawState) -> Vec<(String, usize, boo
     out
 }
 
+/// State snapshots have no chronological ordering between buttons. Release old gears
+/// before selecting new ones, even when the new gear has the lower button number.
+fn order_button_events(events: &mut [(String, usize, bool)]) {
+    events.sort_by_key(|(_, _, down)| *down);
+}
+
 fn invalidate_state(
     name: &str,
     state: &mut RawState,
@@ -322,7 +328,7 @@ unsafe extern "system" fn notify_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
     {
         if wp.0 as u32 == DBT_DEVICEREMOVECOMPLETE && lp.0 != 0 {
             let header = &*(lp.0 as *const DEV_BROADCAST_HDR);
-            if header.dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE.0 {
+            if header.dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE {
                 let interface = lp.0 as *const DEV_BROADCAST_DEVICEINTERFACE_W;
                 let offset = std::mem::offset_of!(DEV_BROADCAST_DEVICEINTERFACE_W, dbcc_name);
                 let size = header.dbch_size as usize;
@@ -1045,6 +1051,7 @@ impl DirectInput {
             d.state = s;
         }
         self.reopen_devices(reopen);
+        order_button_events(&mut self.events);
     }
 
     /// A hardware-timed calibration pulse; never leaves an infinite force running.
@@ -1363,6 +1370,18 @@ mod tests {
         assert_eq!(events.len(), 4); // no repeated releases
                                      // The first valid reconnect sample compares against an empty snapshot.
         assert_eq!(state.buttons[8], 0);
+    }
+
+    #[test]
+    fn simultaneous_gate_change_releases_before_pressing_in_both_directions() {
+        for (old, new) in [(1, 2), (2, 1)] {
+            let mut events = vec![("wheel".into(), new, true), ("wheel".into(), old, false)];
+            order_button_events(&mut events);
+            assert_eq!(
+                events,
+                [("wheel".into(), old, false), ("wheel".into(), new, true)]
+            );
+        }
     }
 
     #[test]
