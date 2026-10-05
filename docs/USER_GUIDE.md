@@ -456,7 +456,10 @@ installation - `Vehicles`, `maps`, `Sceneryobjects`, `Splines`, `Texture`, `Font
 `Plugins`, `TicketPacks`, `Drivers`, `Weather`, … - and is searched *before* the original
 folder (`omsi_cfg::content_roots`): whatever a mod puts there is found exactly as if it had
 been copied into OMSI 2, and a file of the same name replaces the stock one. The original
-installation is never written to. `OMSI_CONTENT=/some/dir` moves the content folder.
+installation is never written to. `OMSI_CONTENT=/some/dir` moves the content folder.\n\nDepot files can also be placed in a top-level `HOFs/` folder. Every vehicle can use those
+`.hof` files without keeping a separate copy in each `Vehicles/<bus>/` folder. If a
+vehicle folder and `HOFs/` contain the same file name, the vehicle's own copy takes
+priority.
 
 Installing a mod: the launcher's **Mods** page opens the system's folder / file picker
 (Finder, Explorer, GTK) for a mod folder or a `.zip`, `.7z` or `.rar` archive and sorts it
