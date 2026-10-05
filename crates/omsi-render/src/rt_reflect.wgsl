@@ -100,10 +100,7 @@ fn hit_light(o: vec3<f32>, d: vec3<f32>, h: Hit, rough: f32) -> vec3<f32> {
     let nf = -d;
     var sun = vec3<f32>(0.0);
     if (p.sun.w > 0.0 && dot(nf, p.sun.xyz) > -0.2) {
-        var rq: ray_query;
-        rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_TERMINATE_ON_FIRST_HIT, MASK_SHADOW, 0.0, 1500.0, pt - d * 0.05, p.sun.xyz));
-        rayQueryProceed(&rq);
-        if (rayQueryGetCommittedIntersection(&rq).kind == RAY_QUERY_INTERSECTION_NONE) {
+        if (ray_hit(RT_FORCE_OPAQUE | RT_FIRST_HIT, MASK_SHADOW, 0.0, 1500.0, pt - d * 0.05, p.sun.xyz).kind == RAY_QUERY_INTERSECTION_NONE) {
             sun = enh.sun.rgb * (0.35 + 0.4 * max(dot(nf, p.sun.xyz), 0.0));
         }
     }
@@ -180,10 +177,7 @@ fn cs_reflect(@builtin(global_invocation_id) gid: vec3<u32>) {
         var start = 0.0;
         l = sky_probe(d, rough);
         for (var k = 0; k < 4; k++) {
-            var rq: ray_query;
-            rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_FORCE_OPAQUE, MASK_SEEN, start, 400.0, o, d));
-            rayQueryProceed(&rq);
-            let ch = rayQueryGetCommittedIntersection(&rq);
+            let ch = ray_hit(RT_FORCE_OPAQUE, MASK_SEEN, start, 400.0, o, d);
             if (ch.kind == RAY_QUERY_INTERSECTION_NONE) {
                 break;
             }

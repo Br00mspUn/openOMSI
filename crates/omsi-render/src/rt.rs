@@ -865,3 +865,46 @@ impl Renderer {
         pass.draw(0..3, 0..1);
     }
 }
+
+#[cfg(test)]
+mod spv_dump {
+    /// `SPV_DUMP=<dir> cargo test -p omsi-render spv_dump -- --ignored`: the ray tracing's
+    /// shaders as wgpu's Vulkan backend writes them, for spirv-val.
+    #[test]
+    #[ignore]
+    fn spv_dump() {
+        let dir = std::path::PathBuf::from(std::env::var("SPV_DUMP").expect("SPV_DUMP"));
+        let modules = [
+            ("lighting", super::lighting_source()),
+            ("reflect", super::reflect_source()),
+            ("scene_plus", super::super::scene_shader_source(false).replace("//RT ", "")),
+        ];
+        for (name, src) in &modules {
+            let module = naga::front::wgsl::parse_str(src).unwrap();
+            let info = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all()).validate(&module).unwrap();
+            let (module, info) = naga::back::pipeline_constants::process_overrides(&module, &info, None, &Default::default()).unwrap();
+            let opts = naga::back::spv::Options {
+                lang_version: (1, 5),
+                flags: naga::back::spv::WriterFlags::empty(),
+                force_loop_bounding: true,
+                ray_query_initialization_tracking: true,
+                ..Default::default()
+            };
+            for entry in &module.entry_points {
+                let pipeline = naga::back::spv::PipelineOptions { shader_stage: entry.stage, entry_point: entry.name.clone() };
+                let words = naga::back::spv::write_vec(&module, &info, &opts, Some(&pipeline)).unwrap();
+                let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
+                std::fs::write(dir.join(format!("{name}_{}.spv", entry.name)), bytes).unwrap();
+            }
+            // and the HLSL wgpu's Direct3D 12 backend hands DXC (shader model 6.5)
+            let hopts = naga::back::hlsl::Options { shader_model: naga::back::hlsl::ShaderModel::V6_5, ..Default::default() };
+            let mut out = String::new();
+            let popts = Default::default();
+            let mut w = naga::back::hlsl::Writer::new(&mut out, &hopts, &popts);
+            match w.write(&module, &info, None) {
+                Ok(_) => std::fs::write(dir.join(format!("{name}.hlsl")), &out).unwrap(),
+                Err(e) => std::fs::write(dir.join(format!("{name}.hlsl.err")), format!("{e:?}")).unwrap(),
+            }
+        }
+    }
+}

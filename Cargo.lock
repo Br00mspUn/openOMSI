@@ -3404,6 +3404,7 @@ dependencies = [
  "anyhow",
  "ash",
  "bytemuck",
+ "env_logger",
  "glam",
  "hashbrown 0.15.5",
  "log",

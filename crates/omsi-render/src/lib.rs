@@ -1967,6 +1967,10 @@ pub struct Renderer {
     mip_sampler: wgpu::Sampler,
     /// Set by the device's error handler when something failed with multisampling on.
     gpu_error: Arc<std::sync::atomic::AtomicBool>,
+    /// A GPU error while Enhanced+ traces rays: its ray tracing is left out from the next
+    /// frame on (a frame whose commands the device refused shows nothing at all - left to
+    /// go on, the picture stood still on the loading screen while the game ran behind it).
+    rt_error: Arc<std::sync::atomic::AtomicBool>,
     /// The headset's pictures: the heading (degrees) the `[matl_envmap]` sphere maps are
     /// laid out by instead of each eye's view (see `set_env_heading`).
     env_heading: std::cell::Cell<Option<f32>>,
@@ -2423,23 +2427,18 @@ impl Renderer {
             // textures are decoded to RGBA by upload_texture on this device.
             required_features = wgpu::Features::empty();
         }
-        // Enhanced+: hardware ray queries where the device has them and they are known to
-        // work - Metal (Apple silicon from the M3/A17 on). wgpu's ray queries are still
-        // experimental on Vulkan and Direct3D 12: there the game stopped drawing at the end
-        // of the loading screen (sounds and controls going on behind it), so those take
-        // them only with OMSI_RT=1, for testing. OMSI_NO_RT=1 leaves them out everywhere.
-        let rt_backend_ok = info.backend == wgpu::Backend::Metal || omsi_cfg::env::var_os("OMSI_RT").is_some();
+        // Enhanced+: hardware ray queries where the device has them (Apple silicon from the
+        // M3/A17 on, RTX and RDNA 2 cards and newer through Vulkan and Direct3D 12 - with DXC,
+        // which the Windows build ships beside the game); OMSI_NO_RT=1 leaves them out. Should
+        // the device refuse its work all the same, it falls back to Enhanced (`rt_error`).
         let ray_query = options.ray_tracing
             && !intel_vulkan_safe
             && info.backend != wgpu::Backend::Noop
-            && rt_backend_ok
             && adapter.features().contains(wgpu::Features::EXPERIMENTAL_RAY_QUERY)
             && omsi_cfg::env::var_os("OMSI_NO_RT").is_none();
         if ray_query {
             required_features |= wgpu::Features::EXPERIMENTAL_RAY_QUERY;
             limits = limits.using_acceleration_structure_values(adapter.limits());
-        } else if options.ray_tracing && !rt_backend_ok && adapter.features().contains(wgpu::Features::EXPERIMENTAL_RAY_QUERY) {
-            log::warn!("{}: ray tracing on {:?} is not ready yet; Enhanced+ is drawn as Enhanced (OMSI_RT=1 tries it)", info.name, info.backend);
         } else if options.ray_tracing {
             log::warn!("{}: no hardware ray queries; Enhanced+ is drawn as Enhanced", info.name);
         }
@@ -2572,6 +2571,7 @@ impl Renderer {
         // drive - a wrong picture for a frame is better than no game. The first errors and
         // then every thousandth reach the log.
         let gpu_error = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let rt_error = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let out_of_memory = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let device_lost: Arc<std::sync::Mutex<Option<String>>> = Default::default();
         {
@@ -2587,6 +2587,8 @@ impl Renderer {
         }
         {
             let flag = gpu_error.clone();
+            let rt_flag = rt_error.clone();
+            let rt_on = options.ray_tracing;
             let oom = out_of_memory.clone();
             let count = Arc::new(std::sync::atomic::AtomicU64::new(0));
             device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
@@ -2594,7 +2596,12 @@ impl Renderer {
                     oom.store(true, std::sync::atomic::Ordering::Relaxed);
                 }
                 let n = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                if msaa > 1 && !flag.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                if rt_on {
+                    // (the ray tracing goes first: the likelier cause, and the dearer feature)
+                    if !rt_flag.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                        log::error!("GPU error with ray tracing (Enhanced+ draws as Enhanced from now on): {}", gpu_error_text(&e));
+                    }
+                } else if msaa > 1 && !flag.swap(true, std::sync::atomic::Ordering::Relaxed) {
                     log::error!("GPU error with {msaa}x MSAA (drawing without it from now on): {}", gpu_error_text(&e));
                 } else if n < 20 || n % 1000 == 0 {
                     log::error!("GPU error #{} (the game goes on): {}", n + 1, gpu_error_text(&e));
@@ -4362,6 +4369,7 @@ impl Renderer {
             shadow_blobs: options.shadow_blobs,
             options,
             gpu_error,
+            rt_error,
             env_heading: Default::default(),
             out_of_memory,
             device_lost,
@@ -7633,6 +7641,19 @@ impl Renderer {
         None
     }
 
+    /// Rebuild without the ray tracing after a GPU error while it was on (see `rt_error`).
+    fn fall_back_without_ray_tracing(&mut self, scene: &mut Scene) {
+        log::error!("ray tracing failed on {}; Enhanced+ draws as Enhanced from now on", self.adapter_name);
+        let options = RenderOptions { ray_tracing: false, ..self.options };
+        RT_BUFFERS.store(false, std::sync::atomic::Ordering::Relaxed);
+        *self = Self::build(self.device.clone(), self.queue.clone(), self.adapter_name.clone(), self.format, options);
+        scene.dirty = true;
+        scene.model_buf = None;
+        scene.params_buf = None;
+        scene.camera_bind_group = None;
+        scene.shadow_bind_group = None;
+    }
+
     /// Rebuild the pipelines and targets without multisampling after a GPU error with it.
     /// The scene's materials stay valid (the device hands out the same bind group layout
     /// for identical entries); its per-draw buffers and camera bind group are made anew,
@@ -8070,7 +8091,9 @@ impl Renderer {
                 view_formats: &[],
             });
         }
-        if self.gpu_error.load(std::sync::atomic::Ordering::Relaxed) {
+        if self.rt_error.load(std::sync::atomic::Ordering::Relaxed) {
+            self.fall_back_without_ray_tracing(scene);
+        } else if self.gpu_error.load(std::sync::atomic::Ordering::Relaxed) {
             self.fall_back_to_single_sample(scene);
         }
         // OMSI_GPU_TIMERS: GPU time per pass, one frame at a time
