@@ -4,6 +4,11 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1674 - 2026-10-05
+
+### Merged pull requests
+- AI trams no longer leave their rails to overtake over the oncoming lane: they wait behind what blocks them [#1512](https://github.com/openOMSI-Project/openOMSI/pull/1512).
+
 ## 0.1.1671 - 2026-10-05
 
 ### Merged pull requests
