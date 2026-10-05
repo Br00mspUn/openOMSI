@@ -1,6 +1,14 @@
 # Interface texts: the English text is the key (see omsi_ui::tr). _version 2: every
 # language of a text under it. `pt` is Brazilian Portuguese; `pt-pt` is European Portuguese.
 _version: 2
+
+"Current time":
+  es: "Hora actual"
+  ca: "Hora actual"
+
+"Current date":
+  es: "Fecha actual"
+  ca: "Data actual"
 "Smooth mouse steering":
   zh-tw: "平滑滑鼠轉向"
 "The wheel eases after the cursor; off: it follows at once, as in OMSI":
