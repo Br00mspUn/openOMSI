@@ -103,6 +103,13 @@ struct EnhancedUniform {
     /// x how bright an LED panel's dots burn (`Lighting::led_glow`), y how much of the
     /// mip chain an LED panel is held at (`Lighting::led_mips`)
     led: [f32; 4],
+    /// xyz towards the moon, w its angular radius
+    moon: [f32; 4],
+    /// rgb the moon disc's irradiance at the ground before the clouds, w how much of the
+    /// starry sky shows (the city's lamps and the haze wash the faint stars out)
+    moon_disc: [f32; 4],
+    /// rgb the sun's irradiance at the clouds' heights (`atmosphere::CLOUD_SUN_HEIGHTS`)
+    cloud_sun: [[f32; 4]; 4],
 }
 
 /// High-range colour targets of the enhanced path for one size: the multisampled one the
@@ -201,10 +208,16 @@ const METER_GAIN: f32 = 0.4;
 const METER_TARGET: f32 = -2.84;
 const METER_DARKEN: f32 = 0.6;
 const METER_BRIGHTEN: f32 = 0.8;
+/// The tone curve's contrast about mid grey by day and at night (see `tone_contrast`).
+const TONE_CONTRAST_DAY: f32 = 1.22;
+const TONE_CONTRAST_NIGHT: f32 = 0.94;
 /// How far night vision takes the colour out of a dark scene (post.wgsl `night_vision`).
-const NIGHT_VISION: f32 = 0.55;
+const NIGHT_VISION: f32 = 0.3;
 /// The sun's angular radius as drawn (a little larger than the real 0.27°).
 const SUN_RADIUS: f32 = 0.0065;
+/// The moon's, as drawn (the real one is as large as the sun's; a little more, as the
+/// eye sees it).
+const MOON_RADIUS: f32 = 0.0062;
 
 /// The textures of the ambient-occlusion pass for one target size.
 struct AoTargets {
@@ -636,6 +649,21 @@ pub struct Lighting {
     /// The player's vehicle's velocity (m/s, world): at speed the airstream drives the drops
     /// on its glass up the windscreen and back along the side windows.
     pub glass_wind: Vec3,
+    /// Towards the moon (world space) and how much of its disc is lit (0 new .. 1 full):
+    /// the enhanced night's moonlight and the moon in its sky.
+    pub moon_dir: Vec3,
+    pub moon_illum: f32,
+    /// The day of the year (1..366) and the latitude (degrees north): the season's air.
+    pub day_of_year: f32,
+    pub latitude: f32,
+    /// One number per calendar day, which the enhanced sky draws the day's own air from.
+    pub day_seed: u32,
+    /// The optical depth of a high ice-cloud veil (0 none .. 2 a thick milky one).
+    pub veil: f32,
+    /// The air as a weather model knows it: aerosol amount relative to a clear day, its
+    /// Ångström exponent and its layer's depth (m); without it the day's own air is drawn
+    /// from the calendar (`day_air`).
+    pub air: Option<[f32; 3]>,
 }
 
 impl Lighting {
@@ -685,6 +713,13 @@ impl Default for Lighting {
             led_glow: 1.5,
             led_mips: 1.3,
             glass_wind: Vec3::ZERO,
+            moon_dir: Vec3::new(0.0, -0.5, -0.866),
+            moon_illum: 0.0,
+            day_of_year: 150.0,
+            latitude: 52.5,
+            day_seed: 0,
+            veil: 0.0,
+            air: None,
         }
     }
 }
@@ -1830,6 +1865,10 @@ pub struct Renderer {
     cloud_shape_view: wgpu::TextureView,
     cloud_detail_view: wgpu::TextureView,
     cloud_sampler: wgpu::Sampler,
+    /// The shape map's second level (RGBA8), for the clouds' shadow on the street, and how
+    /// much of the sun the clouds let through over the camera now (smoothed).
+    cloud_shape_cpu: Vec<u8>,
+    cloud_sun: Option<f32>,
     sky_mesh: (wgpu::Buffer, wgpu::Buffer, u32),
     overlay_pipeline: wgpu::RenderPipeline,
     overlay_layout: wgpu::BindGroupLayout,
@@ -3163,7 +3202,7 @@ impl Renderer {
                 },
             ],
         });
-        let (cloud_shape_view, cloud_detail_view, cloud_sampler) = cloud_noise_textures(&device, &queue);
+        let (cloud_shape_view, cloud_detail_view, cloud_sampler, cloud_shape_cpu) = cloud_noise_textures(&device, &queue);
         log::info!("renderer: compiling the sky and clouds shaders");
         let sky_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("sky"),
@@ -4295,6 +4334,8 @@ impl Renderer {
             cloud_shape_view,
             cloud_detail_view,
             cloud_sampler,
+            cloud_shape_cpu,
+            cloud_sun: None,
             sky_mesh,
             overlay_pipeline,
             overlay_layout,
@@ -6666,10 +6707,46 @@ impl Renderer {
             }
         }
         let input_overcast = input.overcast;
+        // the cumulus over the street: how much of the sun gets through them along the sun's
+        // way from here, a little blurred (a cloud's shadow has a soft edge tens of metres
+        // wide) and followed over a moment as the clouds drift
+        let cloud_t = {
+            let now = if lighting.enhanced && lighting.cloud_density > 0.0 {
+                cloud_sun_transmittance(&self.cloud_shape_cpu, lighting, cam_rel, ro)
+            } else {
+                1.0
+            };
+            let k = if self.instant_exposure || dt <= 0.0 { 1.0 } else { 1.0 - (-dt / 0.7).exp() };
+            if omsi_cfg::env::var_os("OMSI_DEBUG_SKY").is_some() {
+                // (what share of the sky's directions are clear, against the cover asked for)
+                let mut clear = 0;
+                let mut n = 0;
+                for i in 0..64 {
+                    let az = i as f32 * 0.7;
+                    let el = 0.25 + (i % 8) as f32 * 0.09;
+                    let mut l = lighting.clone();
+                    l.sun_dir = Vec3::new(el.cos() * az.cos(), el.cos() * az.sin(), el.sin());
+                    if cloud_sun_transmittance(&self.cloud_shape_cpu, &l, cam_rel, ro) > 0.5 {
+                        clear += 1;
+                    }
+                    n += 1;
+                }
+                log::info!("cloud sun: {now:.3} here, {clear} of {n} directions clear (cover {:.2})", lighting.cloud_density);
+            }
+            let t = self.cloud_sun.map(|c| c + (now - c) * k).unwrap_or(now);
+            self.cloud_sun = Some(t);
+            t
+        };
         let st = self.sky_state.as_ref().expect("sky state");
         // the exposure follows the light over a second or two (in log space); an offscreen
         // picture and the first frame take it at once
-        let target = st.exposure.max(1e-6).ln();
+        // (the eye takes to a cloud's shadow as to any other light: the exposure is for the
+        // sun the street actually gets)
+        // (half of the way in log terms: a camera, and the eye, take a cloud's shadow as
+        // darker - it is darker - only not as much as the light meter says)
+        let full = st.exposure.max(1e-6).ln();
+        let shaded = atmosphere::exposure_for(st.e_sun * cloud_t + st.e_rest).max(1e-6).ln();
+        let target = full + (shaded - full) * CLOUD_SHADE_ADAPT;
         let log_exposure = match self.exposure {
             Some(e) if !self.instant_exposure && dt > 0.0 => {
                 e + (target - e) * (1.0 - (-dt / 1.5).exp())
@@ -6687,9 +6764,10 @@ impl Renderer {
             / 6.0;
         let fog_rgb = avg * 0.9 / std::f32::consts::PI;
         let weather_fog = enhanced_weather_fog(lighting);
-        // (the air near the ground: the Rayleigh part and half the aerosols of the sky
-        // model's, whose layer is thinner where a street is than its average)
-        let clear_air = 1.3e-5 + 2.2e-5 * input.haze;
+        // (the air near the ground: the Rayleigh part and more than the sky model's
+        // average aerosol - a city's air near the ground holds its dust and exhaust, which is what gives a street its depth - the houses a few
+        // hundred metres off a shade paler and bluer than the ones beside the road)
+        let clear_air = 1.8e-5 + 3.6e-5 * input.haze;
         // the fog lies on the ground under the player's vehicle, or just under the camera
         let base = match lighting.fog_base.or(lighting.inside.map(|v| v.0.z)) {
             Some(z) => (z - ro.z) as f32,
@@ -6741,7 +6819,7 @@ impl Renderer {
         let u = EnhancedUniform {
             // (self-lit surfaces at their own brightness after the metering, see ExposureLog)
             exposure: [pre, 2f32.powf(-self.exposure_log.as_ref().map(|l| l.ev).unwrap_or(0.0)).clamp(0.7, 1.6), pre * WINDOW_RADIANCE, 1.6],
-            sun: st.sun.extend(SUN_RADIUS).to_array(),
+            sun: (st.sun * cloud_t).extend(SUN_RADIUS).to_array(),
             sh,
             ground: st.ground.extend(st.lut_scale).to_array(),
             fog: [weather_fog, FOG_FALLOFF, base, clear_air],
@@ -6763,13 +6841,24 @@ impl Renderer {
                     .ok()
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(1.0),
-                0.0,
+                // the tone curve's contrast, which self-lit pictures undo (`display_level`)
+                tone_contrast(log_exposure),
             ],
             eye: eye_off.extend(0.0).to_array(),
             // x how bright an LED panel's dots burn (see `MaterialExtra::led`; the settings'
             // 16 levels give 0 = off .. 3.75), y whether the LED panels' `\S:n` masks keep
             // their mip chain (0: at full resolution, the dots stay visible when small)
             led: [lighting.led_glow, lighting.led_mips, 0.0, 0.0],
+            moon: lighting.moon_dir.normalize_or_zero().extend(MOON_RADIUS).to_array(),
+            // (w of the first: the veil's optical depth, which the sky draws as the high
+            // layer; of the second: how far the veil spreads the sun, which softens shadows)
+            cloud_sun: {
+                let mut c = st.sun_at.map(|c| c.extend(0.0).to_array());
+                c[0][3] = st.input.veil;
+                c[1][3] = 1.0 - (-st.input.veil / st.input.sun_dir.z.max(0.03)).exp();
+                c
+            },
+            moon_disc: st.moon_disc.extend((1.0 - 0.18 * (st.input.haze - 1.0).max(0.0)).clamp(0.2, 1.0) * 0.55).to_array(),
         };
         self.queue
             .write_buffer(&self.enh_buf, 0, bytemuck::bytes_of(&u));
@@ -9021,7 +9110,12 @@ impl Renderer {
                         } else {
                             0
                         };
-                        let dist = if let Some(sort_origin) = inst.blend_sort_origin {
+                        // A vehicle's shadow blob goes after all the ground: it writes no depth, so
+                        // every road piece nearer than its origin, drawn after it by distance,
+                        // painted the road back over it (OMSI draws it over the road it lies on).
+                        let dist = if inst.blob {
+                            -1.0
+                        } else if let Some(sort_origin) = inst.blend_sort_origin {
                             // Spline surfaces use the C++ handler's placement-origin distance
                             // in the horizontal plane (Rust's world axes are x/y horizontal,
                             // z vertical).
@@ -9864,8 +9958,12 @@ impl Renderer {
                 // there instead of being drawn burning: their halo shows, they don't bleach.
                 // `Led glow`, 0 = not at all.)
                 c: [m[0], m[5], self.exposure.map(f32::exp).unwrap_or(1.0), lighting.led_glow * 10.0],
-                // Enhanced+: its filmic grade, the vignette and the sharpening (post.wgsl)
-                d: if rt_frame && omsi_cfg::env::var_os("OMSI_NO_RT_GRADE").is_none() { [1.0, 0.08, 0.0, 0.0] } else { [0.0; 4] },
+                // Enhanced+: its grade, the vignette and the sharpening; both: the tone
+                // curve's contrast (post.wgsl `natural_tone`)
+                d: {
+                    let contrast = tone_contrast(self.exposure.unwrap_or(0.0));
+                    if rt_frame && omsi_cfg::env::var_os("OMSI_NO_RT_GRADE").is_none() { [1.0, 0.08, 0.0, contrast] } else { [0.0, 0.0, 0.0, contrast] }
+                },
             };
             self.queue
                 .write_buffer(&self.post_buf, 0, bytemuck::bytes_of(&pu));
@@ -10589,6 +10687,104 @@ fn meter_tuning() -> [f32; 6] {
     })
 }
 
+/// The tone curve's contrast about mid grey for a pre-exposure (its natural log): a
+/// camera's by day, falling off through the dusk to a little under none at night, where
+/// the eye's own adaptation to the dark between the street lamps lifts it out of black
+/// (a street a few hundred times darker than the pool under a lamp is still seen). `OMSI_TONE_CONTRAST=day,night`
+/// overrides it.
+fn tone_contrast(log_pre: f32) -> f32 {
+    static OVERRIDE: std::sync::OnceLock<Option<(f32, f32)>> = std::sync::OnceLock::new();
+    let (day, night) = OVERRIDE
+        .get_or_init(|| {
+            let v = omsi_cfg::env::var("OMSI_TONE_CONTRAST").ok()?;
+            let mut it = v.split(',').map(|x| x.trim().parse::<f32>().ok());
+            Some((it.next()??, it.next().flatten().unwrap_or(1.0)))
+        })
+        .unwrap_or((TONE_CONTRAST_DAY, TONE_CONTRAST_NIGHT));
+    // (the pre-exposure is about 1 by day, 70 in the blue hour and 400-700 at night)
+    let t = atmosphere::smoothstep(2.0, 8.0, log_pre / std::f32::consts::LN_2);
+    day + (night - day) * t
+}
+
+/// How much of the sun the enhanced sky's cumulus lets through to the camera: the same
+/// cloud the sky shader draws (sky_enhanced.wgsl `cloud_base_shape`, `cloud_sigma`: the
+/// shape map's heaps cut by the cover, rounded with height, without the billows), its
+/// extinction integrated along the sun's direction through the layer, over a few rays a
+/// few tens of metres apart (the penumbra of a cloud a kilometre and a half up).
+const CLOUD_SHADOW_EROSION: f32 = 0.15;
+/// How far the exposure follows the light into a cloud's shadow (log terms).
+const CLOUD_SHADE_ADAPT: f32 = 0.5;
+
+fn cloud_sun_transmittance(shape: &[u8], lighting: &Lighting, cam_rel: Vec3, ro: DVec3) -> f32 {
+    const BOTTOM: f32 = 1400.0;
+    const TOP: f32 = 2800.0;
+    const PERIOD: f32 = 13000.0;
+    const SIGMA: f32 = 0.035;
+    let s = lighting.sun_dir.normalize_or_zero();
+    if s.z <= 0.02 || shape.is_empty() {
+        return 1.0;
+    }
+    let size = (clouds::SHAPE_SIZE / 2) as usize;
+    if shape.len() < size * size * 4 {
+        return 1.0;
+    }
+    let texel = |x: i64, y: i64| {
+        let (x, y) = (x.rem_euclid(size as i64) as usize, y.rem_euclid(size as i64) as usize);
+        let i = (y * size + x) * 4;
+        [shape[i] as f32 / 255.0, shape[i + 1] as f32 / 255.0, shape[i + 2] as f32 / 255.0]
+    };
+    let sample = |u: f32, v: f32| {
+        let (x, y) = (u * size as f32 - 0.5, v * size as f32 - 0.5);
+        let (x0, y0) = (x.floor(), y.floor());
+        let (fx, fy) = (x - x0, y - y0);
+        let (x0, y0) = (x0 as i64, y0 as i64);
+        let a = texel(x0, y0);
+        let b = texel(x0 + 1, y0);
+        let c = texel(x0, y0 + 1);
+        let d = texel(x0 + 1, y0 + 1);
+        let mut o = [0.0f32; 3];
+        for k in 0..3 {
+            o[k] = (a[k] * (1.0 - fx) + b[k] * fx) * (1.0 - fy) + (c[k] * (1.0 - fx) + d[k] * fx) * fy;
+        }
+        o
+    };
+    let lin = |a: f32, b: f32, v: f32| ((v - a) / (b - a)).clamp(0.0, 1.0);
+    let cover = lighting.cloud_density.clamp(0.0, 1.0);
+    // (less the billows' erosion, which the sky shader takes off the heaps' edges and this
+    // leaves out: on average about this much of the cover)
+    let coverage = (0.3 + cover * 0.55 - CLOUD_SHADOW_EROSION).clamp(0.0, 1.0);
+    let origin = glam::Vec2::new(ro.x.rem_euclid(CLOUD_ORIGIN_PERIOD) as f32, ro.y.rem_euclid(CLOUD_ORIGIN_PERIOD) as f32);
+    let drift = glam::Vec2::new(lighting.cloud_offset[0], lighting.cloud_offset[1]) * 2500.0;
+    let t0 = (BOTTOM - cam_rel.z).max(0.0) / s.z;
+    let t1 = ((TOP - cam_rel.z).max(0.0) / s.z).min(t0 + 12_000.0);
+    let steps = 24;
+    let ds = (t1 - t0) / steps as f32;
+    let side = glam::Vec2::new(-s.y, s.x).normalize_or_zero();
+    let mut sum = 0.0;
+    let offsets = [glam::Vec2::ZERO, side * 40.0, -side * 40.0, glam::Vec2::new(s.x, s.y).normalize_or_zero() * 40.0, -glam::Vec2::new(s.x, s.y).normalize_or_zero() * 40.0];
+    for off in offsets {
+        let mut od = 0.0;
+        for k in 0..steps {
+            let t = t0 + (k as f32 + 0.5) * ds;
+            let p = cam_rel + s * t;
+            let h = (p.z - BOTTOM) / (TOP - BOTTOM);
+            if !(0.0..1.0).contains(&h) {
+                continue;
+            }
+            let g = glam::Vec2::new(p.x, p.y) + origin + off + drift;
+            let m = sample(g.x / PERIOD, g.y / PERIOD);
+            let lo = m[1] - 1.0;
+            let n = h * h * (0.7 + m[2]) + (1.0 - h).powi(16);
+            let base = (m[0] - n - lo) / (1.0 - lo) * (lin(0.0, 0.1, h) - lin(0.6, 1.0, h));
+            let x = ((base + coverage - 1.0) / 0.12).clamp(0.0, 1.0);
+            let dens = x * x * (3.0 - 2.0 * x) * (h / 0.2).min(1.0);
+            od += dens * SIGMA * ds;
+        }
+        sum += (-od).exp();
+    }
+    sum / offsets.len() as f32
+}
+
 /// How the enhanced picture's weather fog thins out with height (1/m): a 300 m scale height
 /// over the fog's base (`layer_depth` in enhanced_common.wgsl).
 const FOG_FALLOFF: f32 = 1.0 / 300.0;
@@ -10621,7 +10817,13 @@ fn enhanced_sky_input(lighting: &Lighting) -> (atmosphere::SkyInput, f32) {
     let s = lighting.sun_dir.normalize_or_zero();
     // haze: the weather's visibility below a few kilometres thickens the aerosol
     let visibility = 2.3 / lighting.fog_density.max(1e-6);
-    let haze = (8000.0 / visibility).clamp(1.0, 6.0) + 2.0 * lighting.rain;
+    let mut day = day_air(lighting);
+    if let Some([haze, angstrom, height]) = lighting.air {
+        day.haze = haze;
+        day.angstrom = angstrom;
+        day.aerosol_height = height;
+    }
+    let haze = (8000.0 / visibility).clamp(1.0, 6.0) * day.haze + 2.0 * lighting.rain;
     // rain and snow fall from a closed deck: whatever the cloud type says, the sun is
     // gone and the sky is the grey dome (a low sun scattered orange in the snowfall)
     let wet_cover = (lighting.rain * 1.5).clamp(0.0, 1.0);
@@ -10641,8 +10843,85 @@ fn enhanced_sky_input(lighting: &Lighting) -> (atmosphere::SkyInput, f32) {
         rain: lighting.rain.clamp(0.0, 1.0),
         ground_albedo: 0.2 + 0.45 * lighting.snow.clamp(0.0, 1.0),
         tint: lighting.envir_tint,
+        // (rain and mist are water: as grey as the droplets are large)
+        angstrom: day.angstrom * (1.0 - 0.6 * lighting.rain.clamp(0.0, 1.0)) * (1.0 - 0.5 * ((haze - 3.0) / 3.0).clamp(0.0, 1.0)),
+        aerosol_height: day.aerosol_height,
+        strat_aod: day.strat_aod,
+        veil: lighting.veil.clamp(0.0, 3.0),
+        cumulus: if lighting.enhanced { (lighting.cloud_density.min(0.84)) * (1.0 - closed) } else { 0.0 },
+        moon_dir: lighting.moon_dir,
+        moon_illum: lighting.moon_illum,
+        city_glow: 1.0,
     };
-    (input, sun_visibility)
+    // (the disc in the sky: what the veil lets through of it as well)
+    let veil_t = (-input.veil / s.z.max(0.03)).exp();
+    (input, sun_visibility * veil_t)
+}
+
+/// The day's own air: what the sky of one calendar day is made of, as the weather of a
+/// real day leaves it (see `day_air`).
+struct DayAir {
+    /// aerosol amount relative to a clear day
+    haze: f32,
+    /// its Ångström exponent (fine dry particles 1.4-1.6, humid haze down to 0.5)
+    angstrom: f32,
+    /// the depth of the hazy boundary layer (m)
+    aerosol_height: f32,
+    /// the stratospheric aerosol's optical depth
+    strat_aod: f32,
+}
+
+/// The day's own air, drawn from the calendar day so that no two days look quite alike -
+/// and with it no two sunsets: winter's air is mostly clean and dry (a deep blue sky,
+/// crisp distances, a pale yellow low sun) under a shallow inversion, a summer's often
+/// hazy and humid (a milky sky, soft distances) and mixed high by the afternoon's heat,
+/// and the far north cleaner than the middle of the continent. The boundary layer follows
+/// the sun through the day as a real one does: low and dense in the morning (a pastel
+/// sunrise through a thin bright haze), growing with the sun's heat until early afternoon
+/// and left standing as the evening's residual layer (a low sun shining through all of
+/// it). Now and then the stratosphere holds more aerosol than usual, and that evening's
+/// twilight turns purple. `OMSI_DAY_AIR=haze,angstrom[,height,strat]` fixes it.
+fn day_air(lighting: &Lighting) -> DayAir {
+    static FIXED: std::sync::OnceLock<Option<Vec<f32>>> = std::sync::OnceLock::new();
+    let fixed = FIXED.get_or_init(|| {
+        let v = omsi_cfg::env::var("OMSI_DAY_AIR").ok()?;
+        Some(v.split(',').filter_map(|x| x.trim().parse::<f32>().ok()).collect())
+    });
+    let hash = |k: u32| {
+        let mut x = lighting.day_seed.wrapping_mul(0x9E37_79B9) ^ k.wrapping_mul(0x85EB_CA6B);
+        x ^= x >> 16;
+        x = x.wrapping_mul(0x7FEB_352D);
+        x ^= x >> 15;
+        x = x.wrapping_mul(0x846C_A68B);
+        x ^= x >> 16;
+        (x & 0xFF_FFFF) as f32 / 16_777_216.0
+    };
+    // 0 in midwinter, 1 in high summer (half a year later south of the equator)
+    let doy = lighting.day_of_year + if lighting.latitude < 0.0 { 182.0 } else { 0.0 };
+    let summer = 0.5 - 0.5 * (2.0 * std::f32::consts::PI * (doy - 20.0) / 365.0).cos();
+    let north = 1.0 - 0.3 * atmosphere::smoothstep(55.0, 70.0, lighting.latitude.abs());
+    let snow = lighting.snow.clamp(0.0, 1.0);
+    let base = (0.72 + 0.6 * summer) * north * (1.0 - 0.25 * snow);
+    let mut haze = (base * ((hash(1) - 0.5) * 1.1).exp()).clamp(0.35, 3.0);
+    let mut angstrom = (1.45 - 0.65 * summer * hash(2) - 0.15 * hash(3)).clamp(0.5, 1.6);
+    // the day's deepest mixing (m): a few hundred metres in winter, up to two kilometres
+    // on a hot summer afternoon
+    let deepest = (500.0 + 1500.0 * summer) * (0.7 + 0.6 * hash(4));
+    // how far the day has mixed it: by the sun's height in the morning (azimuth east of
+    // south), all of it from the afternoon on (the residual layer stays into the night)
+    let sun_alt = lighting.sun_dir.normalize_or_zero().z.max(0.0).asin().to_degrees();
+    let morning = lighting.sun_azimuth < std::f32::consts::PI;
+    let grown = if morning { 0.35 + 0.65 * atmosphere::smoothstep(0.0, 35.0, sun_alt) } else { 1.0 };
+    let mut aerosol_height = (deepest * grown).max(250.0);
+    // mostly a clean stratosphere; one day in a dozen or so a vivid one
+    let mut strat_aod = 0.002 + 0.004 * hash(5) + 0.03 * hash(6).powi(8);
+    if let Some(f) = fixed {
+        haze = f.first().copied().unwrap_or(haze);
+        angstrom = f.get(1).copied().unwrap_or(angstrom);
+        aerosol_height = f.get(2).copied().unwrap_or(aerosol_height);
+        strat_aod = f.get(3).copied().unwrap_or(strat_aod);
+    }
+    DayAir { haze, angstrom, aerosol_height, strat_aod }
 }
 
 /// Has the sky moved on far enough from `a` to be computed again? The sun by a tenth of a
@@ -10655,6 +10934,14 @@ fn sky_input_differs(a: &atmosphere::SkyInput, b: &atmosphere::SkyInput) -> bool
         || !near(a.haze, b.haze, 0.02)
         || !near(a.rain, b.rain, 0.01)
         || !near(a.ground_albedo, b.ground_albedo, 0.01)
+        || !near(a.angstrom, b.angstrom, 0.02)
+        || !near(a.aerosol_height, b.aerosol_height, 40.0)
+        || !near(a.strat_aod, b.strat_aod, 0.0005)
+        || !near(a.veil, b.veil, 0.01)
+        || !near(a.cumulus, b.cumulus, 0.02)
+        || a.moon_dir.dot(b.moon_dir) < 0.9999
+        || !near(a.moon_illum, b.moon_illum, 0.01)
+        || !near(a.city_glow, b.city_glow, 0.01)
         || a.tint
             .iter()
             .zip(&b.tint)
@@ -10774,7 +11061,7 @@ fn scene_shader_text(gl: bool) -> String {
 
 /// The enhanced clouds' noise textures (clouds.rs), made once: the shape map (2-D RGBA8)
 /// and the detail volume (3-D R8), both with their mip chains, and a repeating sampler.
-fn cloud_noise_textures(device: &wgpu::Device, queue: &wgpu::Queue) -> (wgpu::TextureView, wgpu::TextureView, wgpu::Sampler) {
+fn cloud_noise_textures(device: &wgpu::Device, queue: &wgpu::Queue) -> (wgpu::TextureView, wgpu::TextureView, wgpu::Sampler, Vec<u8>) {
     let t0 = std::time::Instant::now();
     let (shape, detail) = std::thread::scope(|s| {
         let a = s.spawn(clouds::shape_map);
@@ -10818,7 +11105,9 @@ fn cloud_noise_textures(device: &wgpu::Device, queue: &wgpu::Queue) -> (wgpu::Te
         ..Default::default()
     });
     log::info!("cloud noise made in {:.2} s", t0.elapsed().as_secs_f32());
-    (shape_view, detail_view, sampler)
+    // (the shape map's second level kept for the clouds' shadow, `cloud_sun_transmittance`)
+    let cpu = shape.get(1).cloned().unwrap_or_default();
+    (shape_view, detail_view, sampler, cpu)
 }
 
 /// The sky dome (both paths) and the enhanced reflection probe.

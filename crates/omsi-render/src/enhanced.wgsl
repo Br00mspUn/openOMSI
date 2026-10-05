@@ -74,7 +74,9 @@ fn sun_shadow_soft(world_in: vec3<f32>, n: vec3<f32>, thin: bool) -> f32 {
     // (half a metre towards the sun for a leaf, as in `sun_shadow`)
     let world = world_in + select(vec3<f32>(0.0), camera.sun_dir.xyz * 0.5, thin);
     let ndl = clamp(dot(n, camera.sun_dir.xyz), 0.0, 1.0);
-    let texel = camera.shadow.y;
+    // (a veil of high cloud spreads the sun into an aureole a few degrees wide: the light
+    // comes from a larger source, and the shadow's edge widens with it)
+    let texel = camera.shadow.y * (1.0 + 3.0 * enh.cloud_sun[1].w);
     let close = shadow_close(world, n, ndl, thin);
     if (close.y >= 0.999) {
         return close.x;
@@ -316,13 +318,16 @@ fn fs_enhanced(in: FsIn) -> EnhancedOut {
 }
 
 // A self-lit picture (a display, a light-mapped surface lit fully) at its own colour after
-// the tone curve: PBR Neutral leaves colours below 0.76 as they are, less a black offset of
-// 0.04, and bleaches what is brighter - a display's yellow-green text came out olive. So
-// the colour is kept under the knee and the offset added back.
+// the tone curve (post.wgsl `natural_tone`): it bleaches what is brighter than its knee -
+// a display's yellow-green text came out olive - and gives the middle tones the contrast
+// of `enh.debug.w` about mid grey. So the colour is kept under the knee and the contrast
+// undone in advance (with the small black offset the text has always been drawn with).
 fn display_level(t: vec3<f32>) -> vec3<f32> {
     let peak = max(t.r, max(t.g, t.b));
-    let tk = t * min(1.0, 0.76 / max(peak, 1e-3));
-    return tk + 0.04 * smoothstep(vec3<f32>(0.0), vec3<f32>(0.08), tk);
+    let tk = t * min(1.0, 0.64 / max(peak, 1e-3));
+    let c = max(enh.debug.w, 1.0);
+    let x = 0.18 * pow(tk / 0.18 + vec3<f32>(1e-7), vec3<f32>(1.0 / c));
+    return x + 0.04 * smoothstep(vec3<f32>(0.0), vec3<f32>(0.08), x);
 }
 
 fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bool, eye: vec3<f32>) -> vec4<f32> {
@@ -416,6 +421,14 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     let h_pt = in.world.z - enh.fog.z;
     // (no fog inside the cab: only the part of the way outside the bus is misty)
     let aer = air(-v, fog_distance(in.world), h_cam, h_pt);
+    if (in.params2.w > 1.5) {
+        // A vehicle's shadow blob is no surface: it is the sky light the body keeps off the
+        // road, a layer that only darkens what lies under it (as OMSI blends it). Shaded as
+        // a black surface it took the sky, the wet road's sheen and the lamps on top and
+        // hardly darkened anything. The air in front of it stays (the road's own fog, under
+        // the blob, is darkened with it as in the original).
+        return vec4<f32>(aer.rgb * pre, alpha * aer.a);
+    }
     if (material.params.y > 0.5) {
         // unlit (mirror glass, script and text textures): shown at their own brightness,
         // under the tone curve's knee (`display_level`), and `exposure.y` undoes the
@@ -665,8 +678,16 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         if (thin) {
             // foliage: a crown of leaves facing every way, whose normals OMSI points up
             // only to light it evenly - lit by the sun from any side (the shadow map
-            // darkens its far side), a little through the leaves as well
-            direct = e_sun * (0.3 + 0.4 * max(nl, 0.0) + 0.1 * max(-nl, 0.0)) * sf.albedo / PI;
+            // darkens its far side), a little through the leaves as well. A crown is
+            // hundreds of leaves at every angle: on average about half of the sun falls on
+            // them square on, whatever the sun's height (with the up-pointing normals alone a
+            // low sun left every tree dull and dark while the walls beside it glowed). Seen
+            // against the sun a leaf glows with what comes through it - yellow-green, the
+            // light having passed the leaf's colour twice.
+            let through = pow(clamp(dot(-v, s), 0.0, 1.0), 3.0);
+            let leaf = sf.albedo / PI;
+            direct = e_sun * (leaf * (0.42 + 0.3 * max(nl, 0.0) + 0.08 * max(-nl, 0.0))
+                + leaf * min(sf.albedo * 2.2, vec3<f32>(1.0)) * through * 0.45);
         } else if (nl > 0.0) {
             // the sun is a disc, not a point: no highlight sharper than it
             let a = max(rough * rough, 0.012);

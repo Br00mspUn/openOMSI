@@ -544,7 +544,11 @@ fn vs_main(in: VsIn) -> VsOut {
         // line of sight bowed the road's long triangles over the short ones of what lies on
         // it, by millimetres near the eye, and the rails went under the road there (#1196).
         // (surface objects, 1.25, a little more than the splines under them)
-        let decal = select(0.0, 0.01 + 0.001 * d, surf > 1.1 && surf < 1.5);
+        // (a vehicle's shadow blob, 2: drawn without a depth test in the original, right
+        // over the road it lies on - with the road's own pull alone the two fought for
+        // every pixel and the road mostly won; a few centimetres more bring it through the
+        // road and still leave it behind the body and the wheels standing on it)
+        let decal = select(select(0.0, 0.01 + 0.001 * d, surf > 1.1 && surf < 1.5), 0.05 + 0.002 * d, surf > 1.5);
         let pull = min(0.003 * d + decal, d * 0.3);
         cp = wp.xyz - to / max(d, 1e-3) * pull;
     }
