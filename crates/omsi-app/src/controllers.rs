@@ -424,7 +424,7 @@ impl Devices {
         let is_di = |_pad: &gilrs::Gamepad<'_>| -> bool { false };
 
         if let Some(g) = self.gilrs.as_mut() {
-            while let Some(ev) = g.next_event() {
+            while let Some(ev) = next_event_caught(|| g.next_event()) {
                 // A focus/device change can leave a queued gilrs event pointing at a
                 // device that has already been removed. `gamepad` panics in that case.
                 let Some(pad) = g.connected_gamepad(ev.id) else {
@@ -587,6 +587,25 @@ fn latch_release(action: &str) -> String {
         "blinker_left_set" | "blinker_right_set" => "blinker_off".to_string(),
         "parking_brake_set" => "parking_brake_release".to_string(),
         _ => action.to_string(),
+    }
+}
+
+/// The next event of gilrs (`next`), past any that panics inside it: gilrs 0.11 on Windows
+/// can hand on a button or axis of a controller before it reports the controller connected
+/// (one that appears while the game runs) and then indexes past its own list of them
+/// (gilrs#206) - it ended the game, through the window procedure, at `gamepad.rs:474`.
+/// Only that one event is lost: the controller works once its `Connected` comes.
+fn next_event_caught<T>(mut next: impl FnMut() -> Option<T>) -> Option<T> {
+    loop {
+        match omsi_render::catch(&mut next) {
+            Some(ev) => return ev,
+            None => {
+                static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    log::warn!("game controllers: gilrs stopped on an event of a controller it does not list yet; skipped");
+                }
+            }
+        }
     }
 }
 
@@ -1708,6 +1727,17 @@ mod axis_shape_tests {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_gilrs_event_that_panics_is_skipped() {
+        let mut queue = vec![Some(2), None, Some(1)];
+        let mut next = || match queue.pop().unwrap() {
+            None => panic!("index out of bounds: the len is 0 but the index is 0"),
+            ev => ev,
+        };
+        assert_eq!(super::next_event_caught(&mut next), Some(1));
+        assert_eq!(super::next_event_caught(&mut next), Some(2));
+    }
 
     #[test]
     fn latching_switches_switch_back_and_stay_in_the_file() {
