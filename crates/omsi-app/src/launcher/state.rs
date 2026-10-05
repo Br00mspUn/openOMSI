@@ -268,7 +268,11 @@ impl State {
         crate::ui_language(settings.get("language").and_then(|x| x.as_str()).unwrap_or("ENG"));
         crate::mt::enable(settings.get("machine_translation").and_then(|x| x.as_bool()).unwrap_or(false));
         let keybindings = core::get_keybindings().unwrap_or(serde_json::Value::Null);
-        let choice = Choice::load();
+        let mut choice = Choice::load();
+        // (at the real time, a trip picked in an earlier session has most likely left)
+        if settings.get("use_real_time").and_then(|v| v.as_bool()).unwrap_or(false) {
+            choice.start_trip = None;
+        }
         let mut s = State {
             config,
             maps: Vec::new(),
@@ -1190,7 +1194,24 @@ impl State {
 
     pub fn picked_trip(&self) -> Option<usize> {
         let (line, tour, index, time) = self.choice.start_trip.as_ref()?;
-        (self.choice.line.as_ref() == Some(line) && self.choice.tour.as_ref() == Some(tour) && *time == self.choice.time).then_some(*index)
+        // (at the real time the clock moves on, and the trip picked stays: the bus waits for it)
+        (self.choice.line.as_ref() == Some(line) && self.choice.tour.as_ref() == Some(tour) && (*time == self.choice.time || self.real_time())).then_some(*index)
+    }
+
+    /// The start time follows the computer's clock (`use_real_time`).
+    pub fn real_time(&self) -> bool {
+        self.settings.get("use_real_time").and_then(|v| v.as_bool()).unwrap_or(false)
+    }
+
+    /// Start the tour at trip `index` (leaving at `departure`): at its departure, or at the
+    /// real time, which then stays and the bus waits for the trip.
+    pub fn pick_trip(&mut self, index: usize, departure: f64) {
+        let (Some(line), Some(tour)) = (self.choice.line.clone(), self.choice.tour.clone()) else { return };
+        if !self.real_time() {
+            self.choice.time = (departure / 60.0).floor() as i32;
+        }
+        self.choice.start_trip = Some((line, tour, index, self.choice.time));
+        self.touched();
     }
 }
 
