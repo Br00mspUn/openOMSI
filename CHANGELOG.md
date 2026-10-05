@@ -4,6 +4,15 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1740 - 2026-10-05
+
+### Merged pull requests
+- Headlamps: the grass and hedges beside the road are no longer washed out at night, the beam keeps to the lane, and a full beam reaches far down the road [#1563](https://github.com/openOMSI-Project/openOMSI/pull/1563); a spot declared ahead of the bus's lamps shines from both headlamps, not from the middle [#1565](https://github.com/openOMSI-Project/openOMSI/pull/1565).
+- Enhanced lighting uses a material's own ambient colour: depot interiors with black diffuse and white ambient (Thüringer Wald, OVR Lichtentanne) are no longer black [#1556](https://github.com/openOMSI-Project/openOMSI/pull/1556).
+- Raised floors, markings and rails stay visible above the road surfaces at a distance, without a depth bias that moved with the camera angle [#1557](https://github.com/openOMSI-Project/openOMSI/pull/1557).
+- Linux: wheels such as the Logitech G29 are no longer taken for gamepads: linear steering and native force feedback again [#1566](https://github.com/openOMSI-Project/openOMSI/pull/1566).
+- Performance: no more regular 30-45 ms hitches near heavy collision meshes (Grand Paris-Moulon's street lamps) [#1561](https://github.com/openOMSI-Project/openOMSI/pull/1561).
+
 ## 0.1.1727 - 2026-10-05
 
 ### Fixes
