@@ -1057,7 +1057,7 @@ pub struct Instance {
     /// render origin is applied per view, so changing it cannot leave stale spheres.
     bounds: InstanceBounds,
     /// Surface geometry classification (roads, markings, crossings), used for culling and
-    /// weather/shading. `surface_bias` independently selects the rasterizer's depth bias.
+    /// weather/shading. `surface_bias` independently selects the vertex shader's depth pull.
     pub surface: bool,
     /// `[rendertype] presurface`: drawn before terrain, including blended materials whose
     /// transparent texels write depth to reveal excavations below the ground.
@@ -1065,7 +1065,7 @@ pub struct Instance {
     /// OMSI world-pass order. Most instances use `Normal`; road/surface assets are assigned
     /// their authored phase by the scene loader.
     pub render_phase: RenderPhase,
-    /// Apply rasterizer depth bias. Metric-lifted OMSI roads and ordered scenery phases skip
+    /// Apply a planar view-space depth pull. Metric-lifted roads and ordered scenery phases skip
     /// it, so their placement does not change with the camera angle.
     pub surface_bias: bool,
     /// OMSI sorts blended spline pieces by their placement origin (horizontal distance), not
@@ -11921,7 +11921,10 @@ fn depth_prepass_kind(kind: u8, material: &Material, presurface: bool) -> Option
 }
 
 fn instance_depth_bias(instance: &Instance, material: &Material) -> bool {
-    instance.surface_bias || material.z_bias > 0 || (material.no_z_check && !instance.surface)
+    // Surfaces already receive a planar view-space pull in vs_main. Adding a
+    // slope-scaled raster bias lets roads cover raised floors at grazing angles.
+    // Keep raster bias for explicit material overrides only.
+    material.z_bias > 0 || (material.no_z_check && !instance.surface)
 }
 
 fn surface_instance_code(
@@ -11951,7 +11954,7 @@ fn horizontal_sort_distance(origin: DVec3, render_origin: DVec3, camera_relative
 }
 
 /// A main-pass draw's pipeline: the kind, whether back faces are culled, and whether the
-/// surface depth bias applies (roads, painted ground, `[matl_Zbias]` decals). The opaque
+/// raster depth bias applies (`[matl_Zbias]` and no-depth-check decals). The opaque
 /// and alpha-tested draws are batched in this order (kinds 0 and 1 first).
 fn pipe_code(kind: u8, cull: bool, surface: bool) -> u8 {
     debug_assert!(kind < PIPE_KINDS);
@@ -12577,6 +12580,45 @@ mod tests {
             "white ambient must illuminate black diffuse: {pixels:?}");
         assert!(pixels[2][0] > pixels[2][1].saturating_add(20) && pixels[2][0] > pixels[2][2].saturating_add(20),
             "the material's ambient tint must be preserved: {pixels:?}");
+    }
+
+    /// A road must cover flush terrain without covering a building floor above it.
+    #[test]
+    #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
+    fn surface_bias_keeps_raised_floors_visible_at_a_distance() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let mut renderer = pollster::block_on(Renderer::new_with(
+            &instance, None, Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            RenderOptions { msaa: 1, ssao: false, shadow_size: 1024, fxaa: false, render_scale: 1.0, ..Default::default() },
+        )).expect("test renderer");
+        let mut scene = renderer.new_scene();
+        let mesh = renderer.add_mesh(&mut scene, &MeshData {
+            positions: vec![Vec3::new(-1000.0, -1000.0, 0.0), Vec3::new(1000.0, -1000.0, 0.0), Vec3::new(1000.0, 1000.0, 0.0), Vec3::new(-1000.0, 1000.0, 0.0)],
+            normals: vec![Vec3::Z; 4], uvs: vec![glam::Vec2::ZERO; 4],
+            ranges: vec![(0, 6, 0)], indices: vec![0, 1, 2, 0, 2, 3], one_sided: false,
+        });
+        let blue = renderer.add_material(&mut scene, None, AlphaMode::Opaque, [0.0, 0.0, 1.0, 1.0], true);
+        let green = renderer.add_material(&mut scene, None, AlphaMode::Opaque, [0.0, 1.0, 0.0, 1.0], true);
+        let red = renderer.add_material(&mut scene, None, AlphaMode::Opaque, [1.0, 0.0, 0.0, 1.0], true);
+        let ground = renderer.add_instance(&mut scene, mesh, DVec3::ZERO, Mat4::IDENTITY, vec![blue]);
+        scene.instances[ground].render_phase = RenderPhase::Terrain;
+        let road = renderer.add_surface_instance(&mut scene, mesh, DVec3::ZERO, Mat4::IDENTITY, vec![green]);
+        scene.instances[road].render_phase = RenderPhase::Spline;
+        let floor = renderer.add_instance(&mut scene, mesh, DVec3::new(0.0, 0.0, 0.03), Mat4::IDENTITY, vec![red]);
+        scene.instances[floor].render_phase = RenderPhase::AfterVehicles;
+        let lighting = Lighting { shadows: false, fog_density: 0.0, ..Default::default() };
+        for (pitch, fov) in [(-5.0, 60.0), (-5.0, 20.0), (-30.0, 60.0)] {
+            let camera = Camera { position: DVec3::new(0.0, 0.0, 5.0), yaw: 0.0, pitch, roll: 0.0, fov_deg: fov, near: 0.1, far: 2000.0 };
+            for show_floor in [false, true] {
+                scene.instances[floor].visible = show_floor;
+                scene.dirty = true;
+                let rgba = renderer.render_to_image(&mut scene, 64, 64, &camera, &lighting).unwrap();
+                let pixel = &rgba[(32 * 64 + 32) * 4..][..3];
+                let wanted = if show_floor { 0 } else { 1 };
+                assert!(pixel[wanted] > 200 && pixel[1 - wanted] < 20 && pixel[2] < 20,
+                    "pitch {pitch}, fov {fov}, floor {show_floor}: {pixel:?}");
+            }
+        }
     }
 
     /// Overlays drawn texel for pixel: onto whole pixels, their size kept.
