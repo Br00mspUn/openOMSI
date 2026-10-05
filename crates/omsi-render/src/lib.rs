@@ -1264,11 +1264,11 @@ impl Scene {
     /// Bytes the meshes' pages take on the GPU, each page once, whatever share of it is in use.
     pub fn mesh_page_bytes(&self) -> u64 {
         let shared: u64 = self.mesh_pages.iter().map(|p| p.vertex.size() + p.index.size()).sum();
-        let mut own: Vec<&wgpu::Buffer> = Vec::new();
+        // (a set: without base vertices every mesh has buffers of its own, thousands of them)
+        let mut own: std::collections::HashSet<&wgpu::Buffer> = std::collections::HashSet::new();
         for m in self.meshes.iter().filter(|m| m.page == u32::MAX && !m.ranges.is_empty()) {
-            if !own.contains(&&m.vertex_buf) {
-                own.push(&m.vertex_buf);
-                own.push(&m.index_buf);
+            if own.insert(&m.vertex_buf) {
+                own.insert(&m.index_buf);
             }
         }
         shared + own.iter().map(|b| b.size()).sum::<u64>()
@@ -7753,7 +7753,9 @@ impl Renderer {
         log::error!("ray tracing failed on {}; Enhanced+ draws as Enhanced from now on", self.adapter_name);
         let options = RenderOptions { ray_tracing: false, ..self.options };
         RT_BUFFERS.store(false, std::sync::atomic::Ordering::Relaxed);
-        *self = Self::build(self.device.clone(), self.queue.clone(), self.adapter_name.clone(), self.format, options);
+        // (the meshes' shared pages stay on, as after the multisampling fallback below)
+        let mesh_pages = self.mesh_pages;
+        *self = Renderer { mesh_pages, ..Self::build(self.device.clone(), self.queue.clone(), self.adapter_name.clone(), self.format, options) };
         scene.dirty = true;
         scene.model_buf = None;
         scene.params_buf = None;
