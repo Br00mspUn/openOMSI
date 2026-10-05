@@ -84,6 +84,7 @@ have, reads give `nil` and writes do nothing.
 | --- | --- |
 | `omsi.has_vehicle()` | `true` while the player drives a vehicle |
 | `omsi.vehicle()` | the vehicle's name (manufacturer and type), or `nil` |
+| `omsi.vehicle_manufacturer()` / `omsi.vehicle_model()` | the two parts of that name apart, as the bus's `[friendlyname]` has them (`"Solaris III Gen"`, `"Urbino 10 / 2D"`), or `nil` |
 | `omsi.var(name)` | a script variable, a number |
 | `omsi.set_var(name, value)` | sets it; `true` when the bus has that variable |
 | `omsi.str(name)` | a string variable |

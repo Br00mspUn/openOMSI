@@ -632,6 +632,11 @@ pub trait PluginIo {
     fn vehicle_name(&self) -> Option<String> {
         None
     }
+    /// The player's vehicle's manufacturer and model apart, as its `[friendlyname]` has them
+    /// (Lua plugins; the name is the two joined).
+    fn vehicle_manufacturer_model(&self) -> Option<(String, String)> {
+        None
+    }
     /// The player's vehicle: x, y, z and heading in degrees (Lua plugins).
     fn position(&self) -> Option<[f64; 4]> {
         None

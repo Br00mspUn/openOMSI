@@ -43,6 +43,9 @@ impl PluginIo for Bus {
     fn vehicle_name(&self) -> Option<String> {
         Some("MAN SD202".into())
     }
+    fn vehicle_manufacturer_model(&self) -> Option<(String, String)> {
+        Some(("MAN".into(), "SD202".into()))
+    }
     fn message(&mut self, text: &str, _: f32) {
         self.messages.push(text.into());
     }
@@ -191,4 +194,21 @@ fn next_stop_fires_for_a_stop_of_the_same_name() {
         plugins.frame(&mut bus);
     }
     assert_eq!(bus.messages, ["Bauernhof 1", "Bauernhof 2", "Nordspitze 3"]);
+}
+
+#[test]
+fn vehicle_manufacturer_and_model_apart() {
+    let d = dir("vehicle");
+    std::fs::write(
+        d.join("names.lua"),
+        r##"function on_frame() omsi.message(string.format("%s|%s|%s|%d", omsi.vehicle(), omsi.vehicle_manufacturer(), omsi.vehicle_model(), select("#", omsi.vehicle()))) end"##,
+    )
+    .unwrap();
+    let mut plugins = Plugins::load(&[d.clone()], &HostConfig::default());
+    let mut bus = Bus { vehicle: true, ..Default::default() };
+    plugins.frame(&mut bus);
+    bus.vehicle = false;
+    plugins.frame(&mut bus);
+    // (omsi.vehicle() gives the name alone, as ever)
+    assert_eq!(bus.messages, ["MAN SD202|MAN|SD202|1", "nil|nil|nil|1"]);
 }

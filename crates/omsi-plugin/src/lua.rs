@@ -223,6 +223,8 @@ impl LuaPlugin {
         }
         func!("has_vehicle", (), |io, _a| bool => io.has_vehicle());
         func!("vehicle", (), |io, _a| Option<String> => io.vehicle_name().filter(|_| io.has_vehicle()));
+        func!("vehicle_manufacturer", (), |io, _a| Option<String> => io.vehicle_manufacturer_model().filter(|_| io.has_vehicle()).map(|(m, _)| m));
+        func!("vehicle_model", (), |io, _a| Option<String> => io.vehicle_manufacturer_model().filter(|_| io.has_vehicle()).map(|(_, m)| m));
         func!("var", String, |io, n| Option<f32> => if io.has_vehicle() { io.var(&n) } else { None });
         func!("set_var", (String, f32), |io, (n, v)| bool => io.has_vehicle() && io.var(&n).is_some() && { io.set_var(&n, v); true });
         func!("str", String, |io, n| Option<String> => if io.has_vehicle() { io.string(&n) } else { None });

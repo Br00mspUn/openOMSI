@@ -167,6 +167,10 @@ impl PluginIo for Io<'_> {
         self.vehicle.as_ref().map(|v| format!("{} {}", v.ty.def.manufacturer, v.ty.def.type_name).trim().to_string())
     }
 
+    fn vehicle_manufacturer_model(&self) -> Option<(String, String)> {
+        self.vehicle.as_ref().map(|v| (v.ty.def.manufacturer.trim().to_string(), v.ty.def.type_name.trim().to_string()))
+    }
+
     fn position(&self) -> Option<[f64; 4]> {
         self.vehicle.as_ref().map(|v| [v.position.x, v.position.y, v.position.z, v.heading])
     }
