@@ -837,6 +837,8 @@ pub struct Material {
     uniform: MaterialUniform,
     buf: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    /// Materials that draw alike (same textures, sampler and values) share this number.
+    look: u32,
 }
 
 impl Material {
@@ -1195,6 +1197,8 @@ pub struct Scene {
     /// 965 materials need about a tenth as many). Only for a frame, so that nothing keeps a
     /// freed or replaced texture alive.
     bind_groups: HashMap<BindKey, (wgpu::BindGroup, wgpu::Buffer)>,
+    /// The number of each material look seen so far, by its key's hash (see `Material::look`).
+    looks: hashbrown::HashMap<u64, u32>,
     /// The PBR maps of a diffuse texture (register them before making its materials).
     pub pbr_maps: HashMap<TextureId, PbrMaps>,
     /// Textures that are a season's snow pictures (`WinterSnow` folders): a material drawn
@@ -1210,6 +1214,22 @@ fn snow_texture_flag(scene: &Scene, texture: Option<TextureId>) -> f32 {
         1.0
     } else {
         0.0
+    }
+}
+
+impl Scene {
+    /// The look number of a material bind group made of `key` (numbers start at 1; 0 is the
+    /// shared look of the opaque depth-only draws).
+    fn look(&mut self, key: &BindKey) -> u32 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut h);
+        self.intern_look(h.finish())
+    }
+
+    fn intern_look(&mut self, hash: u64) -> u32 {
+        let next = self.looks.len() as u32 + 1;
+        *self.looks.entry(hash).or_insert(next)
     }
 }
 
@@ -4545,6 +4565,7 @@ impl Renderer {
             last_grid: Vec::new(),
             last_lights: Vec::new(),
             bind_groups: HashMap::new(),
+            looks: hashbrown::HashMap::new(),
             pbr_maps: HashMap::new(),
             snow_textures: Default::default(),
         }
@@ -5252,6 +5273,7 @@ impl Renderer {
             address,
             uniform: bytemuck::cast(uniform),
         };
+        let look = scene.look(&key);
         let (bind_group, buf) = match scene.bind_groups.get(&key) {
             Some((bg, b)) => (bg.clone(), b.clone()),
             None => {
@@ -5303,6 +5325,7 @@ impl Renderer {
             uniform,
             buf,
             bind_group,
+            look,
         });
         Some(scene.materials.len() - 1)
     }
@@ -5559,6 +5582,7 @@ impl Renderer {
             address,
             uniform: bytemuck::cast(uniform),
         };
+        let look = scene.look(&key);
         let (bind_group, buf) = match scene.bind_groups.get(&key) {
             Some((bg, b)) => (bg.clone(), b.clone()),
             None => {
@@ -5604,6 +5628,7 @@ impl Renderer {
             uniform,
             buf,
             bind_group,
+            look,
         });
         scene.materials.len() - 1
     }
@@ -8542,7 +8567,7 @@ impl Renderer {
             .unwrap_or(3.0);
         let casters = |span: std::ops::Range<usize>| -> [Vec<DrawItem>; 3] {
             let mut out: [Vec<DrawItem>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-            let mut ranges: Vec<(u8, u32, u32, usize)> = Vec::new();
+            let mut ranges: Vec<(u8, u32, u32, usize, u32)> = Vec::new();
             for inst in &scene.instances[span] {
                 if !inst.visible || !inst.casts_shadow || (self.options.omsi_shadow_casters && !inst.omsi_caster) {
                     continue;
@@ -8582,7 +8607,7 @@ impl Renderer {
                     if rt_frame && kind == PIPE_OPAQUE {
                         kind = PIPE_KINDS;
                     }
-                    ranges.push((kind, ri as u32, *slot, mat_id));
+                    ranges.push((kind, ri as u32, *slot, mat_id, mat.look));
                 }
                 for (cascade, &(range, lvp, min_radius)) in boxes.iter().enumerate() {
                     if !active[cascade] {
@@ -8606,7 +8631,7 @@ impl Renderer {
                     if dbg {
                         log::info!("shadow: caster r={r:.1} at {:?} slots {:?}", inst.origin, ranges.iter().map(|x| x.0).collect::<Vec<_>>());
                     }
-                    for &(kind, ri, slot, mat_id) in &ranges {
+                    for &(kind, ri, slot, mat_id, look) in &ranges {
                         let kind = if kind == PIPE_KINDS {
                             if cascade != 1 {
                                 continue;
@@ -8615,11 +8640,14 @@ impl Renderer {
                         } else {
                             kind
                         };
+                        // (after the remap: a traced-opaque one is drawn as the opaque it is)
+                        let (material, look) = depth_only_material(kind, mat_id, look);
                         out[cascade].push(DrawItem {
                             pipe: kind,
                             mesh: inst.mesh as u32,
                             range: ri,
-                            material: depth_only_material(kind, mat_id),
+                            material,
+                            look,
                             entry: inst.base + slot,
                         });
                     }
@@ -8993,11 +9021,13 @@ impl Renderer {
                     if let Some(pre_kind) = depth_prepass_kind(kind, mat, inst.presurface) {
                         // plain/alpha-tested materials use their ordinary depth pass;
                         // blended transmaps use the opaque-pixels-only pass.
+                        let (material, look) = depth_only_material(pre_kind, mat_id, mat.look);
                         items.push(DrawItem {
                             pipe: pre_kind * 2 + cull as u8,
                             mesh: inst.mesh as u32,
                             range: ri as u32,
-                            material: depth_only_material(pre_kind, mat_id),
+                            material,
+                            look,
                             entry: inst.base + *slot,
                         });
                     }
@@ -9060,6 +9090,7 @@ impl Renderer {
                                 mesh: inst.mesh as u32,
                                 range: ri as u32,
                                 material: mat_id as u32,
+                                look: mat.look,
                                 entry: inst.base + *slot,
                             });
                         }
@@ -9098,6 +9129,7 @@ impl Renderer {
                             mesh: inst.mesh as u32,
                             range: ri as u32,
                             material: mat_id as u32,
+                            look: mat.look,
                             entry: inst.base + *slot,
                         });
                     }
@@ -9278,6 +9310,7 @@ impl Renderer {
                             mesh: inst.mesh as u32,
                             range: ri as u32,
                             material: mat_id as u32,
+                            look: mat.look,
                             entry: inst.base + *slot,
                         };
                         // the vehicle the camera is in is drawn after everything else
@@ -11489,10 +11522,12 @@ struct DrawItem {
     mesh: u32,
     range: u32,
     material: u32,
+    /// The material's look: draws of materials that look alike are batched together.
+    look: u32,
     entry: u32,
 }
 
-/// Draws of the same mesh range with the same material and pipeline, made as one instanced
+/// Draws of the same mesh range with materials that look alike and the same pipeline, made as one instanced
 /// draw: `instances` indexes the frame's draw list, which holds each instance's per-draw
 /// entry (the vertex shader looks it up). Thousands of single draws were the biggest CPU
 /// cost of a frame - wgpu validates and records every one - and trees, lamps, fences,
@@ -11508,7 +11543,7 @@ struct Batch {
 }
 
 /// Turn draw items into batches, appending their entries to `list`. `sort`: the order does
-/// not matter (depth-tested opaque and alpha-tested draws), so equal draws are gathered;
+/// not matter (depth-tested opaque and alpha-tested draws), so draws alike are gathered;
 /// otherwise only neighbours are merged (the blended pass keeps its far-to-near order).
 fn batch_items(
     scene: &Scene,
@@ -11517,23 +11552,11 @@ fn batch_items(
     list: &mut Vec<u32>,
     out: &mut Vec<Batch>,
 ) {
-    if sort {
-        items.sort_unstable_by_key(|d| (d.pipe, d.material, d.mesh, d.range));
-    }
-    let mut k = 0;
-    while k < items.len() {
-        let d = items[k];
-        let start = list.len() as u32;
-        while k < items.len()
-            && (
-                items[k].pipe,
-                items[k].mesh,
-                items[k].range,
-                items[k].material,
-            ) == (d.pipe, d.mesh, d.range, d.material)
-        {
-            list.push(items[k].entry);
-            k += 1;
+    // a batch keeps the material of the one before it when they look alike: no rebinding
+    let mut last = (u32::MAX, 0);
+    let mut push = |d: &DrawItem, start: u32, list: &Vec<u32>| {
+        if last.0 != d.look {
+            last = (d.look, d.material);
         }
         let (first, count, _) = scene.meshes[d.mesh as usize].ranges[d.range as usize];
         out.push(Batch {
@@ -11541,20 +11564,75 @@ fn batch_items(
             mesh: d.mesh,
             first,
             count,
-            material: d.material,
+            material: last.1,
             instances: start..list.len() as u32,
         });
+    };
+    if sort {
+        let bits = |n: u32| u32::BITS - n.leading_zeros();
+        let (mut look, mut mesh, mut range) = (0, 0, 0);
+        for d in items.iter() {
+            (look, mesh, range) = (look | d.look, mesh | d.mesh, range | d.range);
+        }
+        let mesh_shift = bits(range);
+        let look_shift = mesh_shift + bits(mesh);
+        let pipe_shift = look_shift + bits(look);
+        if pipe_shift + 8 <= 64 {
+            // one number a draw sorts twice as fast as comparing the four fields
+            let mut keys: Vec<(u64, u32, u32)> = items
+                .iter()
+                .map(|d| {
+                    let key = (d.pipe as u64) << pipe_shift
+                        | (d.look as u64) << look_shift
+                        | (d.mesh as u64) << mesh_shift
+                        | d.range as u64;
+                    (key, d.entry, d.material)
+                })
+                .collect();
+            keys.sort_unstable_by_key(|k| k.0);
+            let field = |key: u64, from: u32, to: u32| ((key >> from) & ((1 << (to - from)) - 1)) as u32;
+            let mut k = 0;
+            while k < keys.len() {
+                let (key, _, material) = keys[k];
+                let start = list.len() as u32;
+                while k < keys.len() && keys[k].0 == key {
+                    list.push(keys[k].1);
+                    k += 1;
+                }
+                let d = DrawItem {
+                    pipe: (key >> pipe_shift) as u8,
+                    mesh: field(key, mesh_shift, look_shift),
+                    range: field(key, 0, mesh_shift),
+                    material,
+                    look: field(key, look_shift, pipe_shift),
+                    entry: 0,
+                };
+                push(&d, start, list);
+            }
+            return;
+        }
+        items.sort_unstable_by_key(|d| (d.pipe, d.look, d.mesh, d.range));
+    }
+    let mut k = 0;
+    while k < items.len() {
+        let d = items[k];
+        let start = list.len() as u32;
+        while k < items.len() && (items[k].pipe, items[k].mesh, items[k].range, items[k].look) == (d.pipe, d.mesh, d.range, d.look) {
+            list.push(items[k].entry);
+            k += 1;
+        }
+        push(&d, start, list);
     }
 }
 
-/// The material a depth-only draw (shadow map, depth prepass) is batched with: an opaque
-/// surface writes its depth whatever its texture, so all of them share the first material
-/// and batch across materials; an alpha-tested one needs its own texture for the cut-out.
-fn depth_only_material(kind: u8, material: MaterialId) -> u32 {
+/// The material and look a depth-only draw (shadow map, depth prepass) is batched with: an
+/// opaque surface writes its depth whatever its texture, so all of them share the first
+/// material and batch across materials; an alpha-tested one needs its own texture for the cut-out.
+fn depth_only_material(kind: u8, material: MaterialId, look: u32) -> (u32, u32) {
     if kind == 0 {
-        0
+        (0, 0)
     } else {
-        material as u32
+        (material as u32, look)
     }
 }
 
@@ -12101,6 +12179,7 @@ impl Renderer {
             let f = self.freed(scene);
             (f.bind_group.clone(), f.buf.clone())
         };
+        let look = scene.intern_look(0);
         scene.materials[id] = Material {
             texture: None,
             alpha: AlphaMode::Opaque,
@@ -12121,6 +12200,7 @@ impl Renderer {
             uniform: <MaterialUniform as bytemuck::Zeroable>::zeroed(),
             buf,
             bind_group,
+            look,
         };
     }
 
@@ -12908,6 +12988,56 @@ mod tests {
         assert_eq!(scene.instances[first].bounds.radius, expected.radius);
         let plain_bounds = InstanceBounds::new(&scene.meshes[once_skinned], Mat4::IDENTITY);
         assert_eq!(scene.instances[tile[42]].bounds.radius, plain_bounds.radius);
+    }
+
+    #[test]
+    #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
+    fn materials_that_look_alike_are_batched_together_whenever_they_were_made() {
+        let adapter = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let renderer = pollster::block_on(Renderer::new_with(
+            &adapter, None, Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            RenderOptions { msaa: 1, shadow_size: 1024, ..Default::default() },
+        )).expect("test renderer");
+        let mut scene = renderer.new_scene();
+        let image = omsi_texture::Image { width: 1, height: 1, rgba: vec![200, 100, 50, 255], has_alpha: false };
+        let texture = renderer.add_texture(&mut scene, &image, true);
+        let a = renderer.add_material(&mut scene, Some(texture), AlphaMode::Opaque, [1.0; 4], false);
+        renderer.prepare(&mut scene);
+        let b = renderer.add_material(&mut scene, Some(texture), AlphaMode::Opaque, [1.0; 4], false);
+        let c = renderer.add_material(&mut scene, Some(texture), AlphaMode::Opaque, [0.5, 0.5, 0.5, 1.0], false);
+        let other = renderer.add_texture(&mut scene, &image, true);
+        let d = renderer.add_material(&mut scene, Some(other), AlphaMode::Opaque, [1.0; 4], false);
+        let look = |scene: &Scene, m: MaterialId| scene.materials[m].look;
+        assert_ne!(scene.materials[a].bind_group, scene.materials[b].bind_group);
+        assert_eq!(look(&scene, a), look(&scene, b));
+        assert_ne!(look(&scene, a), look(&scene, c));
+        assert_ne!(look(&scene, a), look(&scene, d));
+        let data = MeshData {
+            positions: vec![Vec3::ZERO, Vec3::X, Vec3::Y],
+            normals: vec![Vec3::Z; 3], uvs: vec![glam::Vec2::ZERO; 3],
+            indices: vec![0, 1, 2], ranges: vec![(0, 3, 0)], ..Default::default()
+        };
+        let mesh = renderer.add_mesh(&mut scene, &data);
+        let instances: Vec<usize> = [a, c, b, d]
+            .iter()
+            .map(|&m| renderer.add_instance(&mut scene, mesh, DVec3::ZERO, Mat4::IDENTITY, vec![m]))
+            .collect();
+        renderer.prepare(&mut scene);
+        let mut items: Vec<DrawItem> = instances
+            .iter()
+            .map(|&i| {
+                let material = scene.instances[i].materials[0];
+                DrawItem { pipe: 0, mesh: mesh as u32, range: 0, material: material as u32, look: look(&scene, material), entry: scene.instances[i].base }
+            })
+            .collect();
+        let (mut list, mut batches) = (Vec::new(), Vec::new());
+        batch_items(&scene, &mut items, true, &mut list, &mut batches);
+        assert_eq!(batches.len(), 3);
+        let shared = batches.iter().find(|b| b.instances.len() == 2).expect("a and b in one batch");
+        assert!(shared.material == a as u32 || shared.material == b as u32);
+        let mut entries: Vec<u32> = list[shared.instances.start as usize..shared.instances.end as usize].to_vec();
+        entries.sort_unstable();
+        assert_eq!(entries, vec![scene.instances[instances[0]].base, scene.instances[instances[2]].base]);
     }
 
     #[test]
