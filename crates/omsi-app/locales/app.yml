@@ -2007,7 +2007,7 @@ _version: 2
   ms: "Tarikh"
   tl: "Petsa"
 "By date":
-  ca: "Segons la data"
+  ca: "Per data"
   ru: "По дате"
   de: "Nach Datum"
   fr: "Selon la date"
@@ -2196,7 +2196,7 @@ _version: 2
   ms: "Penumpang"
   tl: "Mga pasahero"
 "Timetable buses":
-  ca: "Autobusos programats"
+  ca: "Busos d'horari"
   ru: "Автобусы по расписанию"
   de: "Fahrplanbusse"
   fr: "Bus du réseau"
@@ -22327,7 +22327,7 @@ _version: 2
   zh-tw: "更多伺服器：透過桌面啟動器中的位址新增它們，或在上面輸入一個。"
 
 "Weather cycle":
-  ca: "Cicle meteorològic"
+  ca: "Cicle del temps"
   pt: "Ciclo de clima"
   pt-pt: "Ciclo meteorológico"
   zh: "循环天气"
@@ -24157,7 +24157,7 @@ _version: 2
   zh-tw: "繼續此地圖上次離開的位置"
 
 "Custom weather":
-  ca: "Temps personalitzat"
+  ca: "Personalitzat"
   fr: "Météo personnalisée"
   zh-tw: "自訂天氣"
 
