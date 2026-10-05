@@ -1,6 +1,54 @@
 # Interface texts: the English text is the key (see omsi_ui::tr). _version 2: every
 # language of a text under it. `pt` is Brazilian Portuguese; `pt-pt` is European Portuguese.
 _version: 2
+"Smooth mouse steering":
+  zh-tw: "平滑滑鼠轉向"
+"The wheel eases after the cursor; off: it follows at once, as in OMSI":
+  zh-tw: "方向盤會在游標之後平滑移動；關閉：方向盤會立即跟隨游標，如同 OMSI"
+"Clear AI traffic":
+  zh-tw: "清除 AI 交通"
+"Remove the current AI cars from the road; random traffic will return automatically.":
+  zh-tw: "從道路上移除目前的 AI 車輛；隨機交通會自動恢復。"
+"Tell me about a new version during a session":
+  zh-tw: "遊戲執行期間通知我有新版本"
+"Count me in the website's \"playing now\" (anonymous)":
+  zh-tw: "將我計入網站的「目前遊玩人數」（匿名）"
+"Radio stations":
+  zh-tw: "廣播電台"
+"A radio's station button n plays the n-th station, a cassette player the first; Shift+R steps through them. An address is an MP3, AAC or Ogg stream or an .m3u/.pls playlist.":
+  zh-tw: "廣播的電台按鈕 n 會播放第 n 個電台，卡式播放器則播放第一個；按 Shift+R 可切換電台。位址可以是 MP3、AAC 或 Ogg 串流，或 .m3u／.pls 播放清單。"
+"Smooth mouse steering (off: the wheel follows the cursor at once, as in OMSI)":
+  zh-tw: "平滑滑鼠轉向（關閉：方向盤立即跟隨游標，如同 OMSI）"
+"Road texture vibration":
+  zh-tw: "路面紋理震動"
+"Engine vibration":
+  zh-tw: "引擎震動"
+"Vibration fade-out":
+  zh-tw: "震動淡出"
+"Seat position":
+  zh-tw: "座椅位置"
+"Head pitch":
+  zh-tw: "頭部俯仰角"
+"Right stick turns the view":
+  zh-tw: "右搖桿轉動畫面"
+"Smooth the mouse look":
+  zh-tw: "平滑滑鼠視角"
+"A head at rest":
+  zh-tw: "靜止時的頭部"
+"Head sway at a standstill":
+  zh-tw: "靜止時的頭部晃動"
+"Sway pace":
+  zh-tw: "晃動速度"
+"Precision mouse zoom (FOV curve instead of the linear way)":
+  zh-tw: "精確滑鼠縮放（使用 FOV 曲線，而非線性方式）"
+"Precision mouse zoom":
+  zh-tw: "精確滑鼠縮放"
+"Head tracking with opentrack (UDP port {})":
+  zh-tw: "使用 opentrack 的頭部追蹤（UDP 連接埠 {}）"
+"Chat size":
+  zh-tw: "聊天文字大小"
+"The chat's texts on top of the interface size (also Ctrl + the mouse wheel over the chat)":
+  zh-tw: "聊天文字相對於介面大小的比例（也可在聊天視窗上按住 Ctrl 滾動滑鼠滾輪）"
 
 "Steering view angle":
   de: "Blickwinkel beim Lenken"
@@ -135,7 +183,7 @@ _version: 2
   zh: "已保存方向的方向盘在“控制 → 游戏手柄”中使用各自的设置。"
   pl: "Kierownice z zapisanym kierunkiem używają własnego ustawienia w sekcji Sterowanie → Kontrolery gier."
   fr: "Les volants dont le sens est enregistré gardent leur propre réglage sous Commandes → Contrôleurs de jeu."
-  zh-tw: "已儲存方向的輪子在「控制」→「遊戲控制器」下使用自己的設定。"
+  zh-tw: "已儲存方向的方向盤在「控制」→「遊戲控制器」下使用自己的設定。"
 
 "INJURY RISK: TAKE YOUR HANDS OFF THE WHEEL. Keep hands and fingers clear before starting and throughout the test.":
   de: "VERLETZUNGSGEFAHR: HÄNDE WEG VOM LENKRAD. Halte Hände und Finger vor dem Start und während des gesamten Tests fern."
@@ -2207,7 +2255,7 @@ _version: 2
   ja: "セッションコード OMSI-XXXX-…、またはアドレス。空欄 = LANを検索"
   zh: "会话码 OMSI-XXXX-…,或地址;留空 = 搜索局域网"
   hi: "सेशन कोड OMSI-XXXX-… या कोई पता; खाली = LAN में खोजें"
-  zh-tw: "工作階段代碼 OMSI-XXXX-… 或地址；留空可搜尋區域網絡"
+  zh-tw: "連線碼 OMSI-XXXX-… 或地址；留空可搜尋區域網絡"
   ko: "세션 코드 OMSI-XXXX-… 또는 주소; 비워두면 LAN 검색"
   th: "รหัสเซสชัน OMSI-XXXX-… หรือที่อยู่ เว้นว่างเพื่อค้นหา LAN"
   vi: "Mã phiên OMSI-XXXX-… hoặc địa chỉ; để trống để tìm trên LAN"
@@ -2233,7 +2281,7 @@ _version: 2
   ja: "ゲームが起動すると、セッションページにコピーボタン付きでセッションコードが表示されます。友達はそれを「参加」に貼り付けます。自宅でもインターネット越しでも使え、VPNは不要です。"
   zh: "游戏运行后,“会话”页面会显示带复制按钮的会话码;朋友将其粘贴到“加入”即可。在家里或通过互联网均可使用,无需VPN。"
   hi: "गेम चलने के बाद सेशन पेज पर कॉपी बटन के साथ सेशन कोड दिखता है; आपका दोस्त उसे Join में पेस्ट करता है। यह घर पर और इंटरनेट पर भी चलता है - VPN की ज़रूरत नहीं।"
-  zh-tw: "遊戲啟動後，「遊戲工作階段」頁面會顯示可複製的代碼。朋友在「加入」貼上即可，在家或透過互聯網均可使用，毋須 VPN。"
+  zh-tw: "遊戲啟動後，「遊戲工作階段」頁面會顯示可複製的連線碼。朋友在「加入」貼上即可，在家或透過互聯網均可使用，毋須 VPN。"
   ko: "게임 실행 후 세션 화면에 복사 가능한 코드가 표시됩니다. 친구가 참가 화면에 붙여 넣으면 됩니다. 집이나 인터넷 어디서든 VPN 없이 작동합니다."
   th: "เมื่อเกมเริ่มแล้ว หน้าเซสชันจะแสดงรหัสพร้อมปุ่มคัดลอก ให้เพื่อนวางรหัสในหน้าเข้าร่วม ใช้งานได้ทั้งในบ้านและผ่านอินเทอร์เน็ตโดยไม่ต้องใช้ VPN"
   vi: "Khi trò chơi chạy, trang Phiên chơi hiển thị mã cùng nút sao chép. Bạn bè dán mã vào Tham gia. Hoạt động ở nhà hoặc qua Internet mà không cần VPN."
@@ -3556,6 +3604,7 @@ _version: 2
   tl: "Driving score (0 ang pinakamahusay)"
 "comfort":
   zh: "舒适度"
+  zh-tw: "舒適度"
 "ticket selling":
   ru: "продажа билетов"
   de: "Fahrscheinverkauf"
@@ -3584,6 +3633,7 @@ _version: 2
   tl: "Pagbebenta ng tiket"
 "runs":
   zh: "行车数"
+  zh-tw: "運行次數"
 "Recent runs":
   ru: "Последние поездки"
   de: "Letzte Fahrten"
@@ -4599,7 +4649,7 @@ _version: 2
   ja: "表示位置"
   zh: "角落"
   hi: "कोना"
-  zh-tw: "角落"
+  zh-tw: "顯示位置"
   ko: "모서리"
   th: "มุม"
   vi: "Góc"
@@ -6404,7 +6454,7 @@ _version: 2
   ja: "パーキングブレーキ"
   zh: "驻车制动"
   hi: "पार्किंग ब्रेक"
-  zh-tw: "手掣"
+  zh-tw: "手煞"
   ko: "주차 브레이크"
   th: "เบรกมือ"
   vi: "Phanh tay"
@@ -6534,7 +6584,7 @@ _version: 2
   ja: "警笛"
   zh: "喇叭"
   hi: "हॉर्न"
-  zh-tw: "響號"
+  zh-tw: "喇叭"
   ko: "경적"
   th: "แตร"
   vi: "Còi"
@@ -7230,7 +7280,7 @@ _version: 2
   ja: "起動したゲーム:ログと、そのLANセッション(友達に渡すコード、参加者、チャット)。"
   zh: "你启动的游戏:其日志及局域网会话——给朋友的会话码、已加入的人、聊天。"
   hi: "आपके शुरू किए गए गेम: उनके लॉग और LAN सेशन - दोस्त को देने का कोड, कौन जुड़ा, चैट।"
-  zh-tw: "你啟動的遊戲：其記錄檔及區域網絡工作階段——提供給朋友的代碼、已加入的玩家、聊天室。"
+  zh-tw: "你啟動的遊戲：其記錄檔及區域網絡工作階段——提供給朋友的連線碼、已加入的玩家、聊天室。"
 "No game is running. Start a duty on the Drive page; to drive with a friend, choose LAN play → Host there, and give them the session code shown here.":
   ru: "Игра не запущена. Начните смену на странице «Поездка»; чтобы играть с другом, выберите там «Игра по сети → Создать» и дайте ему код сессии отсюда."
   de: "Kein Spiel läuft. Starte einen Dienst auf der Seite Fahren; um mit einem Freund zu fahren, wähle dort Netzwerkspiel → Hosten und gib ihm den hier gezeigten Code."
@@ -7250,7 +7300,7 @@ _version: 2
   ja: "起動中のゲームはありません。「運転」ページで乗務を開始してください。友達と運転するには、そこでLANプレイ → ホストを選び、ここに表示されるセッションコードを渡します。"
   zh: "没有正在运行的游戏。请在“驾驶”页面开始任务;要与朋友一起驾驶,请在那里选择局域网游戏 → 主机,并把此处显示的会话码告诉他们。"
   hi: "कोई गेम नहीं चल रहा। ड्राइव पेज पर ड्यूटी शुरू करें; दोस्त के साथ चलाने के लिए वहाँ LAN प्ले → होस्ट चुनें और यहाँ दिखा सेशन कोड उन्हें दें।"
-  zh-tw: "沒有正在執行的遊戲。請在「駕駛」頁面開始更次；若要與朋友一同駕駛，請在該處選擇「區域網絡遊戲 → 建立房間」，並將此處顯示的代碼提供給他們。"
+  zh-tw: "沒有正在執行的遊戲。請在「駕駛」頁面開始更次；若要與朋友一同駕駛，請在該處選擇「區域網絡遊戲 → 建立房間」，並將此處顯示的連線碼提供給他們。"
 "Stopping…":
   ru: "Остановка…"
   de: "Wird beendet…"
@@ -7374,7 +7424,7 @@ _version: 2
   ja: "LANセッションコード"
   zh: "局域网会话码"
   hi: "LAN सेशन कोड"
-  zh-tw: "區域網絡工作階段代碼"
+  zh-tw: "區域網絡連線碼"
   ko: "LAN 세션 코드"
   th: "รหัสเซสชัน LAN"
   vi: "MÃ PHIÊN LAN"
@@ -7420,7 +7470,7 @@ _version: 2
   ja: "コードをコピー"
   zh: "复制会话码"
   hi: "कोड कॉपी करें"
-  zh-tw: "複製代碼"
+  zh-tw: "複製連線碼"
   ko: "코드 복사"
   th: "คัดลอกรหัส"
   vi: "Sao chép mã"
@@ -7550,7 +7600,7 @@ _version: 2
   ja: "セッションコードをコピーしました。"
   zh: "会话码已复制。"
   hi: "सेशन कोड कॉपी हो गया।"
-  zh-tw: "已複製工作階段代碼。"
+  zh-tw: "已複製連線碼。"
   ko: "세션 코드가 복사되었습니다."
   th: "คัดลอกรหัสเซสชันแล้ว"
   vi: "Đã sao chép mã phiên."
@@ -9672,7 +9722,7 @@ _version: 2
   pt-pt: "Copiar código do servidor"
   zh: "复制会话码/服务器代码"
   pl: "Kopiuj kod serwera"
-  zh-tw: "複製伺服器程式碼"
+  zh-tw: "複製連線碼"
 "Server code copied":
   de: "Servercode kopiert"
   fr: "Code du serveur copié"
@@ -9682,7 +9732,7 @@ _version: 2
   pt-pt: "Código do servidor copiado"
   zh: "会话码/服务器代码已复制"
   pl: "Kod serwera skopiowany"
-  zh-tw: "伺服器代碼已複製"
+  zh-tw: "連線碼已複製"
 "Server code":
   de: "Servercode"
   fr: "Code du serveur"
@@ -9692,7 +9742,7 @@ _version: 2
   pt-pt: "Código do servidor"
   zh: "会话码/服务器代码"
   pl: "Kod serwera"
-  zh-tw: "伺服器程式碼"
+  zh-tw: "連線碼"
 "Object editor":
   ru: "Редактор объектов"
   de: "Objekteditor"
@@ -9936,7 +9986,7 @@ _version: 2
   ja: "退場させる"
   zh: "送走"
   hi: "भेज दें"
-  zh-tw: "送走"
+  zh-tw: "移出"
 "send away for the session":
   ru: "выгнать до конца сессии"
   de: "für die Sitzung hinauswerfen"
@@ -9956,7 +10006,7 @@ _version: 2
   ja: "このセッション中は退場させる"
   zh: "本次会话期间送走"
   hi: "सेशन के लिए भेज दें"
-  zh-tw: "在本次遊戲階段期間送走"
+  zh-tw: "在本次遊戲階段期間移出"
 "Time speed":
   ru: "Скорость времени"
   de: "Zeitraffer"
@@ -10198,7 +10248,7 @@ _version: 2
   ja: "次の乗務でセッションが開きます。コードを友達に渡してください。自宅でもインターネット越しでも使えます。"
   zh: "你的下一个任务将开启一个会话。把会话码告诉朋友:在家里或通过互联网均可使用。"
   hi: "आपकी अगली ड्यूटी एक सेशन खोलेगी। कोड दोस्तों को दें: यह घर पर और इंटरनेट पर भी चलता है।"
-  zh-tw: "你的下一個更次將建立一個工作階段。將代碼分享給朋友：在家中或透過互聯網皆可連線。"
+  zh-tw: "你的下一個更次將建立一個工作階段。將連線碼分享給朋友：在家中或透過互聯網皆可連線。"
 "Friends can join from anywhere":
   ru: "Друзья могут подключиться откуда угодно"
   de: "Freunde können von überall beitreten"
@@ -10362,7 +10412,7 @@ _version: 2
   ja: "起動中のゲームはありません。「運転」ページで乗務を開始してください。友達と運転するには、マルチプレイページでホストをオンにし、ここに表示されるコードを渡します。"
   zh: "没有正在运行的游戏。请在“驾驶”页面开始任务;要与朋友一起驾驶,请在“多人游戏”页面开启主机,并把此处显示的会话码告诉他们。"
   hi: "कोई गेम नहीं चल रहा। ड्राइव पेज पर ड्यूटी शुरू करें; दोस्तों के साथ चलाने के लिए मल्टीप्लेयर पेज पर होस्टिंग चालू करें और यहाँ दिखा कोड उन्हें दें।"
-  zh-tw: "目前沒有執行中的遊戲。請在「駕駛」頁面開始更次；若要與朋友一同駕駛，請在「多人遊戲」頁面開啟主機功能，並提供此處顯示的代碼。"
+  zh-tw: "目前沒有執行中的遊戲。請在「駕駛」頁面開始更次；若要與朋友一同駕駛，請在「多人遊戲」頁面開啟主機功能，並提供此處顯示的連線碼。"
 "SESSION CODE":
   ru: "КОД СЕССИИ"
   de: "SITZUNGSCODE"
@@ -10382,7 +10432,7 @@ _version: 2
   ja: "セッションコード"
   zh: "会话码"
   hi: "सेशन कोड"
-  zh-tw: "工作階段代碼"
+  zh-tw: "連線碼"
   ko: "세션 코드"
   th: "รหัสเซสชัน"
   vi: "MÃ PHIÊN"
@@ -10408,7 +10458,7 @@ _version: 2
   ja: "友達はそれを マルチプレイ → コードで接続 に貼り付けます。"
   zh: "朋友将其粘贴到 多人游戏 → 通过会话码连接。"
   hi: "आपके दोस्त इसे मल्टीप्लेयर → कोड से जुड़ें में पेस्ट करते हैं।"
-  zh-tw: "你的朋友只需將其貼上至「多人遊戲 → 使用代碼連線」。"
+  zh-tw: "你的朋友只需將其貼上至「多人遊戲 → 使用連線碼連線」。"
 "Multiplayer":
   ru: "Мультиплеер"
   de: "Mehrspieler"
@@ -10454,7 +10504,7 @@ _version: 2
   ja: "コードで接続"
   zh: "通过会话码连接"
   hi: "कोड से जुड़ें"
-  zh-tw: "使用代碼連線"
+  zh-tw: "使用連線碼連線"
   ko: "코드로 연결"
   th: "เชื่อมต่อด้วยรหัส"
   vi: "Kết nối bằng mã"
@@ -10532,7 +10582,7 @@ _version: 2
   ja: "次の乗務をホスト"
   zh: "主持我的下一个任务"
   hi: "मेरी अगली ड्यूटी होस्ट करें"
-  zh-tw: "分享下一個更次"
+  zh-tw: "主持我的下一個更次"
   ko: "다음 근무 호스팅"
   th: "โฮสต์หน้าที่ถัดไปของฉัน"
   vi: "Tạo phòng cho ca tiếp theo"
@@ -10558,7 +10608,7 @@ _version: 2
   ja: "セッションコード"
   zh: "会话码"
   hi: "सेशन कोड"
-  zh-tw: "工作階段代碼"
+  zh-tw: "連線碼"
   ko: "세션 코드"
   th: "รหัสเซสชัน"
   vi: "Mã phiên"
@@ -10584,7 +10634,7 @@ _version: 2
   ja: "コードをコピー"
   zh: "复制会话码"
   hi: "कोड कॉपी करें"
-  zh-tw: "複製代碼"
+  zh-tw: "複製連線碼"
   ko: "코드 복사"
   th: "คัดลอกรหัส"
   vi: "Sao chép mã"
@@ -10714,7 +10764,7 @@ _version: 2
   ja: "友達のゲームに表示されたコードを貼り付けてください。マップ、時刻、天候はホストのものになります。バスは自分で選べます。"
   zh: "粘贴朋友游戏中显示的会话码。地图、时间和天气由主机决定;你可以选择自己的巴士。"
   hi: "अपने दोस्त के गेम में दिखने वाला कोड पेस्ट करें। मैप, समय और मौसम होस्ट का होता है; बस आप चुनते हैं।"
-  zh-tw: "貼上朋友遊戲中顯示的代碼。地圖、時間及天氣均由房主決定；你可以自由選擇巴士。"
+  zh-tw: "貼上朋友遊戲中顯示的連線碼。地圖、時間及天氣均由房主決定；你可以自由選擇巴士。"
 "Drive with friends by a code, or on servers that are always on.":
   ru: "Ездите с друзьями по коду или на серверах, которые работают всегда."
   de: "Fahre mit Freunden per Code oder auf Servern, die immer laufen."
@@ -10734,7 +10784,7 @@ _version: 2
   ja: "コードで友達と、または常時稼働のサーバーで一緒に運転します。"
   zh: "通过会话码,或在常开的服务器上与朋友一起驾驶。"
   hi: "दोस्तों के साथ कोड से चलाएँ, या हमेशा चालू रहने वाले सर्वरों पर।"
-  zh-tw: "使用代碼與朋友一同駕駛，或加入長期在線的伺服器。"
+  zh-tw: "使用連線碼與朋友一同駕駛，或加入長期在線的伺服器。"
   ko: "코드를 통해 친구와 운전하거나 상시 운영 서버에 참가하세요."
   th: "ขับรถกับเพื่อนผ่านรหัสหรือบนเซิร์ฟเวอร์ที่เปิดตลอดเวลา"
   vi: "Lái xe cùng bạn bè bằng mã hoặc trên máy chủ hoạt động liên tục."
@@ -10872,7 +10922,7 @@ _version: 2
   ja: "このサーバーの管理者になりました:Esc → 管理"
   zh: "你现在是此服务器的管理员:Esc → 管理"
   hi: "अब आप इस सर्वर के एडमिन हैं: Esc → एडमिनिस्ट्रेशन"
-  zh-tw: "你現在是此伺服器的管理員：Esc → 管理"
+  zh-tw: "你現在是此伺服器的管理員：Esc → 伺服器管理選項"
 "Wrong admin password":
   ru: "Неверный пароль администратора"
   de: "Falsches Admin-Passwort"
@@ -11396,7 +11446,7 @@ _version: 2
   ja: "完全なOMSI 2インストール"
   zh: "完整的OMSI 2安装"
   hi: "पूरा OMSI 2 इंस्टॉलेशन"
-  zh-tw: "完整的 OMSI 2 安裝版本"
+  zh-tw: "完整的 OMSI 2 安裝"
 "A departure is not a time (h:mm).":
   ru: "Отправление — это не время (ч:мм)."
   de: "Eine Abfahrt ist keine Uhrzeit (h:mm)."
@@ -11556,7 +11606,7 @@ _version: 2
   ja: "サーバーに問い合わせ中…"
   zh: "正在询问服务器…"
   hi: "सर्वर से पूछा जा रहा है…"
-  zh-tw: "正在查詢伺服器…"
+  zh-tw: "正在詢問伺服器…"
 "BRAKE":
   ru: "ТОРМОЗ"
   de: "BREMSE"
@@ -12608,7 +12658,7 @@ _version: 2
   ja: "運転手"
   zh: "司机"
   hi: "ड्राइवर"
-  zh-tw: "司機名單"
+  zh-tw: "司機"
 "Driving keys: Custom controls - the game uses the keys of this page.":
   ru: "Клавиши вождения: свои настройки — игра использует клавиши с этой страницы."
   de: "Fahrtasten: Eigene Steuerung – das Spiel nutzt die Tasten dieser Seite."
@@ -13088,7 +13138,7 @@ _version: 2
   ja: "行路を終了"
   zh: "结束行程"
   hi: "टूर समाप्त करें"
-  zh-tw: "結束更次"
+  zh-tw: "結束行程"
 "No active route":
   ru: "Нет активного маршрута"
   de: "Keine aktive Route"
@@ -14181,7 +14231,7 @@ _version: 2
   ja: "新しい行路"
   zh: "新行程"
   hi: "नया टूर"
-  zh-tw: "新更次"
+  zh-tw: "新行程"
 "Next":
   ru: "Далее"
   de: "Weiter"
@@ -14281,7 +14331,7 @@ _version: 2
   ja: "車庫ファイルにも時刻表にも系統番号がありません"
   zh: "车场文件和时刻表中都没有线路号"
   hi: "डिपो फ़ाइल या टाइमटेबल में कोई रूट नंबर नहीं"
-  zh-tw: "車廠檔案或時間表中沒有路線號碼"
+  zh-tw: "HOF 檔案或時間表中沒有路線號碼"
 "No situation left on this map yet":
   ru: "На этой карте пока нет сохранённой ситуации"
   de: "Auf dieser Karte ist noch keine Situation gespeichert"
@@ -14581,7 +14631,7 @@ _version: 2
   ja: "サーバーでは、マップ、時刻、日付、天候は全員共通です。サーバーが世界の時計を管理します。バスと乗務は自分で選べます。"
   zh: "在服务器上,地图、时间、日期和天气对所有人都相同:服务器掌管世界时钟。你可以选择自己的巴士和任务。"
   hi: "सर्वर पर मैप, समय, तारीख़ और मौसम सबके लिए एक जैसे होते हैं: दुनिया की घड़ी सर्वर रखता है। बस और ड्यूटी आप चुनते हैं।"
-  zh-tw: "在伺服器上，所有玩家的地圖、時間、日期及天氣皆相同：伺服器維持世界時鐘。你可以自由選擇自己的巴士與更次。"
+  zh-tw: "在伺服器上，所有玩家的地圖、時間、日期及天氣皆相同：伺服器控制世界時鐘。你可以自由選擇自己的巴士與更次。"
 "On foot":
   ru: "Пешком"
   de: "Zu Fuß"
@@ -14856,7 +14906,7 @@ _version: 2
   ja: "先にセッションコードを貼り付けてください"
   zh: "请先粘贴会话码"
   hi: "पहले सेशन कोड पेस्ट करें"
-  zh-tw: "請先貼上工作階段代碼"
+  zh-tw: "請先貼上連線碼"
 "Point the view at the ground":
   ru: "Направить взгляд в землю"
   de: "Blick auf den Boden richten"
@@ -15776,7 +15826,7 @@ _version: 2
   ja: "セッションコードをコピーしました"
   zh: "会话码已复制"
   hi: "सेशन कोड कॉपी हुआ"
-  zh-tw: "已複製工作階段代碼"
+  zh-tw: "已複製連線碼"
 "Set the clock...":
   ru: "Установить время..."
   de: "Uhrzeit einstellen..."
@@ -16016,7 +16066,7 @@ _version: 2
   ja: "「運転」ページで乗務を開始すると、ここにコードが表示されます。"
   zh: "在“驾驶”页面开始任务后,会话码会显示在这里。"
   hi: "ड्राइव पेज पर ड्यूटी शुरू करें: कोड यहाँ दिखेगा।"
-  zh-tw: "在「駕駛」頁面開始更次：代碼將顯示在此處。"
+  zh-tw: "在「駕駛」頁面開始更次：連線碼將顯示在此處。"
 "Start on foot (place a bus from the game menu)":
   ru: "Начать пешком (поставьте автобус из игрового меню)"
   de: "Zu Fuß starten (Bus über das Spielmenü platzieren)"
@@ -17416,7 +17466,7 @@ _version: 2
   ja: "このサーバーの管理者になりました:Escメニュー、管理"
   zh: "你现在是此服务器的管理员:Esc菜单,管理"
   hi: "अब आप इस सर्वर के एडमिन हैं: Esc मेन्यू, एडमिनिस्ट्रेशन"
-  zh-tw: "你現在是此伺服器的管理員：Esc 選單，管理"
+  zh-tw: "你現在是此伺服器的管理員：Esc 選單，伺服器管理選項"
 "Z axis":
   ru: "Ось Z"
   de: "Z-Achse"
@@ -19504,7 +19554,7 @@ _version: 2
   fr: "Configurer un volant ou un pédalier"
   pt-pt: "Configurar volante ou pedais"
   zh: "设置方向盘或踏板"
-  zh-tw: "設定車輪或踏板"
+  zh-tw: "設定方向盤或踏板"
 "Change the VR keys":
   ru: "Изменить клавиши VR"
   de: "VR-Tasten ändern"
@@ -21114,7 +21164,7 @@ _version: 2
   zh: "鼠标右键转动视角,Shift+右键缩放(关闭时:右键像 OMSI 一样缩放,滚轮键转动视角)"
   pl: "Prawy przycisk myszy obraca widok, Shift+prawy przybliża (wyłączone: prawy przybliża jak w OMSI, obraca przycisk kółka)"
   fr: "Le clic droit tourne la vue, Maj+clic droit zoome (désactivé : le clic droit zoome comme dans OMSI, le bouton de la molette tourne)"
-  zh-tw: "滑鼠右鍵旋轉視圖，Shift+右縮放（關閉：像 OMSI 中那樣右縮放，滾輪按鈕旋轉）"
+  zh-tw: "滑鼠右鍵旋轉視角，Shift+右縮放（關閉：像 OMSI 中那樣右縮放，滾輪按鈕旋轉）"
 
 "Sync the clock with the real time (locks the time)":
   pt: "Sincronizar o relógio com a hora real (bloqueia o horário)"
@@ -21138,7 +21188,7 @@ _version: 2
   zh: "时间流速(多人游戏中或实时同步时不可用)"
   pl: "Prędkość czasu (niedostępna w multiplayer ani przy synchronizacji z czasem rzeczywistym)"
   fr: "Vitesse du temps (sauf en multijoueur ou avec la synchro en temps réel)"
-  zh-tw: "時間速度（不在多人遊戲或即時同步中）"
+  zh-tw: "時間速度（不在多人遊戲或即時同步中可用）"
 
 "On a server its clock and weather are the server's":
   pt: "Em um servidor, o horário e o clima são definidos pelo servidor"
@@ -21146,7 +21196,7 @@ _version: 2
   zh: "在服务器上,时钟和天气由服务器决定"
   pl: "Na serwerze zegar i pogoda są ustawiane przez serwer"
   fr: "Sur un serveur, l'heure et la météo sont celles du serveur"
-  zh-tw: "在伺服器上，它的時鐘和天氣是伺服器的"
+  zh-tw: "在伺服器上，時鐘和天氣是由伺服器決定"
 
 "Search…":
   pt: "Pesquisar…"
@@ -21162,7 +21212,7 @@ _version: 2
   zh: "此地图没有可驾驶的线路。"
   pl: "Mapa nie ma linii do przejechania."
   fr: "La carte n'a aucune ligne à conduire."
-  zh-tw: "地圖上沒有可供行駛的線路。"
+  zh-tw: "地圖上沒有可供行駛的路線。"
 
 "Lines of the timetable":
   pt: "Linhas do horário"
@@ -21170,7 +21220,7 @@ _version: 2
   zh: "时刻表中的线路"
   pl: "Linie rozkładu"
   fr: "Lignes de l'horaire"
-  zh-tw: "時刻表的線路"
+  zh-tw: "時刻表的路線"
 
 "Choose a line first.":
   pt: "Escolha uma linha primeiro."
@@ -21178,7 +21228,7 @@ _version: 2
   zh: "请先选择线路。"
   pl: "Najpierw wybierz linię."
   fr: "Choisissez d'abord une ligne."
-  zh-tw: "首先選擇一條線。"
+  zh-tw: "首先選擇一條路線。"
 
 "Done":
   pt: "Concluir"
@@ -21202,7 +21252,7 @@ _version: 2
   zh: "朋友的会话码或服务器地址"
   pl: "Kod znajomego lub adres serwera"
   fr: "Le code d'un ami ou l'adresse d'un serveur"
-  zh-tw: "朋友的代碼或伺服器位址"
+  zh-tw: "朋友的連線碼或伺服器位址"
 
 "Type the code your friend's game shows (or a server's address)":
   pt: "Digite o código exibido no jogo do seu amigo (ou o endereço de um servidor)"
@@ -21210,7 +21260,7 @@ _version: 2
   zh: "输入朋友游戏中显示的会话码(或服务器地址)"
   pl: "Wpisz kod wyświetlany w grze znajomego (lub adres serwera)"
   fr: "Saisissez le code affiché par le jeu de votre ami (ou l'adresse d'un serveur)"
-  zh-tw: "輸入您朋友的遊戲顯示的代碼（或伺服器位址）"
+  zh-tw: "輸入您朋友的遊戲顯示的連線碼（或伺服器位址）"
 
 "Choose your bus and press Start to join your friend":
   pt: "Escolha seu ônibus e pressione Iniciar para entrar com seu amigo"
@@ -21226,7 +21276,7 @@ _version: 2
   zh: "主持我的下一局游戏"
   pl: "Hostuj moją następną grę"
   fr: "Héberger ma prochaine partie"
-  zh-tw: "主持我的下一場比賽"
+  zh-tw: "主持我的下一場遊戲"
 
 "Your next game is hosted: its code shows in the game for your friends":
   pt: "Seu próximo jogo será hospedado: o código aparecerá no jogo para seus amigos"
@@ -21234,7 +21284,7 @@ _version: 2
   zh: "你的下一局游戏将作为主机运行:其会话码会在游戏中显示给你的朋友"
   pl: "Twoja następna gra jest hostowana: jej kod pokaże się w grze dla znajomych"
   fr: "Votre prochaine partie sera hébergée : son code s'affichera dans le jeu pour vos amis"
-  zh-tw: "您的下一個遊戲已託管：其程式碼會在您的朋友的遊戲中顯示"
+  zh-tw: "你的下一場遊戲將作為主機運行：其連線碼會在您的朋友的遊戲中顯示"
 
 "More servers: add them by their address in the desktop launcher, or type one above.":
   pt: "Mais servidores: adicione-os pelo endereço no launcher de desktop ou digite um acima."
@@ -21242,7 +21292,7 @@ _version: 2
   zh: "更多服务器:可在桌面启动器中按地址添加,或在上方直接输入。"
   pl: "Więcej serwerów: dodaj je po adresie w launcherze na komputerze lub wpisz jeden powyżej."
   fr: "Plus de serveurs : ajoutez-les par leur adresse dans le lanceur sur ordinateur, ou saisissez-en un ci-dessus."
-  zh-tw: "更多伺服器：透過桌面啟動器中的位址新增它們，或在上面鍵入一個。"
+  zh-tw: "更多伺服器：透過桌面啟動器中的位址新增它們，或在上面輸入一個。"
 
 "Weather cycle":
   pt: "Ciclo de clima"
@@ -21282,7 +21332,7 @@ _version: 2
   zh: "这辆巴士没有带目的地的hof文件(.hof)"
   pl: "Ten autobus nie ma pliku zajezdni (.hof) z kierunkami"
   fr: "Ce bus n'a aucun fichier de dépôt (.hof) avec des destinations"
-  zh-tw: "該巴士沒有包含目的地的車站文件 (.hof)"
+  zh-tw: "該巴士沒有包含目的地的 HOF 文件"
 
 "This bus has no depot files (.hof)":
   pt: "Este ônibus não tem arquivos de garagem (.hof)"
@@ -21290,7 +21340,7 @@ _version: 2
   zh: "这辆巴士没有hof文件(.hof)"
   pl: "Ten autobus nie ma plików zajezdni (.hof)"
   fr: "Ce bus n'a aucun fichier de dépôt (.hof)"
-  zh-tw: "該巴士沒有站點文件 (.hof)"
+  zh-tw: "該巴士沒有 HOF 文件 (.hof)"
 
 "Choose the stop to start from":
   pt: "Escolha a parada de onde começar"
@@ -21314,7 +21364,7 @@ _version: 2
   zh: "管理"
   pl: "Administracja"
   fr: "Administration"
-  zh-tw: "行政"
+  zh-tw: "伺服器管理選項"
 
 "The time cannot be changed while the real-time sync is on":
   pt: "O horário não pode ser alterado enquanto a sincronização em tempo real estiver ativa"
@@ -21418,7 +21468,7 @@ _version: 2
   zh: "启用/禁用撞到行人"
   pl: "Włącza/wyłącza potrącanie ludzi"
   fr: "Active/désactive le renversement des piétons"
-  zh-tw: "啟用/停用擊倒人"
+  zh-tw: "啟用/停用撞倒人"
 
 "Timetable window":
   pt: "Janela do horário"
@@ -21554,7 +21604,7 @@ _version: 2
   zh: "视角随车辆的加速度移动"
   pl: "Widok porusza się wraz z przyspieszeniem pojazdu"
   fr: "La vue bouge avec les accélérations du véhicule"
-  zh-tw: "視圖隨著車輛的加速度而移動"
+  zh-tw: "視角隨著車輛的加速度而移動"
 
 "Smooth viewpoint changes":
   pt: "Transições suaves entre pontos de vista"
@@ -21602,7 +21652,7 @@ _version: 2
   zh: "方向盘打到底时视角转动的幅度"
   pl: "Jak bardzo obraca się widok przy pełnym skręcie kierownicy"
   fr: "Angle de rotation de la vue au braquage maximal"
-  zh-tw: "完全轉向鎖定時視野轉動多遠"
+  zh-tw: "方向盤轉動到底時視角轉動的幅度"
 
 "How quickly the view follows the steering":
   pt: "Velocidade com que a visão acompanha a direção"
@@ -21610,7 +21660,7 @@ _version: 2
   zh: "视角跟随转向的速度"
   pl: "Jak szybko widok podąża za skrętem kierownicy"
   fr: "Rapidité avec laquelle la vue suit la direction"
-  zh-tw: "視圖跟隨轉向的速度有多快"
+  zh-tw: "視角跟隨轉向的速度有多快"
 
 "Shows the driver's hand on the steering wheel (Cockpit only)":
   pt: "Mostra a mão do motorista no volante (somente na cabine)"
@@ -21634,7 +21684,7 @@ _version: 2
   zh: "鼠标右键转动视角"
   pl: "Prawy przycisk myszy obraca widok"
   fr: "Le clic droit tourne la vue"
-  zh-tw: "滑鼠右鍵轉動視圖"
+  zh-tw: "滑鼠右鍵轉動視角"
 
 "Shift+right zooms; off: right zooms as in OMSI, the wheel button turns":
   pt: "Shift+botão direito aplica zoom; desativado: o botão direito aplica zoom como no OMSI e o botão do meio gira a visão"
@@ -21642,7 +21692,7 @@ _version: 2
   zh: "Shift+右键缩放;关闭时:右键像 OMSI 一样缩放,滚轮键转动视角"
   pl: "Shift+prawy przybliża; wyłączone: prawy przybliża jak w OMSI, obraca przycisk kółka"
   fr: "Maj+clic droit zoome ; désactivé : le clic droit zoome comme dans OMSI, le bouton de la molette tourne"
-  zh-tw: "Shift+右側縮放；關閉：與 OMSI 中一樣向右縮放，滾輪按鈕轉動"
+  zh-tw: "Shift+右側縮放；關閉：與 OMSI 中一樣向右縮放，滾輪按轉動"
 
 "The view angle of the views from the vehicle":
   pt: "Ângulo de visão das câmeras do veículo"
@@ -21738,7 +21788,7 @@ _version: 2
   zh: "方向盘停留在按键松开时的位置"
   pl: "Kierownica zostaje tam, gdzie zostawiły ją klawisze"
   fr: "Le volant reste là où les touches l'ont laissé"
-  zh-tw: "輪子停留在鑰匙離開的位置"
+  zh-tw: "方向盤停留在按鍵松開時的位置"
 
 "The steering keys act slower at speed":
   pt: "As teclas de direção atuam mais lentamente em velocidade"
@@ -21762,7 +21812,7 @@ _version: 2
   zh: "适用于未保存方向的方向盘"
   pl: "Dla kierownic bez zapisanego kierunku"
   fr: "Pour les volants sans sens enregistré"
-  zh-tw: "對於沒有保存方向的車輪"
+  zh-tw: "對於沒有保存方向的方向盤"
 
 "The steering wheel's own rotation, lock to lock":
   pt: "Rotação própria do volante, de batente a batente"
@@ -21770,7 +21820,7 @@ _version: 2
   zh: "方向盘自身的转动范围,从一个极限到另一个极限"
   pl: "Własny kąt obrotu kierownicy, od ogranicznika do ogranicznika"
   fr: "La rotation propre du volant, de butée à butée"
-  zh-tw: "方向盤自己轉動，鎖就鎖"
+  zh-tw: "方向盤自身的轉動範圍,從一個極限到另一個極限"
 
 "How far the wheel turns for the vehicle's full lock":
   pt: "Quanto o volante gira até o esterçamento máximo do veículo"
@@ -21778,7 +21828,7 @@ _version: 2
   zh: "车辆转到底时方向盘转动的角度"
   pl: "Jak bardzo obraca się kierownica przy pełnym skręcie kół pojazdu"
   fr: "De combien le volant tourne pour le braquage maximal du véhicule"
-  zh-tw: "車輛完全鎖定時車輪轉動多遠"
+  zh-tw: "車輛完全鎖定時方向盤轉動多遠"
 
 "Adjust how strongly pedal input affects the throttle":
   pt: "Ajusta quanto a entrada do pedal afeta o acelerador"
@@ -21826,7 +21876,7 @@ _version: 2
   zh: "在本机上翻译尚无译文的文本"
   pl: "Tłumaczy na tym komputerze teksty, których nikt jeszcze nie przetłumaczył"
   fr: "Traduit sur cette machine les textes que personne n'a traduits"
-  zh-tw: "在這台機器上翻譯沒人翻譯過的文本"
+  zh-tw: "在這台機器上沒有翻譯過的文本"
 
 "The size of the texts, the menu, the timetable and the navigator":
   pt: "Tamanho dos textos, do menu, do horário e do navegador"
@@ -22066,7 +22116,7 @@ _version: 2
   zh: "与实时时间同步"
   pl: "Zsynchronizowano z czasem rzeczywistym"
   fr: "Synchronisé avec l'heure réelle"
-  zh-tw: "與即時同步"
+  zh-tw: "與現在時間同步"
 
 "Exact time":
   pt: "Hora exata"
@@ -22138,7 +22188,7 @@ _version: 2
   zh: "调整时间，使时刻表班次准点"
   pl: "Przesuń zegar tak, aby pojazd był punktualnie"
   fr: "Avancer l'horloge pour que le véhicule soit à l'heure"
-  zh-tw: "移動時鐘以使車輛準時"
+  zh-tw: "調整時間以使班次準時"
 
 "How fast the world's clock runs":
   pt: "Velocidade do relógio do mundo"
@@ -22676,7 +22726,7 @@ _version: 2
   it: "Continua la partita"
   nl: "Laatste spel hervatten"
   zh: "继续上一局游戏"
-  zh-tw: "繼續上一場比賽"
+  zh-tw: "繼續上一場遊戲"
 "Filter lines…":
   ru: "Поиск линии…"
   de: "Linien filtern…"
@@ -22760,6 +22810,7 @@ _version: 2
 
 "Beige":
   fr: "Beige"
+  zh-tw: "淺褐色"
 
 "Brightness":
   fr: "Luminosité"
@@ -22797,15 +22848,19 @@ _version: 2
 
 "Changes every 25-60 minutes, as the month allows":
   fr: "Change toutes les 25 à 60 minutes, selon le mois"
+  zh-tw: "每 25 至 60 分鐘變更一次，視月份而定"
 
 "Choose a weather preset":
   fr: "Choisissez une météo prédéfinie"
+  zh-tw: "選擇天氣預設"
 
 "Cloud type":
   fr: "Type de nuages"
+  zh-tw: "雲層類型"
 
 "Continue where you left off on this map":
   fr: "Reprendre là où vous vous étiez arrêté sur cette carte"
+  zh-tw: "繼續此地圖上次離開的位置"
 
 "Custom weather":
   fr: "Météo personnalisée"
@@ -22819,9 +22874,11 @@ _version: 2
 
 "Edit selected weather as custom":
   fr: "Modifier la météo choisie en météo personnalisée"
+  zh-tw: "將選定天氣編輯為自訂天氣"
 
 "Free driving: the bus starts where you chose, with the traffic and the timetable's buses around it, but no line of your own. Pick the place below or click an entry point on the map.":
   fr: "Conduite libre : le bus part où vous l'avez choisi, avec la circulation et les bus de l'horaire autour, mais sans ligne à vous. Choisissez l'endroit ci-dessous ou cliquez sur un point d'entrée de la carte."
+  zh-tw: "自由駕駛：巴士從你選擇的位置出發，周圍有交通和時刻表巴士，但沒有自己的路線。請選擇下方位置，或點選地圖上的入口點。"
 
 "Humidity":
   fr: "Humidité"
@@ -22832,21 +22889,27 @@ _version: 2
 
 "Pack":
   fr: "Pack"
+  zh-tw: "套件"
 
 "Paint":
   fr: "Livrée"
+  zh-tw: "塗裝"
 
 "Precipitation intensity":
   fr: "Intensité des précipitations"
+  zh-tw: "降水強度"
 
 "Put the roadbook away (the button on the map brings it back)":
   fr: "Ranger la feuille de route (le bouton sur la carte la fait revenir)"
+  zh-tw: "收起行車路線簿（地圖上的按鈕可將其重新開啟）"
 
 "Road wetness":
   fr: "Humidité de la route"
+  zh-tw: "路面濕度"
 
 "Set visibility, wind, clouds, rain, temperature and road state":
   fr: "Réglez la visibilité, le vent, les nuages, la pluie, la température et l'état de la route"
+  zh-tw: "設定能見度、風、雲、雨、溫度和路況"
 
 "Snow cover":
   fr: "Couverture neigeuse"
@@ -22861,21 +22924,27 @@ _version: 2
 
 "The trips of the chosen tour, where they call, and what to type into the IBIS":
   fr: "Les courses du service choisi, leurs arrêts et ce qu'il faut saisir dans l'IBIS"
+  zh-tw: "選定班次的行程、停靠站，以及要輸入 IBIS 的內容"
 
 "Where the bus is put down. The orange marks on the map are the same places: click one to take it.":
   fr: "L'endroit où le bus est posé. Les repères orange sur la carte sont les mêmes endroits : cliquez sur l'un d'eux pour le choisir."
+  zh-tw: "巴士放置的位置。地圖上的橙色標記是相同位置；點選其中一個即可前往。"
 
 "Depot":
   fr: "Dépôt"
+  zh-tw: "車庫"
 
 "Station":
   fr: "Gare"
+  zh-tw: "車站"
 
 "The launcher rests while a game runs":
   fr: "Le lanceur se met en pause pendant une partie"
+  zh-tw: "啟動器在遊戲執行時暫停"
 
 "The launcher rests while you drive, so that the game has the graphics card to itself. It is back as soon as the game ends.":
   fr: "Le lanceur se met en pause pendant que vous conduisez, pour laisser la carte graphique au jeu. Il revient dès la fin de la partie."
+  zh-tw: "駕駛時啟動器會暫停，讓遊戲獨佔顯示卡；遊戲結束後啟動器會立即恢復。"
 
 "A right click ends the mouse steering (as in OMSI)":
   fr: "Un clic droit arrête la direction à la souris (comme dans OMSI)"
@@ -22895,6 +22964,7 @@ _version: 2
 
 "All doors, any bus":
   fr: "Toutes les portes, tout bus"
+  zh-tw: "所有車門，任何巴士"
 
 "Both frames at each join":
   fr: "Les deux montants à chaque jointure"
@@ -22908,9 +22978,11 @@ _version: 2
 
 "Cabin and outside, one key":
   fr: "Cabine et extérieur, une seule touche"
+  zh-tw: "駕駛室與車外，同一按鍵"
 
 "Custom controls":
   fr: "Commandes personnalisées"
+  zh-tw: "自訂控制"
 
 "Discord Rich Presence":
   fr: "Statut Discord (Rich Presence)"
@@ -22936,15 +23008,19 @@ _version: 2
 
 "Door 1 (front), any bus":
   fr: "Porte 1 (avant), tout bus"
+  zh-tw: "車門 1（前門），任何巴士"
 
 "Door 2, any bus":
   fr: "Porte 2, tout bus"
+  zh-tw: "車門 2，任何巴士"
 
 "Door 3, any bus":
   fr: "Porte 3, tout bus"
+  zh-tw: "車門 3，任何巴士"
 
 "Door 4, any bus":
   fr: "Porte 4, tout bus"
+  zh-tw: "車門 4，任何巴士"
 
 "Eye above screen centre":
   fr: "Œil au-dessus du centre de l'écran"
@@ -22977,15 +23053,19 @@ _version: 2
 
 "Gear 1 (H-pattern)":
   fr: "Rapport 1 (grille en H)"
+  zh-tw: "1 檔（H 型）"
 
 "Gear R (H-pattern)":
   fr: "Marche arrière (grille en H)"
+  zh-tw: "R 檔（H 型）"
 
 "Gear down (manual gearbox)":
   fr: "Rétrograder (boîte manuelle)"
+  zh-tw: "降檔（手排變速箱）"
 
 "Gear up (manual gearbox)":
   fr: "Monter un rapport (boîte manuelle)"
+  zh-tw: "升檔（手排變速箱）"
 
 "HUD on centre screen":
   fr: "HUD sur l'écran central"
@@ -23006,6 +23086,7 @@ _version: 2
 
 "Latching":
   fr: "Maintenu"
+  zh-tw: "鎖定"
 
 "Left screen inward angle":
   fr: "Angle de l'écran gauche vers l'intérieur"
@@ -23024,7 +23105,7 @@ _version: 2
   zh-tw: "METAR 報告"
 
 "Morning":
-  zh-tw: "早晨"
+  zh-tw: "早上"
 
 "Mouse look sensitivity":
   fr: "Sensibilité de la vue à la souris"
@@ -23035,6 +23116,7 @@ _version: 2
 
 "Multiplayer: write in the chat":
   fr: "Multijoueur : écrire dans le chat"
+  zh-tw: "多人遊戲：在聊天中輸入文字"
 
 "No saved profiles":
   fr: "Aucun profil enregistré"
@@ -23045,6 +23127,7 @@ _version: 2
 
 "None":
   fr: "Aucun"
+  zh-tw: "無"
 
 "Profiles":
   fr: "Profils"
@@ -23177,6 +23260,7 @@ _version: 2
 
 "What each axis and button of a wheel, pedals or joystick does - OMSI 2's gamectrler.cfg, kept in the content folder.":
   fr: "Ce que fait chaque axe et bouton d'un volant, d'un pédalier ou d'un joystick - le gamectrler.cfg d'OMSI 2, gardé dans le dossier de contenu."
+  zh-tw: "方向盤、踏板或操縱桿的每個軸與按鍵功能；OMSI 2 的 gamectrler.cfg 儲存在內容資料夾中。"
 
 "Window size":
   fr: "Taille de la fenêtre"
@@ -23184,51 +23268,67 @@ _version: 2
 
 "Press \"Reset timetable\" again to put the map's own timetable back (the changes made here are lost)":
   fr: "Appuyez de nouveau sur « Réinitialiser l'horaire » pour remettre l'horaire de la carte (les modifications faites ici sont perdues)"
+  zh-tw: "再次按下「重設時刻表」以恢復地圖自己的時刻表（此處所做的變更將會遺失）"
 
 "Enter takes the first match":
   fr: "Entrée choisit le premier résultat"
+  zh-tw: "按 Enter 選取第一個相符項目"
 
 "Nothing found":
   fr: "Aucun résultat"
+  zh-tw: "找不到結果"
 
 "The Vulkan graphics driver stopped while compiling shaders. Starting the game again will switch to OpenGL (or change it in Settings → Graphics API).":
   fr: "Le pilote graphique Vulkan s'est arrêté pendant la compilation des shaders. Relancer le jeu passera en OpenGL (ou changez-le dans Réglages → API graphique)."
+  zh-tw: "Vulkan 圖形驅動程式在編譯著色器時停止。重新啟動遊戲將切換至 OpenGL（或在「設定」→「圖形 API」中變更）。"
 
 "The game was closed by the system":
   fr: "Le jeu a été fermé par le système"
+  zh-tw: "遊戲已被系統關閉"
 
 "The system closed the game while it was running, typically because the device ran out of memory (RAM). Lowering texture resolution or reducing AI traffic in Settings helps prevent memory exhaustion.":
   fr: "Le système a fermé le jeu pendant qu'il tournait, généralement parce que l'appareil a manqué de mémoire (RAM). Baisser la résolution des textures ou réduire la circulation IA dans les Réglages aide à l'éviter."
+  zh-tw: "系統在遊戲執行期間將其關閉，通常是因為裝置記憶體（RAM）不足。在「設定」中降低紋理解析度或減少 AI 交通，有助於避免記憶體耗盡。"
 
 "As the map sets it":
   fr: "Comme le prévoit la carte"
+  zh-tw: "依地圖設定"
 
 "Asking…":
   fr: "Demande en cours…"
+  zh-tw: "詢問中…"
 
 "Choose a bus first.":
   fr: "Choisissez d'abord un bus."
+  zh-tw: "請先選擇巴士。"
 
 "Choose a map":
   fr: "Choisissez une carte"
+  zh-tw: "選擇地圖"
 
 "Choose another weather":
   fr: "Choisir une autre météo"
+  zh-tw: "選擇其他天氣"
 
 "Choose the bus":
   fr: "Choisir le bus"
+  zh-tw: "選擇巴士"
 
 "Choose the livery":
   fr: "Choisir la livrée"
+  zh-tw: "選擇塗裝"
 
 "Choose the map":
   fr: "Choisir la carte"
+  zh-tw: "選擇地圖"
 
 "Choose the tour":
   fr: "Choisir le service"
+  zh-tw: "選擇班次"
 
 "Current weather (METAR)":
   fr: "Météo actuelle (METAR)"
+  zh-tw: "目前天氣（METAR）"
 
 "Games running and their logs":
   fr: "Parties en cours et leurs journaux"
@@ -23246,22 +23346,26 @@ _version: 2
 
 "Learn to drive the buses":
   fr: "Apprendre à conduire les bus"
-  zh-tw: "學習駕駛公共汽車"
+  zh-tw: "學習駕駛巴士"
 
 "Left screen angle":
   zh-tw: "左螢幕角度"
 
 "Line or free drive":
   fr: "Ligne ou conduite libre"
+  zh-tw: "路線或自由駕駛"
 
 "Looking for the server…":
   fr: "Recherche du serveur…"
+  zh-tw: "正在尋找伺服器…"
 
 "Name":
   fr: "Nom"
+  zh-tw: "名稱"
 
 "No timetable: drive where you like, the buses and traffic about you":
   fr: "Sans horaire : roulez où vous voulez, avec les bus et la circulation autour de vous"
+  zh-tw: "沒有時刻表：隨你喜歡駕駛，周圍有 AI 巴士和交通"
 
 "Online":
   fr: "En ligne"
@@ -23288,9 +23392,11 @@ _version: 2
 
 "Remove server":
   fr: "Retirer le serveur"
+  zh-tw: "移除伺服器"
 
 "The METAR is fetched when the game starts.":
   fr: "Le METAR est récupéré au lancement du jeu."
+  zh-tw: "遊戲開始時會取得 METAR 數據。"
 
 "The OMSI 2 folder and content":
   fr: "Le dossier OMSI 2 et le contenu"
@@ -23302,13 +23408,15 @@ _version: 2
 
 "The map's weather":
   fr: "La météo de la carte"
+  zh-tw: "地圖天氣"
 
 "Time and weather":
   fr: "Heure et météo"
+  zh-tw: "時間與天氣"
 
 "Touch, wheels and gamepads":
   fr: "Tactile, volants et manettes"
-  zh-tw: "觸摸、滾輪和遊戲手柄"
+  zh-tw: "觸摸、方向盤和遊戲手柄"
 
 "Traffic and people":
   zh-tw: "交通與乘客"
@@ -23318,6 +23426,7 @@ _version: 2
 
 "Visibility, wind, temperature, rain, snow and road state":
   fr: "Visibilité, vent, température, pluie, neige et état de la route"
+  zh-tw: "能見度、風、溫度、雨、雪與路況"
 
 "Your driver, level and records":
   fr: "Votre conducteur, son niveau et ses records"
