@@ -246,7 +246,7 @@ struct GpuPointLight {
     color: [f32; 4],
     /// Spot direction and cosine of the outer cone (-2 = a point light).
     dir: [f32; 4],
-    /// Cosine of the inner cone, the core radius, the beam's gain towards its cut-off, the
+    /// Cosine of the inner cone, the core radius, a headlamp's beam (1 low, -1 full), the
     /// radius (`pos.w` is 0 on a light only the enhanced path draws, which the vanilla
     /// shader then passes by).
     extra: [f32; 4],
@@ -279,11 +279,8 @@ pub struct PointLight {
     /// The radius within which the light is at full strength (`[maplight]`'s); 0 = an
     /// eighth of `radius` (enhanced path; vanilla always takes the eighth).
     pub core: f32,
-    /// A headlight's beam (enhanced path): up to this many times stronger towards the
-    /// horizon than along its axis, so that the road far ahead is lit as a low beam lights
-    /// it rather than only the pool in front of the bumper (0 = an even cone). Negative: a
-    /// full beam, as many times stronger towards the horizon on either side of it (no
-    /// cut-off above).
+    /// A headlamp (enhanced path), lit by a road lamp's profile instead of the cone: 1 a low
+    /// beam, with its cut-off at the lamp's horizon, -1 a full beam, without; 0 any other light.
     pub beam: f32,
     /// Which path draws the light.
     pub mode: LightMode,
