@@ -2464,6 +2464,8 @@ pub(crate) fn run_offscreen(
     let daylight = omsi_sim::Daylight::compute(&clock, envir.as_ref());
     world.set_lamps(&renderer, &mut scene, daylight.lamps_on);
     world.update_night_modes(&renderer, &mut scene, &clock, daylight.brightness);
+    // (the physical model at the map's own place and the picture's moment)
+    let weather = crate::weather_model::refresh(&clock).unwrap_or(weather);
     // a run starts with the roads already in the state this weather would leave them
     let mut wetness = initial_wetness(&weather);
     if let Some(v) = omsi_cfg::env::var("OMSI_WETNESS")

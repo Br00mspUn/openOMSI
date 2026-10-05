@@ -103,6 +103,7 @@ mod traffic_link;
 mod tutorial;
 mod weather_setup;
 mod weather_cycle;
+mod weather_model;
 mod world_load;
 
 // the interface's translations (locales/app.yml; the English text is the key)

@@ -120,7 +120,8 @@ pub(crate) struct Args {
     /// Set script string variables after spawning: name=value[,name=value…].
     #[arg(long)]
     pub(crate) setstr: Option<String>,
-    /// Weather file (relative to root), e.g. Weather/Bodennebel.owt.
+    /// Weather file (relative to root), e.g. Weather/Bodennebel.owt; `natural` (or none) is
+    /// the physical weather model, `cycle` the weather cycle.
     #[arg(long)]
     pub(crate) weather: Option<String>,
     /// Passengers at bus stops (window and offscreen).
