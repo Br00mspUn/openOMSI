@@ -12537,6 +12537,48 @@ fn snap_rect(r: [f32; 4]) -> [f32; 4] {
 mod tests {
     use super::*;
 
+    /// A textured material can have black diffuse but white ambient (depot interiors).
+    /// Enhanced must not turn it into a black surface or silently replace its diffuse.
+    #[test]
+    #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
+    fn enhanced_respects_material_ambient() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let mut renderer = pollster::block_on(Renderer::new_with(
+            &instance,
+            None,
+            Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            RenderOptions { msaa: 1, ssao: false, shadow_size: 1024, fxaa: false, render_scale: 1.0, ..Default::default() },
+        )).expect("test renderer");
+        let mut scene = renderer.new_scene();
+        let mesh = renderer.add_mesh(&mut scene, &MeshData {
+            positions: vec![Vec3::new(-8.0, 4.0, -8.0), Vec3::new(8.0, 4.0, -8.0), Vec3::new(8.0, 4.0, 8.0), Vec3::new(-8.0, 4.0, 8.0)],
+            normals: vec![-Vec3::Y; 4],
+            uvs: vec![glam::Vec2::ZERO; 4],
+            ranges: vec![(0, 6, 0)],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            one_sided: false,
+        });
+        let texture = renderer.add_texture(&mut scene, &omsi_texture::Image {
+            width: 1, height: 1, rgba: vec![180, 180, 180, 255], has_alpha: true,
+        }, false);
+        let camera = Camera { position: DVec3::ZERO, yaw: 0.0, pitch: 0.0, roll: 0.0, fov_deg: 90.0, near: 0.1, far: 100.0 };
+        let lighting = Lighting { enhanced: true, shadows: false, fog_density: 0.0, sun_dir: -Vec3::Y, ..Default::default() };
+        let mut pixels = Vec::new();
+        for ambient in [[0.0; 3], [1.0; 3], [1.0, 0.0, 0.0]] {
+            let material = renderer.add_material_extra(&mut scene, Some(texture), AlphaMode::Blend,
+                [0.0, 0.0, 0.0, 1.0], false, None, None, None, None, [0.0; 3],
+                MaterialExtra { ambient: Some(ambient), ..Default::default() });
+            let id = renderer.add_instance(&mut scene, mesh, DVec3::ZERO, Mat4::IDENTITY, vec![material]);
+            let rgba = renderer.render_to_image(&mut scene, 64, 64, &camera, &lighting).unwrap();
+            pixels.push(rgba[(32 * 64 + 32) * 4..][..3].to_vec());
+            scene.instances[id].visible = false;
+        }
+        assert!(pixels[1].iter().map(|&v| v as u32).sum::<u32>() > pixels[0].iter().map(|&v| v as u32).sum::<u32>() + 60,
+            "white ambient must illuminate black diffuse: {pixels:?}");
+        assert!(pixels[2][0] > pixels[2][1].saturating_add(20) && pixels[2][0] > pixels[2][2].saturating_add(20),
+            "the material's ambient tint must be preserved: {pixels:?}");
+    }
+
     /// Overlays drawn texel for pixel: onto whole pixels, their size kept.
     #[test]
     fn overlays_land_on_whole_pixels() {
