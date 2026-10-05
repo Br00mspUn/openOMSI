@@ -156,7 +156,14 @@ impl Library {
     /// Load the library and look its procedures up.
     pub fn load(path: &Path) -> Result<Library, String> {
         // SAFETY: loading a library runs its initialisers; that is what a plugin is for
-        let lib = unsafe { libloading::Library::new(path) }.map_err(|e| format!("LoadLibrary failed: {e}"))?;
+        let lib = unsafe { libloading::Library::new(path) }.map_err(|e| {
+            // (libloading 0.9 keeps the system's own reason - dlerror's text - in `source`)
+            use std::error::Error as _;
+            match e.source() {
+                Some(why) => format!("LoadLibrary failed: {e}: {why}"),
+                None => format!("LoadLibrary failed: {e}"),
+            }
+        })?;
         unsafe {
             let start = *lib.get::<StartFn>(b"PluginStart\0").map_err(|_| "procedure \"PluginStart\" not found".to_string())?;
             let finalize = *lib.get::<FinalizeFn>(b"PluginFinalize\0").map_err(|_| "procedure \"PluginFinalize\" not found".to_string())?;
