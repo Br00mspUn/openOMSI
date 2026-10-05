@@ -1,5 +1,5 @@
 //! Lua plugins driven as the game drives them: a fake bus, a few frames.
-use omsi_plugin::{HostConfig, PluginIo, Plugins};
+use omsi_plugin::{GameEvent, HostConfig, InfoValue, PluginIo, Plugins};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -10,6 +10,8 @@ struct Bus {
     fired: Vec<(String, bool)>,
     messages: Vec<String>,
     vehicle: bool,
+    events: Vec<GameEvent>,
+    info: Vec<(&'static str, InfoValue)>,
 }
 
 impl PluginIo for Bus {
@@ -43,6 +45,12 @@ impl PluginIo for Bus {
     }
     fn message(&mut self, text: &str, _: f32) {
         self.messages.push(text.into());
+    }
+    fn events(&self) -> Vec<GameEvent> {
+        self.events.clone()
+    }
+    fn info(&self) -> Vec<(&'static str, InfoValue)> {
+        self.info.clone()
     }
 }
 
@@ -124,3 +132,63 @@ fn errors_and_runaway_loops_are_contained() {
     assert!(bus.messages.iter().any(|m| m.contains("boom")));
 }
 
+
+#[test]
+fn game_events_reach_every_plugin_once() {
+    let d = dir("events");
+    let plugin = r#"
+        omsi.on("crash", function(kj, kmh) omsi.set_var("kj", omsi.var("kj") + kj); omsi.set_var("kmh", kmh) end)
+        function on_pedestrian(n) omsi.set_var("hurt", omsi.var("hurt") + n) end
+        omsi.on("stops_skipped", function(n, from, to) omsi.message(string.format("%d %d %d", n, from, to)) end)
+    "#;
+    std::fs::write(d.join("a.lua"), plugin).unwrap();
+    std::fs::write(d.join("b.lua"), plugin).unwrap();
+    let mut plugins = Plugins::load(&[d.clone()], &HostConfig::default());
+    assert_eq!(plugins.lua.len(), 2);
+    let mut bus = Bus { vehicle: true, ..Default::default() };
+    for k in ["kj", "kmh", "hurt"] {
+        bus.vars.insert(k.into(), 0.0);
+    }
+    bus.events = vec![
+        GameEvent { name: "crash", args: vec![InfoValue::Num(136.0), InfoValue::Num(42.0)] },
+        GameEvent { name: "crash", args: vec![InfoValue::Num(136.0), InfoValue::Num(40.0)] },
+        GameEvent { name: "pedestrian", args: vec![InfoValue::Num(1.0)] },
+        GameEvent { name: "stops_skipped", args: vec![InfoValue::Num(7.0), InfoValue::Num(2.0), InfoValue::Num(9.0)] },
+    ];
+    plugins.frame(&mut bus);
+    // (both plugins write the same variables: each adds its own)
+    assert_eq!(bus.vars["kj"], 2.0 * 272.0, "two crashes of the same energy are two events");
+    assert_eq!(bus.vars["kmh"], 40.0);
+    assert_eq!(bus.vars["hurt"], 2.0);
+    assert_eq!(bus.messages, ["7 2 9", "7 2 9"]);
+    bus.events.clear();
+    plugins.frame(&mut bus);
+    assert_eq!(bus.vars["hurt"], 2.0);
+}
+
+#[test]
+fn saved_data_of_a_one_file_plugin_is_no_plugin() {
+    let d = dir("save");
+    std::fs::write(d.join("counter.lua"), "omsi.data.n = (omsi.data.n or 0) + 1").unwrap();
+    let mut plugins = Plugins::load(&[d.clone()], &HostConfig::default());
+    plugins.finalize();
+    assert!(d.join("counter.save.lua").is_file());
+    let mut plugins = Plugins::load(&[d.clone()], &HostConfig::default());
+    assert_eq!(plugins.lua.len(), 1, "counter.save.lua is not started");
+    plugins.finalize();
+    assert!(std::fs::read_to_string(d.join("counter.save.lua")).unwrap().contains("n = 2"));
+}
+
+#[test]
+fn next_stop_fires_for_a_stop_of_the_same_name() {
+    let d = dir("next-stop");
+    std::fs::write(d.join("stops.lua"), r#"function on_next_stop(new, old) omsi.message(string.format("%s %d", new, omsi.info().next_stop_number)) end"#).unwrap();
+    let mut plugins = Plugins::load(&[d.clone()], &HostConfig::default());
+    let mut bus = Bus { vehicle: true, ..Default::default() };
+    // Grundorf's 76: stops 1 and 2 are both Bauernhof, one either side of the road
+    for (name, number) in [("Bauernhof", 1.0), ("Bauernhof", 1.0), ("Bauernhof", 2.0), ("Nordspitze", 3.0)] {
+        bus.info = vec![("next_stop", InfoValue::Text(name.into())), ("next_stop_number", InfoValue::Num(number))];
+        plugins.frame(&mut bus);
+    }
+    assert_eq!(bus.messages, ["Bauernhof 1", "Bauernhof 2", "Nordspitze 3"]);
+}

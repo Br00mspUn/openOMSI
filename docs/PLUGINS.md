@@ -55,9 +55,12 @@ by defining a global function `on_<event>`:
 | `frame` | `dt` (seconds) | every frame of the game, after the bus's own scripts; not while paused |
 | `stop` | - | the game ends, or the file is about to be loaded again |
 | `key` | key name, `true`/`false` | a key went down / came up (`"KeyH"`, `"F5"`, `"Numpad8"`, ...) |
-| `next_stop` | new, old | the duty's next stop changed |
+| `next_stop` | new, old | the duty's next stop changed, also to one of the same name (`omsi.info().next_stop_number` tells them apart) |
 | `view` | new, old | the view changed (`"driver"`, `"pax"`, `"outside"`, `"free"`, `"foot"`) |
 | `duty` | line, tour | a line and tour were taken (or given up: `nil`) |
+| `crash` | energy (kJ), speed (km/h) | the player's bus crashed: every crash, also one the same as the last (the screen's "Crash: 136 kJ"); above 50 kJ it is a heavy one |
+| `pedestrian` | how many | the bus knocked people down |
+| `stops_skipped` | how many, due at, now at | the duty jumped ahead: the bus passed stops of its trip without stopping (or was moved) and is now at a later one; the stops are numbered in the trip from 1, as `next_stop_number` |
 
 ```lua
 function on_frame(dt)
@@ -97,7 +100,7 @@ have, reads give `nil` and writes do nothing.
 
 | Function | What it does |
 | --- | --- |
-| `omsi.info()` | a table of what the game is doing: `map`, `clock` (seconds since midnight), `day`, `year`, `view`, `paused`, `on_foot`, `multiplayer`, `traffic` (AI vehicles), `speed` (km/h), `delay` (s, late positive); on a duty also `line`, `tour`, `trip`, `trips`, `terminus`, `next_stop`, `next_stop_arrival`, `next_stop_departure` |
+| `omsi.info()` | a table of what the game is doing: `map`, `clock` (seconds since midnight), `day`, `year`, `view`, `paused`, `on_foot`, `multiplayer`, `traffic` (AI vehicles), `speed` (km/h), `delay` (s, late positive); `crashes`, `heavy_crashes` and `pedestrians_hit` this session (as the personnel file counts them); `situation`, the situation file the game started from (the launcher's "continue" loads `maps/<map>/laststn.osn`), `nil` for a new game; on a duty also `line`, `tour`, `trip` (its number in the duty), `trips`, `trip_name` (the timetable's name of the trip), `terminus`, `stops` (how many the trip has), `next_stop`, `next_stop_number` (from 1), `next_stop_arrival`, `next_stop_departure` |
 | `omsi.clock()` | the game's time of day as `"HH:MM:SS"` |
 | `omsi.speed()` | the bus's speed in km/h (0 on foot) |
 | `omsi.distance(x, y)` | metres from the bus to a map point, or `nil` on foot |

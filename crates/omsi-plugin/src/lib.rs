@@ -670,6 +670,19 @@ pub trait PluginIo {
     fn set_other_var(&mut self, _id: u64, _name: &str, _v: f32) -> bool {
         false
     }
+    /// What happened in the game since the last plugin frame, each sent to Lua plugins as an
+    /// event (`crash`, `pedestrian`, `stops_skipped`): things `omsi.info()` cannot show, as
+    /// they are over before a plugin could look. Every plugin of the frame gets them all.
+    fn events(&self) -> Vec<GameEvent> {
+        Vec::new()
+    }
+}
+
+/// One of [`PluginIo::events`]: a Lua event of that name, called with these values.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GameEvent {
+    pub name: &'static str,
+    pub args: Vec<InfoValue>,
 }
 
 /// One of [`PluginIo::others`].

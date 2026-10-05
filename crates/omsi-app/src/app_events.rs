@@ -1415,6 +1415,10 @@ impl ApplicationHandler for App {
                         self.career.stop_served(arrival, departure);
                     }
                     crate::journey::note(&mut self.journey, d, due, served, &self.args.root, || crate::journey::head(&self.career, &w.global.name, &p.vehicle, &self.clock));
+                    if let Some((count, due_at, at)) = d.take_skipped() {
+                        use omsi_plugin::InfoValue::Num;
+                        crate::plugins::queue_event(&mut self.plugin_events, "stops_skipped", vec![Num(count as f64), Num(due_at as f64), Num(at as f64)]);
+                    }
                     if d.take_trip_change() && p.duty_typed {
                         let (trip, stop) = d.trip_for_ibis();
                         p.set_duty_destination(trip, stop);
@@ -1441,6 +1445,9 @@ impl ApplicationHandler for App {
                     if crash > 0.0 {
                         self.career.crashed(crash, p.vehicle.physics.velocity_kmh() / 3.6);
                         self.service_msg = Some((format!("Crash: {:.0} kJ", crash / 1000.0), 6.0));
+                        use omsi_plugin::InfoValue::Num;
+                        let args = vec![Num(crash as f64 / 1000.0), Num(p.vehicle.physics.velocity_kmh().abs() as f64)];
+                        crate::plugins::queue_event(&mut self.plugin_events, "crash", args);
                     }
                 }
                 if !self.paused {
@@ -1510,6 +1517,7 @@ impl ApplicationHandler for App {
                 if !plugins.is_empty() && !self.paused {
                     let info = crate::plugins::game_info(self);
                     let keys = std::mem::take(&mut self.plugin_keys);
+                    let events = std::mem::take(&mut self.plugin_events);
                     let plugins = self.plugins.as_mut().unwrap();
                     // the vehicles around it: the AI traffic and the other players' buses
                     let mut others: Vec<(u64, &'static str, &mut omsi_sim::VehicleInstance)> = Vec::new();
@@ -1517,7 +1525,7 @@ impl ApplicationHandler for App {
                         others.extend(t.cars.iter_mut().map(|c| (c.id, "ai", &mut c.vehicle)));
                     }
                     others.extend(self.remotes.remotes.iter_mut().map(|(id, r)| ((1u64 << 48) | *id as u64, "player", r.vehicle_mut())));
-                    let mut io = crate::plugins::Io { vehicle: self.player.as_mut().map(|p| &mut p.vehicle), others, dt, message: None, info, commands: Vec::new(), keys };
+                    let mut io = crate::plugins::Io { vehicle: self.player.as_mut().map(|p| &mut p.vehicle), others, dt, message: None, info, commands: Vec::new(), keys, events };
                     plugins.frame(&mut io);
                     let commands = std::mem::take(&mut io.commands);
                     if let Some(m) = io.message {
@@ -1541,6 +1549,10 @@ impl ApplicationHandler for App {
                     }
                 } else {
                     self.plugin_keys.clear();
+                    // (while the game is paused they wait for the next frame)
+                    if self.plugins.as_ref().is_none_or(|p| p.is_empty()) {
+                        self.plugin_events.clear();
+                    }
                 }
                 // OMSI_WATCH_VARS=a,b: every change of those variables of the player's bus
                 if let (Some(p), Ok(list)) = (self.player.as_ref(), omsi_cfg::env::var("OMSI_WATCH_VARS")) {
@@ -1569,6 +1581,7 @@ impl ApplicationHandler for App {
                     if hurt > 0 {
                         self.career.crashes[1] += hurt as i32;
                         self.service_msg = Some(("Pedestrian knocked down!".into(), 6.0));
+                        crate::plugins::queue_event(&mut self.plugin_events, "pedestrian", vec![omsi_plugin::InfoValue::Num(hurt as f64)]);
                     }
                 }
                 // looking around and zooming work in every view, not only the free camera

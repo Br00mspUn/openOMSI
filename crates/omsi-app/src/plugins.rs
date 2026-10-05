@@ -2,7 +2,7 @@
 //! every frame with the player's bus as OMSI drives them: system
 //! variables, then the bus's variables, string variables and triggers.
 
-use omsi_plugin::{HostConfig, InfoValue, PluginIo, Plugins};
+use omsi_plugin::{GameEvent, HostConfig, InfoValue, PluginIo, Plugins};
 use omsi_script::Host;
 use omsi_script::SysVar;
 
@@ -39,6 +39,19 @@ pub(crate) struct Io<'a> {
     pub commands: Vec<String>,
     /// Keys pressed and let go since the last frame.
     pub keys: Vec<(String, bool)>,
+    /// What happened since the last frame (see [`queue_event`]).
+    pub events: Vec<GameEvent>,
+}
+
+/// The most events kept for the plugins' next frame (the game paused, say): the oldest go.
+const MAX_EVENTS: usize = 64;
+
+/// Keep an event for the plugins' next frame (`App::plugin_events`).
+pub(crate) fn queue_event(events: &mut Vec<GameEvent>, name: &'static str, args: Vec<InfoValue>) {
+    if events.len() >= MAX_EVENTS {
+        events.remove(0);
+    }
+    events.push(GameEvent { name, args });
 }
 
 /// The game menu lines a plugin may run with `omsi.command` (those that do something at
@@ -57,6 +70,14 @@ pub(crate) fn game_info(app: &crate::App) -> Vec<(&'static str, InfoValue)> {
     v.push(("paused", Bool(app.paused)));
     v.push(("on_foot", Bool(app.on_foot.is_some())));
     v.push(("multiplayer", Bool(app.lan.is_some())));
+    // the situation the game started from (the launcher's "continue": `laststn.osn`)
+    if let Some(s) = app.args.situation.as_ref() {
+        v.push(("situation", Text(s.clone())));
+    }
+    // this session's, as the personnel file counts them
+    v.push(("crashes", Num(app.career.crashes[0] as f64)));
+    v.push(("heavy_crashes", Num(app.career.crashes[3] as f64)));
+    v.push(("pedestrians_hit", Num(app.career.crashes[1] as f64)));
     if let Some(t) = app.traffic.as_ref() {
         v.push(("traffic", Num(t.cars.len() as f64)));
     }
@@ -71,8 +92,11 @@ pub(crate) fn game_info(app: &crate::App) -> Vec<(&'static str, InfoValue)> {
             v.push(("trip", Num(d.trip_index as f64 + 1.0)));
             v.push(("trips", Num(d.trips.len() as f64)));
             v.push(("terminus", Text(trip.terminus.trim().to_string())));
+            v.push(("trip_name", Text(trip.name.trim().to_string())));
+            v.push(("stops", Num(trip.stops.len() as f64)));
             if let Some(s) = trip.stops.get(d.next_stop) {
                 v.push(("next_stop", Text(s.name.trim().to_string())));
+                v.push(("next_stop_number", Num(d.next_stop as f64 + 1.0)));
                 v.push(("next_stop_arrival", Num(s.arr)));
                 v.push(("next_stop_departure", Num(s.dep)));
             }
@@ -173,6 +197,10 @@ impl PluginIo for Io<'_> {
 
     fn keys(&self) -> Vec<(String, bool)> {
         self.keys.clone()
+    }
+
+    fn events(&self) -> Vec<GameEvent> {
+        self.events.clone()
     }
 
     fn others(&self, radius: f64) -> Vec<omsi_plugin::Other> {

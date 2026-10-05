@@ -1,7 +1,8 @@
 //! Lua plugins: `plugins/<name>.lua`, or a folder `plugins/<name>/main.lua`, run in an
 //! embedded Lua 5.4. Unlike a DLL plugin a Lua plugin lists nothing up front: it reads and
 //! writes the player's bus by name through the `omsi` table (see docs/PLUGINS.md), hears
-//! events (`start`, `frame`, `vehicle`, `stop`), keeps timers and watches, and has an
+//! events (`start`, `frame`, `vehicle`, `stop`, and what happened in the game: `crash`,
+//! `pedestrian`, `stops_skipped`), keeps timers and watches, and has an
 //! `omsi.data` table saved between sessions. A changed file is loaded again while the game
 //! runs.
 //!
@@ -28,6 +29,7 @@ const MAX_ERRORS: u32 = 10;
 type IoSlot = Rc<Cell<Option<*mut (dyn PluginIo + 'static)>>>;
 
 /// Every Lua plugin of a plugins folder: top-level `*.lua` files and `<folder>/main.lua`.
+/// A one-file plugin's saved data (`<name>.save.lua`) is no plugin.
 pub fn find_lua(dir: &Path) -> Vec<PathBuf> {
     let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut entries: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
@@ -38,11 +40,16 @@ pub fn find_lua(dir: &Path) -> Vec<PathBuf> {
             if let Some(main) = crate::resolve_path(&p, "main.lua").filter(|m| m.is_file()) {
                 out.push(main);
             }
-        } else if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("lua")) {
+        } else if p.extension().is_some_and(|e| e.eq_ignore_ascii_case("lua")) && !is_save(&p) {
             out.push(p);
         }
     }
     out
+}
+
+/// A plugin's saved data (`data.save.lua`, `<name>.save.lua`), not its code.
+fn is_save(p: &Path) -> bool {
+    p.file_name().is_some_and(|n| n.to_string_lossy().to_ascii_lowercase().ends_with(".save.lua"))
 }
 
 /// One Lua plugin.
@@ -103,7 +110,7 @@ impl LuaPlugin {
                 let p = e.path();
                 if p.is_dir() {
                     walk(&p, best);
-                } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("lua")) && !p.to_string_lossy().ends_with(".save.lua") {
+                } else if p.extension().is_some_and(|x| x.eq_ignore_ascii_case("lua")) && !is_save(&p) {
                     if let Ok(t) = e.metadata().and_then(|m| m.modified()) {
                         *best = Some(best.map_or(t, |b| b.max(t)));
                     }
@@ -248,11 +255,7 @@ impl LuaPlugin {
                 let mut pairs = Vec::new();
                 with3(&mut |io: &mut dyn PluginIo| pairs = io.info());
                 for (k, v) in pairs {
-                    match v {
-                        crate::InfoValue::Num(n) => t.set(k, n)?,
-                        crate::InfoValue::Text(s) => t.set(k, s)?,
-                        crate::InfoValue::Bool(b) => t.set(k, b)?,
-                    }
+                    t.set(k, to_lua(lua, v)?)?;
                 }
                 Ok(t)
             })?,
@@ -383,6 +386,15 @@ impl LuaPlugin {
             self.vehicle = now.clone();
             self.call(io, |lua| emit(lua, "vehicle", now));
         }
+        for e in io.events() {
+            if self.disabled {
+                return;
+            }
+            self.call(io, |lua| {
+                let args = e.args.into_iter().map(|v| to_lua(lua, v)).collect::<mlua::Result<MultiValue>>()?;
+                emit(lua, e.name, args)
+            });
+        }
         let dt = io.dt();
         self.call(io, |lua| lua.globals().get::<Table>("omsi")?.get::<Function>("_tick")?.call::<()>(dt));
     }
@@ -403,6 +415,15 @@ fn emit(lua: &Lua, event: &str, args: impl mlua::IntoLuaMulti) -> mlua::Result<(
     let mut a = args.into_lua_multi(lua)?;
     a.push_front(Value::String(lua.create_string(event)?));
     emit.call::<()>(a)
+}
+
+/// A value of `omsi.info()` or of an event, as Lua sees it.
+fn to_lua(lua: &Lua, v: crate::InfoValue) -> mlua::Result<Value> {
+    Ok(match v {
+        crate::InfoValue::Num(n) => Value::Number(n),
+        crate::InfoValue::Text(s) => Value::String(lua.create_string(s)?),
+        crate::InfoValue::Bool(b) => Value::Boolean(b),
+    })
 }
 
 fn first_line(s: &str) -> &str {
