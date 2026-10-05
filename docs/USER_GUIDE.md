@@ -90,7 +90,7 @@ release description (GitHub's format; `file://` works, for testing - the game th
 3 s).
 
 **Playing now.** While a session runs the game tells the project's counter (a Cloudflare
-Worker, `services/presence/`) every three minutes that it is being played, and says goodbye
+Worker, `services/presence/`) every ten minutes that it is being played, and says goodbye
 when it ends; the website and the README show how many play right now. What goes out is a
 random id made new for each session, the version and the kind of system - nothing else, and
 the counter keeps no addresses. Settings → General → "Count me in the website's \"playing

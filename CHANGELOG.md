@@ -4,6 +4,11 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1552 - 2026-10-05
+
+### Fixes
+- "Playing now" stays up all day: the game reports every ten minutes instead of every three and waits half an hour when the counter is busy, and the website asks every five minutes - the counter had run out of its daily requests and answered nobody until midnight UTC.
+
 ## 0.1.1551 - 2026-10-05
 
 ### New
