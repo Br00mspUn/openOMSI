@@ -8,6 +8,7 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 
 ### Fixes
 - The launcher's download of a server's map and buses before joining (#1486, with #1511) is taken out again for now.
+- The switches for sharing and downloading mods in multiplayer (#1432) are taken out again for now.
 
 ## 0.1.1707 - 2026-10-05
 
