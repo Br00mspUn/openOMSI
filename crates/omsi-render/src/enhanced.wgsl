@@ -160,8 +160,6 @@ struct Surface {
     rough: f32,
 };
 
-// The point and spot lights of the pixel's grid cell: diffuse and specular.
-// `thin`: foliage, lit from whichever side the lamp is on (see the sun below).
 // A headlamp's intensity towards `t` (from the lamp) by the angles of a road lamp, not
 // around its axis: wide across, brightest just under the lamp's horizon where it reaches
 // far down the road, weak straight down, and with a low beam a sharp cut-off above it.
@@ -184,6 +182,8 @@ fn headlamp(t: vec3<f32>, dir: vec3<f32>, low: bool) -> f32 {
     return wide * up;
 }
 
+// The point and spot lights of the pixel's grid cell: diffuse and specular.
+// `thin`: foliage, lit from whichever side the lamp is on (see the sun below).
 fn lamp_light(p: vec3<f32>, n: vec3<f32>, v: vec3<f32>, sf: Surface, thin: bool) -> vec3<f32> {
     var sum = vec3<f32>(0.0);
     let cell = camera.light_grid.z;

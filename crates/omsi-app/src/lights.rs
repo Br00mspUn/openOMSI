@@ -297,7 +297,9 @@ fn push_spot(lights: &mut Vec<PointLight>, at: DVec3, d: Vec3, vals: &[f32; 12],
         direction: d,
         cone,
         core: 1.0,
-        beam: if vals[9] >= FULL_BEAM_RANGE { -1.0 } else { 1.0 },
+        // (a lamp pointing steeply down - a `[spotlight_2]` over a door - keeps its cone: the
+        // road lamp's profile is for one aimed along the road)
+        beam: if d.normalize_or_zero().z.abs() >= 0.5 { 0.0 } else if vals[9] >= FULL_BEAM_RANGE { -1.0 } else { 1.0 },
         mode: LightMode::Enhanced,
     });
 }
@@ -337,6 +339,11 @@ mod spot_tests {
             lights.iter().find(|l| l.mode == omsi_render::LightMode::Enhanced).map(|l| l.beam)
         };
         assert_eq!([100.0, 200.0, 450.0, 500.0].map(beam), [Some(1.0), Some(1.0), Some(-1.0), Some(-1.0)]);
+        // a lamp over a door, pointing down, keeps its cone
+        let vals = [0.0, 6.5, 2.5, 0.0, 0.0, -1.0, 255.0, 255.0, 233.0, 100.0, 30.0, 80.0];
+        let mut lights = Vec::new();
+        super::push_spot(&mut lights, glam::DVec3::ZERO, glam::Vec3::NEG_Z, &vals, 0.5, 1.0);
+        assert_eq!(lights.iter().find(|l| l.mode == omsi_render::LightMode::Enhanced).map(|l| l.beam), Some(0.0));
     }
 
     /// `[spotlight_2]`: a pair mirrored across the axis sharing the light, or one lamp, as
