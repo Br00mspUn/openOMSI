@@ -202,7 +202,7 @@ pub(crate) struct DirectInput {
     found: Arc<Mutex<Option<ScanResult>>>,
     scan: mpsc::Sender<()>,
     /// Retry only failed opens; do not enumerate every healthy wheel on a timer.
-    pending_open: Vec<(GUID, String, Instant)>,
+    pending_open: Vec<(GUID, String, Instant, u32)>,
     /// Button changes since the last `poll`: (device, button, down).
     pub events: Vec<(String, usize, bool)>,
     last_force: Instant,
@@ -302,6 +302,11 @@ thread_local! {
 
 fn removed_path(path: Option<&str>, removed: &[String]) -> bool {
     path.is_some_and(|p| removed.iter().any(|r| r.eq_ignore_ascii_case(p)))
+}
+
+/// The wait before the next attempt at a device that would not open: 1 s, doubling, at most 30 s.
+fn retry_delay(tries: u32) -> Duration {
+    Duration::from_secs((1u64 << tries.min(5)).min(30))
 }
 
 /// Poll must succeed before reading state, including on the single retry after Acquire.
@@ -709,19 +714,15 @@ impl DirectInput {
             .retain(|d| !reopen.iter().any(|(guid, _)| *guid == d.guid));
         let mut rescan = false;
         for (guid, name) in reopen {
-            match self.open(&guid, &name) {
+            match self.open(&guid, &name, false) {
                 Some(d) => {
                     log::info!("{name}: DirectInput device reopened");
                     self.devices.push(d);
                 }
                 None => {
                     log::warn!("{name}: DirectInput device could not be reopened; asking Windows to enumerate controllers again");
-                    if !self.pending_open.iter().any(|(g, _, _)| *g == guid) {
-                        self.pending_open.push((
-                            guid,
-                            name,
-                            Instant::now() + Duration::from_secs(1),
-                        ));
+                    if !self.pending_open.iter().any(|(g, ..)| *g == guid) {
+                        self.pending_open.push((guid, name, Instant::now() + retry_delay(0), 1));
                     }
                     rescan = true;
                 }
@@ -737,7 +738,10 @@ impl DirectInput {
         let _ = self.scan.send(());
     }
 
-    fn open(&self, guid: &GUID, name: &str) -> Option<Device> {
+    /// `retry`: a delayed attempt after a failed one, whose failure was already reported (its
+    /// messages go to the debug log).
+    fn open(&self, guid: &GUID, name: &str, retry: bool) -> Option<Device> {
+        let warn = if retry { log::Level::Debug } else { log::Level::Warn };
         unsafe {
             let mut dev: Option<IDirectInputDevice8W> = None;
             self.di.CreateDevice(guid, &mut dev, None).ok()?;
@@ -774,16 +778,17 @@ impl DirectInput {
             let id = hardware_id
                 .map(|(vid, pid)| format!("{vid:04X}/{pid:04X}"))
                 .unwrap_or_else(|| "unknown".into());
-            log::info!(
+            log::log!(
+                if retry { log::Level::Debug } else { log::Level::Info },
                 "{name}: DirectInput identity VID/PID {id}, instance {guid:?}, HID path {path:?}"
             );
             let Some((mut objs, mut fmt, has_axis, ff_axis)) = data_format(&dev) else {
-                log::warn!("{name}: DirectInput could not list the device's controls");
+                log::log!(warn, "{name}: DirectInput could not list the device's controls");
                 return None;
             };
             fmt.rgodf = objs.as_mut_ptr();
             if let Err(e) = dev.SetDataFormat(&mut fmt) {
-                log::warn!("{name}: DirectInput rejected the device's data format ({e})");
+                log::log!(warn, "{name}: DirectInput rejected the device's data format ({e})");
                 return None;
             }
             let mut caps = DIDEVCAPS {
@@ -947,7 +952,7 @@ impl DirectInput {
         if let Some(found) = found {
             let list = found.devices;
             self.pending_open
-                .retain(|(g, _, _)| list.iter().any(|(current, _)| g == current));
+                .retain(|(g, ..)| list.iter().any(|(current, _)| g == current));
             for d in &mut self.devices {
                 if !list.iter().any(|(g, _)| *g == d.guid)
                     || removed_path(d.path.as_deref(), &found.removed_paths)
@@ -965,7 +970,7 @@ impl DirectInput {
             });
             for (g, name) in list {
                 if !self.devices.iter().any(|d| d.guid == g) {
-                    match self.open(&g, &name) {
+                    match self.open(&g, &name, false) {
                         Some(d) => {
                             log::info!("{name}: DirectInput device opened after enumeration");
                             self.devices.push(d);
@@ -977,13 +982,9 @@ impl DirectInput {
                             if !self
                                 .pending_open
                                 .iter()
-                                .any(|(pending, _, _)| *pending == g)
+                                .any(|(pending, ..)| *pending == g)
                             {
-                                self.pending_open.push((
-                                    g,
-                                    name,
-                                    Instant::now() + Duration::from_secs(1),
-                                ));
+                                self.pending_open.push((g, name, Instant::now() + retry_delay(0), 1));
                             }
                         }
                     }
@@ -991,20 +992,21 @@ impl DirectInput {
             }
         }
         let pending = std::mem::take(&mut self.pending_open);
-        for (guid, name, at) in pending {
+        for (guid, name, at, tries) in pending {
             if self.devices.iter().any(|d| d.guid == guid) {
                 continue;
             }
             if Instant::now() < at {
-                self.pending_open.push((guid, name, at));
-            } else if let Some(d) = self.open(&guid, &name) {
+                self.pending_open.push((guid, name, at, tries));
+            } else if let Some(d) = self.open(&guid, &name, true) {
                 log::info!(
                     "{name}: DirectInput device reopened after delayed driver initialization"
                 );
                 self.devices.push(d);
             } else {
+                // 1 s, 2 s, 4 s ... up to 30 s; a device plugged in or out starts over
                 self.pending_open
-                    .push((guid, name, Instant::now() + Duration::from_secs(1)));
+                    .push((guid, name, Instant::now() + retry_delay(tries), tries + 1));
             }
         }
         let mut reopen = Vec::new();
@@ -1310,6 +1312,12 @@ impl Drop for DirectInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_opens_back_off_to_half_a_minute() {
+        let secs: Vec<u64> = (0..8).map(|t| retry_delay(t).as_secs()).collect();
+        assert_eq!(secs, [1, 2, 4, 8, 16, 30, 30, 30]);
+    }
 
     #[test]
     fn disappearing_device_releases_buttons_and_hats() {
