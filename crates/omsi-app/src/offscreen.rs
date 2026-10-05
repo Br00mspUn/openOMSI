@@ -1175,6 +1175,7 @@ pub(crate) fn run_offscreen(
                             look_of(args),
                             &args.view,
                             settings.seat_pitch_deg,
+                            false,
                         );
                         cam = p.camera_look(&args.view, &camera, look, offscreen_orbit());
                         if args.view == "outside" {
@@ -1604,6 +1605,7 @@ pub(crate) fn run_offscreen(
                     look_of(&args),
                     &args.view,
                     settings.seat_pitch_deg,
+                    false,
                 );
                 let cam =
                     player.camera_look(&args.view, &camera, look, offscreen_orbit());
@@ -1876,6 +1878,7 @@ pub(crate) fn run_offscreen(
                 look_of(args),
                 &args.view,
                 settings.seat_pitch_deg,
+                false,
             );
             camera = player.camera_look(&args.view, &camera, look, offscreen_orbit());
             if args.view == "outside" {
