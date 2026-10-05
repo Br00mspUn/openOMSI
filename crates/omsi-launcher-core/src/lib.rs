@@ -837,6 +837,28 @@ fn paint_schemes(vehicle: &omsi_vehicle::Vehicle) -> (Vec<String>, Vec<PathBuf>)
     (names, dirs_read)
 }
 
+/// The `[name]`s of the depot files in the top-level `HOFs/` folder of every content root
+/// (shared by all vehicles; a higher-priority root's file hides the same file name lower down).
+fn shared_depot_names() -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut names = Vec::new();
+    for base in bases() {
+        let dir = base.join("HOFs");
+        let mut list = omsi_cfg::vfs::list_dir(&dir).unwrap_or_default();
+        list.sort();
+        for (n, is_dir) in list {
+            let file = n.to_string_lossy().to_ascii_lowercase();
+            if is_dir || !file.ends_with(".hof") || !seen.insert(file) {
+                continue;
+            }
+            if let Some(name) = omsi_vehicle::Hof::read_name(&dir.join(&n)) {
+                names.push(name.trim().to_string());
+            }
+        }
+    }
+    names
+}
+
 /// One line into ~/.openomsi/launcher.log.
 fn log_line(line: &str) {
     use std::io::Write;
@@ -860,6 +882,7 @@ pub fn list_vehicles_progress(progress: impl Fn(&[VehicleInfo], usize, usize)) -
     root()?;
     let lang = content_language();
     let folders = merged_folders("Vehicles");
+    let shared_hofs = shared_depot_names();
     let keys: Vec<String> = folders.iter().map(|(_, dirs)| format!("bus4|{lang}|{}", dirs.iter().map(|d| d.to_string_lossy()).collect::<Vec<_>>().join("|"))).collect();
     let read = |(folder, dirs): &(String, Vec<PathBuf>), key: &String| -> Vec<VehicleInfo> {
         // the stamp covers every copy of the folder and their direct entries (Model/,
@@ -886,7 +909,17 @@ pub fn list_vehicles_progress(progress: impl Fn(&[VehicleInfo], usize, usize)) -
             Some(pool) => pool.install(|| chunk.par_iter().zip(chunk_keys.par_iter()).map(|(f, k)| read(f, k)).collect()),
             None => chunk.iter().zip(chunk_keys.iter()).map(|(f, k)| read(f, k)).collect(),
         };
-        let batch: Vec<VehicleInfo> = lists.into_iter().flatten().collect();
+        let mut batch: Vec<VehicleInfo> = lists.into_iter().flatten().collect();
+        // the shared depot files after each bus's own (as the game offers them,
+        // `omsi_vehicle::hof::depot_files`; a bus's own of the same name wins) - after the
+        // cache, whose stamps cover only the vehicle folders
+        for v in batch.iter_mut() {
+            for name in &shared_hofs {
+                if !v.hofs.iter().any(|h| h.eq_ignore_ascii_case(name)) {
+                    v.hofs.push(name.clone());
+                }
+            }
+        }
         done += chunk.len();
         // what was read is kept every few seconds: a first reading left half-way (the
         // launcher closed) starts from there the next time
