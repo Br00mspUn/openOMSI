@@ -3,53 +3,101 @@
 _version: 2
 "Smooth mouse steering":
   zh-tw: "平滑滑鼠轉向"
+  pt: "Direção suave com o mouse"
+  pt-pt: "Direção suave com o rato"
 "The wheel eases after the cursor; off: it follows at once, as in OMSI":
   zh-tw: "方向盤會在游標之後平滑移動；關閉：方向盤會立即跟隨游標，如同 OMSI"
+  pt: "O volante segue o cursor suavemente; desativado: segue imediatamente, como no OMSI"
+  pt-pt: "O volante segue o cursor suavemente; desativado: segue-o imediatamente, como no OMSI"
 "Clear AI traffic":
   zh-tw: "清除 AI 交通"
+  pt: "Limpar tráfego de IA"
+  pt-pt: "Limpar tráfego de IA"
 "Remove the current AI cars from the road; random traffic will return automatically.":
   zh-tw: "從道路上移除目前的 AI 車輛；隨機交通會自動恢復。"
+  pt: "Remover os carros de IA atuais da via; o tráfego aleatório voltará automaticamente."
+  pt-pt: "Remover os carros de IA atuais da estrada; o tráfego aleatório regressará automaticamente."
 "Tell me about a new version during a session":
   zh-tw: "遊戲執行期間通知我有新版本"
+  pt: "Avisar sobre uma nova versão durante a sessão"
+  pt-pt: "Avisar-me sobre uma nova versão durante a sessão"
 "Count me in the website's \"playing now\" (anonymous)":
   zh-tw: "將我計入網站的「目前遊玩人數」（匿名）"
+  pt: "Incluir-me no \"jogando agora\" do site (anônimo)"
+  pt-pt: "Incluir-me no \"a jogar agora\" do site (anónimo)"
 "Radio stations":
   zh-tw: "廣播電台"
+  pt: "Estações de rádio"
+  pt-pt: "Estações de rádio"
 "A radio's station button n plays the n-th station, a cassette player the first; Shift+R steps through them. An address is an MP3, AAC or Ogg stream or an .m3u/.pls playlist.":
   zh-tw: "廣播的電台按鈕 n 會播放第 n 個電台，卡式播放器則播放第一個；按 Shift+R 可切換電台。位址可以是 MP3、AAC 或 Ogg 串流，或 .m3u／.pls 播放清單。"
+  pt: "O botão de estação n de um rádio reproduz a n-ésima estação; um toca-fitas reproduz a primeira. Shift+R percorre as estações. Um endereço pode ser uma transmissão MP3, AAC ou Ogg ou uma lista .m3u/.pls."
+  pt-pt: "O botão de estação n de um rádio reproduz a n.ª estação; um leitor de cassetes reproduz a primeira. Shift+R percorre as estações. Um endereço pode ser um fluxo MP3, AAC ou Ogg ou uma lista de reprodução .m3u/.pls."
 "Smooth mouse steering (off: the wheel follows the cursor at once, as in OMSI)":
   zh-tw: "平滑滑鼠轉向（關閉：方向盤立即跟隨游標，如同 OMSI）"
+  pt: "Direção suave com o mouse (desativado: o volante segue o cursor imediatamente, como no OMSI)"
+  pt-pt: "Direção suave com o rato (desativado: o volante segue o cursor imediatamente, como no OMSI)"
 "Road texture vibration":
   zh-tw: "路面紋理震動"
+  pt: "Vibração da textura da estrada"
+  pt-pt: "Vibração da textura da estrada"
 "Engine vibration":
   zh-tw: "引擎震動"
+  pt: "Vibração do motor"
+  pt-pt: "Vibração do motor"
 "Vibration fade-out":
   zh-tw: "震動淡出"
+  pt: "Redução gradual da vibração"
+  pt-pt: "Redução gradual da vibração"
 "Seat position":
   zh-tw: "座椅位置"
+  pt: "Posição do banco"
+  pt-pt: "Posição do banco"
 "Head pitch":
   zh-tw: "頭部俯仰角"
+  pt: "Inclinação vertical da cabeça"
+  pt-pt: "Inclinação vertical da cabeça"
 "Right stick turns the view":
   zh-tw: "右搖桿轉動畫面"
+  pt: "O analógico direito gira a visão"
+  pt-pt: "O manípulo direito roda a vista"
 "Smooth the mouse look":
   zh-tw: "平滑滑鼠視角"
+  pt: "Suavizar a visão com o mouse"
+  pt-pt: "Suavizar a vista com o rato"
 "A head at rest":
   zh-tw: "靜止時的頭部"
+  pt: "Cabeça em repouso"
+  pt-pt: "Cabeça em repouso"
 "Head sway at a standstill":
   zh-tw: "靜止時的頭部晃動"
+  pt: "Balanço da cabeça com o veículo parado"
+  pt-pt: "Balanço da cabeça com o veículo parado"
 "Sway pace":
   zh-tw: "晃動速度"
+  pt: "Ritmo do balanço"
+  pt-pt: "Ritmo do balanço"
 "Precision mouse zoom (FOV curve instead of the linear way)":
   zh-tw: "精確滑鼠縮放（使用 FOV 曲線，而非線性方式）"
+  pt: "Zoom preciso com o mouse (curva de FOV em vez do modo linear)"
+  pt-pt: "Zoom preciso com o rato (curva de FOV em vez do modo linear)"
 "Precision mouse zoom":
   zh-tw: "精確滑鼠縮放"
+  pt: "Zoom preciso com o mouse"
+  pt-pt: "Zoom preciso com o rato"
 "Head tracking with opentrack (UDP port {})":
   zh-tw: "使用 opentrack 的頭部追蹤（UDP 連接埠 {}）"
+  pt: "Rastreamento da cabeça com opentrack (porta UDP {})"
+  pt-pt: "Rastreamento da cabeça com opentrack (porta UDP {})"
 "Chat size":
   zh-tw: "聊天文字大小"
+  pt: "Tamanho do chat"
+  pt-pt: "Tamanho do chat"
 "The chat's texts on top of the interface size (also Ctrl + the mouse wheel over the chat)":
   zh-tw: "聊天文字相對於介面大小的比例（也可在聊天視窗上按住 Ctrl 滾動滑鼠滾輪）"
 
+  pt: "Tamanho do texto do chat em relação ao tamanho da interface (também Ctrl + roda do mouse sobre o chat)"
+  pt-pt: "Tamanho do texto do chat em relação ao tamanho da interface (também Ctrl + roda do rato sobre o chat)"
 "Steering view angle":
   de: "Blickwinkel beim Lenken"
   fr: "Angle de vue en braquant"
@@ -3605,6 +3653,8 @@ _version: 2
 "comfort":
   zh: "舒适度"
   zh-tw: "舒適度"
+  pt: "conforto"
+  pt-pt: "conforto"
 "ticket selling":
   ru: "продажа билетов"
   de: "Fahrscheinverkauf"
@@ -3634,6 +3684,8 @@ _version: 2
 "runs":
   zh: "行车数"
   zh-tw: "運行次數"
+  pt: "viagens"
+  pt-pt: "viagens"
 "Recent runs":
   ru: "Последние поездки"
   de: "Letzte Fahrten"
@@ -13979,6 +14031,8 @@ _version: 2
 
 "Line and tour":
   zh-tw: "路線與班次"
+  pt: "Linha e escala"
+  pt-pt: "Linha e escala"
 "Lines":
   ru: "Маршруты"
   de: "Linien"
@@ -14823,17 +14877,27 @@ _version: 2
 "Vehicle options...":
   zh-tw: "車輛選項…"
 
+  pt: "Opções do veículo..."
+  pt-pt: "Opções do veículo..."
 "World options...":
   zh-tw: "世界選項…"
 
+  pt: "Opções do mundo..."
+  pt-pt: "Opções do mundo..."
 "Vehicle options":
   zh-tw: "車輛選項"
 
+  pt: "Opções do veículo"
+  pt-pt: "Opções do veículo"
 "World options":
   zh-tw: "世界選項"
 
+  pt: "Opções do mundo"
+  pt-pt: "Opções do mundo"
 "Save to a new slot":
   zh-tw: "儲存至新欄位"
+  pt: "Salvar em um novo espaço"
+  pt-pt: "Guardar num novo espaço"
 "PageDown":
   ru: "PageDown"
   de: "PageDown"
@@ -22630,102 +22694,136 @@ _version: 2
   zh-tw: "道路"
   pl: "drogi"
   fr: "routes"
+  pt: "vias"
+  pt-pt: "vias"
 "stops":
   de: "Haltestellen"
   zh: "站点"
   zh-tw: "站點"
   pl: "przystanki"
   fr: "arrêts"
+  pt: "paradas"
+  pt-pt: "paragens"
 "entry points":
   de: "Einstiegspunkte"
   zh: "入口点"
   zh-tw: "入口點"
   pl: "punkty wejścia"
   fr: "points d'entrée"
+  pt: "pontos de entrada"
+  pt-pt: "pontos de entrada"
 "Reading the map…":
   de: "Karte wird gelesen…"
   zh: "正在读取地图…"
   zh-tw: "正在讀取地圖…"
   pl: "Wczytywanie mapy…"
   fr: "Lecture de la carte…"
+  pt: "Carregando o mapa…"
+  pt-pt: "A carregar o mapa…"
 "The map cannot be read":
   de: "Die Karte lässt sich nicht lesen"
   zh: "无法读取这张地图"
   zh-tw: "無法讀取這張地圖"
   pl: "Nie można wczytać mapy"
   fr: "La carte ne peut pas être lue"
+  pt: "Não foi possível ler o mapa"
+  pt-pt: "Não foi possível ler o mapa"
 "This map has no roads":
   de: "Diese Karte hat keine Straßen"
   zh: "这张地图没有道路"
   zh-tw: "這張地圖沒有道路"
   pl: "Ta mapa nie ma dróg"
   fr: "Cette carte n'a aucune route"
+  pt: "Este mapa não tem vias"
+  pt-pt: "Este mapa não tem vias"
 "Vehicle & environment":
   de: "Fahrzeug & Umgebung"
   zh: "车辆和环境"
   zh-tw: "車輛和環境"
   pl: "Pojazd i otoczenie"
   fr: "Véhicule et environnement"
+  pt: "Veículo e ambiente"
+  pt-pt: "Veículo e ambiente"
 "Map & duty":
   de: "Karte & Dienst"
   zh: "地图与任务"
   zh-tw: "地圖設定"
   pl: "Mapa i służba"
   fr: "Carte et service"
+  pt: "Mapa e escala"
+  pt-pt: "Mapa e escala"
 "Put the roadbook away (choosing a tour brings it back)":
   de: "Fahrplan weglegen (eine Tour holt ihn zurück)"
   zh: "收起路书（选一个班次会再打开）"
   zh-tw: "收起路書（選一個班次會再打開）"
   pl: "Schowaj książkę drogową (wybranie brygady przywraca ją)"
   fr: "Ranger la feuille de route (choisir un service la fait revenir)"
+  pt: "Ocultar o itinerário (escolher uma escala o exibe novamente)"
+  pt-pt: "Ocultar o itinerário (escolher uma escala volta a mostrá-lo)"
 "The roadbook: the trips of the chosen tour and where they call":
   de: "Der Fahrplan: die Fahrten der gewählten Tour und ihre Haltestellen"
   zh: "路书：所选班次的每一趟车和它停靠的站"
   zh-tw: "路書：所選班次的每一趟車和它停靠的站"
   pl: "Książka drogowa: kursy wybranej brygady i przystanki, na których się zatrzymują"
   fr: "La feuille de route : les courses du service choisi et leurs arrêts"
+  pt: "O itinerário: as viagens da escala escolhida e as paradas em que passam"
+  pt-pt: "O itinerário: as viagens da escala escolhida e as paragens em que passam"
 "The vehicle and the day: back to the first tab":
   de: "Das Fahrzeug und der Tag: zurück zum ersten Reiter"
   zh: "车辆和日期：回到第一个页签"
   zh-tw: "車輛和日期：回到第一個頁籤"
   pl: "Pojazd i dzień: powrót do pierwszej karty"
   fr: "Le véhicule et la journée : retour au premier onglet"
+  pt: "O veículo e o dia: voltar à primeira aba"
+  pt-pt: "O veículo e o dia: voltar ao primeiro separador"
 "Favourites only":
   de: "Nur Favoriten"
   zh: "只显示收藏的车辆"
   zh-tw: "只顯示收藏的車輛"
   pl: "Tylko ulubione"
   fr: "Favoris uniquement"
+  pt: "Somente favoritos"
+  pt-pt: "Apenas favoritos"
 "Add to the favourites":
   de: "Zu den Favoriten hinzufügen"
   zh: "加入收藏"
   zh-tw: "加入收藏"
   pl: "Dodaj do ulubionych"
   fr: "Ajouter aux favoris"
+  pt: "Adicionar aos favoritos"
+  pt-pt: "Adicionar aos favoritos"
 "Remove from the favourites":
   de: "Aus den Favoriten entfernen"
   zh: "取消收藏"
   zh-tw: "取消收藏"
   pl: "Usuń z ulubionych"
   fr: "Retirer des favoris"
+  pt: "Remover dos favoritos"
+  pt-pt: "Remover dos favoritos"
 "(the server's)":
   de: "(des Servers)"
   zh: "（服务器的）"
   zh-tw: "（伺服器的）"
   pl: "(serwera)"
   fr: "(celle du serveur)"
+  pt: "(do servidor)"
+  pt-pt: "(do servidor)"
 "(the server's clock)":
   de: "(die Uhr des Servers)"
   zh: "（服务器的时钟）"
   zh-tw: "（伺服器的時鐘）"
   pl: "(zegar serwera)"
   fr: "(l'horloge du serveur)"
+  pt: "(relógio do servidor)"
+  pt-pt: "(relógio do servidor)"
 "Back to driving alone: the map, the clock and the weather are your own again":
   de: "Zurück zum Alleinfahren: Karte, Uhr und Wetter sind wieder deine"
   zh: "回到单人驾驶：地图、时钟和天气重新由你决定"
   zh-tw: "回到單人駕駛：地圖、時鐘和天氣重新由你決定"
   pl: "Powrót do samotnej jazdy: mapa, zegar i pogoda znów są twoje"
   fr: "Retour en solo : la carte, l'heure et la météo sont de nouveau les vôtres"
+  pt: "Voltar a dirigir sozinho: o mapa, o relógio e o clima voltam a ser seus"
+  pt-pt: "Voltar a conduzir sozinho: o mapa, o relógio e a meteorologia voltam a ser seus"
 "Day & weather":
   ru: "День и погода"
   de: "Tag & Wetter"
@@ -22738,6 +22836,8 @@ _version: 2
   nl: "Dag & weer"
   zh: "日期与天气"
   zh-tw: "日期和天氣"
+  pt: "Dia e clima"
+  pt-pt: "Dia e meteorologia"
 "Next:":
   ru: "Далее:"
   de: "Weiter:"
@@ -22750,6 +22850,8 @@ _version: 2
   nl: "Volgende:"
   zh: "下一个:"
   zh-tw: "下一個："
+  pt: "Próximo:"
+  pt-pt: "Seguinte:"
 "Continue last game":
   ru: "Продолжить игру"
   de: "Letztes Spiel fortsetzen"
@@ -22762,6 +22864,8 @@ _version: 2
   nl: "Laatste spel hervatten"
   zh: "继续上一局游戏"
   zh-tw: "繼續上一場遊戲"
+  pt: "Continuar último jogo"
+  pt-pt: "Continuar último jogo"
 "Filter tours: number, route, stop…":
   fr: "Filtrer les services : numéro, itinéraire, arrêt…"
   de: "Umläufe filtern: Nummer, Fahrt, Haltestelle…"
@@ -22772,6 +22876,8 @@ _version: 2
   cs: "Filtrovat oběhy: číslo, trasa, zastávka…"
   ru: "Поиск выхода: номер, рейс, остановка…"
   uk: "Пошук виходу: номер, рейс, зупинка…"
+  pt: "Filtrar escalas: número, rota, parada…"
+  pt-pt: "Filtrar escalas: número, percurso, paragem…"
 "Ended tours":
   fr: "Services terminés"
   de: "Beendete Umläufe"
@@ -22782,6 +22888,8 @@ _version: 2
   cs: "Ukončené oběhy"
   ru: "Завершённые выходы"
   uk: "Завершені виходи"
+  pt: "Escalas encerradas"
+  pt-pt: "Escalas terminadas"
 "Tours whose last trip has already left at the chosen time":
   fr: "Les services dont le dernier voyage est déjà parti à l'heure choisie"
   de: "Umläufe, deren letzte Fahrt zur gewählten Zeit schon abgefahren ist"
@@ -22792,6 +22900,8 @@ _version: 2
   cs: "Oběhy, jejichž poslední spoj ve zvolený čas už odjel"
   ru: "Выходы, последний рейс которых к выбранному времени уже отправился"
   uk: "Виходи, останній рейс яких на обраний час уже вирушив"
+  pt: "Escalas cuja última viagem já saiu no horário escolhido"
+  pt-pt: "Escalas cuja última viagem já partiu à hora escolhida"
 "No tour has a trip still to come that matches.":
   fr: "Aucun service n'a de voyage à venir qui correspond."
   de: "Kein Umlauf hat eine passende Fahrt, die noch kommt."
@@ -22802,6 +22912,8 @@ _version: 2
   cs: "Žádný oběh nemá odpovídající spoj, který ještě pojede."
   ru: "Ни у одного выхода нет подходящего предстоящего рейса."
   uk: "Жоден вихід не має відповідного майбутнього рейсу."
+  pt: "Nenhuma escala tem uma viagem futura correspondente."
+  pt-pt: "Nenhuma escala tem uma viagem por realizar que corresponda."
 "No tour left at this time: show the ended tours, or start earlier.":
   fr: "Plus aucun service à cette heure : affichez les services terminés ou commencez plus tôt."
   de: "Zu dieser Zeit kein Umlauf mehr: beendete Umläufe zeigen oder früher beginnen."
@@ -22812,6 +22924,8 @@ _version: 2
   cs: "V tento čas už žádný oběh: zobrazte ukončené nebo začněte dříve."
   ru: "В это время выходов больше нет: покажите завершённые или начните раньше."
   uk: "О цій порі виходів більше немає: покажіть завершені або почніть раніше."
+  pt: "Não há mais escalas neste horário: mostre as encerradas ou comece mais cedo."
+  pt-pt: "Não restam escalas a esta hora: mostre as terminadas ou comece mais cedo."
 "Filter lines…":
   ru: "Поиск линии…"
   de: "Linien filtern…"
@@ -22824,6 +22938,8 @@ _version: 2
   nl: "Lijnen filteren…"
   zh: "筛选线路…"
   zh-tw: "過濾線..."
+  pt: "Filtrar linhas…"
+  pt-pt: "Filtrar linhas…"
 "a trip":
   ru: "рейс"
   de: "pro Fahrt"
@@ -22836,6 +22952,8 @@ _version: 2
   nl: "per rit"
   zh: "每班次"
   zh-tw: "一次旅行"
+  pt: "uma viagem"
+  pt-pt: "uma viagem"
 "Tours of this line on the chosen day":
   ru: "Наряды этой линии в выбранный день"
   de: "Umläufe dieser Linie am gewählten Tag"
@@ -22844,6 +22962,8 @@ _version: 2
   pl: "Brygady tej linii w wybranym dniu"
   fr: "Services de cette ligne le jour choisi"
   zh-tw: "所選日期此路線的遊覽"
+  pt: "Escalas desta linha no dia escolhido"
+  pt-pt: "Escalas desta linha no dia escolhido"
 "Server":
   fr: "Serveur"
   ru: "Сервер"
@@ -22852,6 +22972,8 @@ _version: 2
   pl: "Serwer"
   zh: "服务器"
   zh-tw: "伺服器"
+  pt: "Servidor"
+  pt-pt: "Servidor"
 "Warning":
   fr: "Avertissement"
   ru: "Предупреждение"
@@ -22860,6 +22982,8 @@ _version: 2
   pl: "Ostrzeżenie"
   zh: "警告"
   zh-tw: "警告"
+  pt: "Aviso"
+  pt-pt: "Aviso"
 "Alert":
   fr: "Alerte"
   ru: "Тревога"
@@ -22868,6 +22992,8 @@ _version: 2
   pl: "Alarm"
   zh: "警报"
   zh-tw: "警報"
+  pt: "Alerta"
+  pt-pt: "Alerta"
 "Voice chat through GreenTeaSpeak (multiplayer)":
   ru: "Голосовой чат через GreenTeaSpeak (мультиплеер)"
   de: "Sprachchat über GreenTeaSpeak (Mehrspieler)"
@@ -22876,6 +23002,8 @@ _version: 2
   pl: "Czat głosowy przez GreenTeaSpeak (gra wieloosobowa)"
   zh: "通过 GreenTeaSpeak 进行语音聊天(多人游戏)"
   zh-tw: "透過 GreenTeaSpeak 進行語音聊天（多人遊戲）"
+  pt: "Chat de voz pelo GreenTeaSpeak (multijogador)"
+  pt-pt: "Chat de voz pelo GreenTeaSpeak (multijogador)"
 "Players near you are heard from where they stand, when GreenTeaSpeak runs with the openOMSI plugin and the server names a voice server.":
   ru: "Игроков рядом слышно оттуда, где они стоят, если запущен GreenTeaSpeak с плагином openOMSI и сервер указывает голосовой сервер."
   de: "Spieler in deiner Nähe hörst du von dort, wo sie stehen, wenn GreenTeaSpeak mit dem openOMSI-Plugin läuft und der Server einen Sprachserver nennt."
@@ -22884,6 +23012,8 @@ _version: 2
   pl: "Graczy w pobliżu słychać tam, gdzie stoją, gdy działa GreenTeaSpeak z wtyczką openOMSI, a serwer wskazuje serwer głosowy."
   fr: "Les joueurs proches de vous s'entendent depuis leur position, quand GreenTeaSpeak tourne avec le plugin openOMSI et que le serveur indique un serveur vocal."
   zh-tw: "當 GreenTeaSpeak 使用 openOMSI 外掛程式運行並且伺服器命名語音伺服器時，您附近的玩家可以從他們所在的位置聽到。"
+  pt: "Os jogadores perto de você são ouvidos a partir de onde estão quando o GreenTeaSpeak está rodando com o plugin do openOMSI e o servidor define um servidor de voz."
+  pt-pt: "Os jogadores perto de si são ouvidos a partir de onde estão quando o GreenTeaSpeak está a correr com o plugin do openOMSI e o servidor define um servidor de voz."
 "speaking":
   ru: "говорит"
   de: "spricht"
@@ -22893,636 +23023,996 @@ _version: 2
   zh: "正在说话"
   zh-tw: "說話中"
 
+  pt: "falando"
+  pt-pt: "a falar"
 "Beige":
   fr: "Beige"
   zh-tw: "淺褐色"
 
+  pt: "Bege"
+  pt-pt: "Bege"
 "Brightness":
   fr: "Luminosité"
   zh-tw: "亮度"
 
+  pt: "Brilho"
+  pt-pt: "Brilho"
 "Brightness of the custom weather lighting.":
   zh-tw: "自訂天氣照明的亮度。"
 
+  pt: "Brilho da iluminação do clima personalizado."
+  pt-pt: "Brilho da iluminação da meteorologia personalizada."
 "Broken":
   zh-tw: "破碎雲層"
 
+  pt: "Quebrado"
+  pt-pt: "Avariado"
 "Change the current depot file (used for the timetable)":
   zh-tw: "變更目前使用於時刻表的車庫檔案"
 
+  pt: "Alterar o arquivo da garagem atual (usado pela tabela horária)"
+  pt-pt: "Alterar o ficheiro da garagem atual (usado pelo horário)"
 "Change the current destination":
   zh-tw: "更改目前目的地"
 
+  pt: "Alterar o destino atual"
+  pt-pt: "Alterar o destino atual"
 "Change the current driver profile":
   zh-tw: "變更目前的駕駛員設定檔"
 
+  pt: "Alterar o perfil de motorista atual"
+  pt-pt: "Alterar o perfil de condutor atual"
 "Change the vehicle's current fleet number":
   zh-tw: "更改車輛當前的車隊號碼"
 
+  pt: "Alterar o número de frota atual do veículo"
+  pt-pt: "Alterar o número de frota atual do veículo"
 "Combined width of both adjacent frames":
   zh-tw: "兩個相鄰幀的組合寬度"
 
+  pt: "Largura combinada das duas molduras adjacentes"
+  pt-pt: "Largura combinada das duas molduras adjacentes"
 "Cumulus 1":
   zh-tw: "積雲 1"
 
+  pt: "Cumulus 1"
+  pt-pt: "Cumulus 1"
 "Cumulus 2":
   zh-tw: "積雲 2"
 
+  pt: "Cumulus 2"
+  pt-pt: "Cumulus 2"
 "Cumulus 3":
   zh-tw: "積雲 3"
 
+  pt: "Cumulus 3"
+  pt-pt: "Cumulus 3"
 "Changes every 25-60 minutes, as the month allows":
   fr: "Change toutes les 25 à 60 minutes, selon le mois"
   zh-tw: "每 25 至 60 分鐘變更一次，視月份而定"
 
+  pt: "Muda a cada 25–60 minutos, conforme o mês permite"
+  pt-pt: "Muda a cada 25–60 minutos, conforme o mês permite"
 "Choose a weather preset":
   fr: "Choisissez une météo prédéfinie"
   zh-tw: "選擇天氣預設"
 
+  pt: "Escolher uma predefinição de clima"
+  pt-pt: "Escolher uma predefinição de meteorologia"
 "Cloud type":
   fr: "Type de nuages"
   zh-tw: "雲層類型"
 
+  pt: "Tipo de nuvem"
+  pt-pt: "Tipo de nuvem"
 "Continue where you left off on this map":
   fr: "Reprendre là où vous vous étiez arrêté sur cette carte"
   zh-tw: "繼續此地圖上次離開的位置"
 
+  pt: "Continuar de onde você parou neste mapa"
+  pt-pt: "Continuar de onde ficou neste mapa"
 "Custom weather":
   fr: "Météo personnalisée"
   zh-tw: "自訂天氣"
 
+  pt: "Clima personalizado"
+  pt-pt: "Meteorologia personalizada"
 "Depot file (HOF)":
   zh-tw: "HOF 文件"
 
+  pt: "Arquivo da garagem (HOF)"
+  pt-pt: "Ficheiro da garagem (HOF)"
 "Destination display":
   zh-tw: "目的地顯示"
 
+  pt: "Letreiro de destino"
+  pt-pt: "Indicador de destino"
 "Edit selected weather as custom":
   fr: "Modifier la météo choisie en météo personnalisée"
   zh-tw: "將選定天氣編輯為自訂天氣"
 
+  pt: "Editar o clima selecionado como personalizado"
+  pt-pt: "Editar a meteorologia selecionada como personalizada"
 "Free driving: the bus starts where you chose, with the traffic and the timetable's buses around it, but no line of your own. Pick the place below or click an entry point on the map.":
   fr: "Conduite libre : le bus part où vous l'avez choisi, avec la circulation et les bus de l'horaire autour, mais sans ligne à vous. Choisissez l'endroit ci-dessous ou cliquez sur un point d'entrée de la carte."
   zh-tw: "自由駕駛：巴士從你選擇的位置出發，周圍有交通和時刻表巴士，但沒有自己的路線。請選擇下方位置，或點選地圖上的入口點。"
 
+  pt: "Direção livre: o ônibus começa onde você escolheu, com o trânsito e os ônibus do horário ao redor, mas sem uma linha própria. Escolha o local abaixo ou clique em um ponto de entrada no mapa."
+  pt-pt: "Condução livre: o autocarro começa onde escolheu, com o trânsito e os autocarros do horário à volta, mas sem uma linha própria. Escolha o local abaixo ou clique num ponto de entrada no mapa."
 "Humidity":
   fr: "Humidité"
   zh-tw: "濕度"
 
+  pt: "Umidade"
+  pt-pt: "Humidade"
 "Indicators cancel themselves":
   zh-tw: "指標自行取消"
 
+  pt: "As setas desligam sozinhas"
+  pt-pt: "Os piscas desligam-se sozinhos"
 "Pack":
   fr: "Pack"
   zh-tw: "套件"
 
+  pt: "Pacote"
+  pt-pt: "Pacote"
 "Paint":
   fr: "Livrée"
   zh-tw: "塗裝"
 
+  pt: "Pintura"
+  pt-pt: "Pintura"
 "Precipitation intensity":
   fr: "Intensité des précipitations"
   zh-tw: "降水強度"
 
+  pt: "Intensidade da precipitação"
+  pt-pt: "Intensidade da precipitação"
 "Put the roadbook away (the button on the map brings it back)":
   fr: "Ranger la feuille de route (le bouton sur la carte la fait revenir)"
   zh-tw: "收起行車路線簿（地圖上的按鈕可將其重新開啟）"
 
+  pt: "Ocultar o itinerário (o botão no mapa o exibe novamente)"
+  pt-pt: "Ocultar o itinerário (o botão no mapa volta a mostrá-lo)"
 "Road wetness":
   fr: "Humidité de la route"
   zh-tw: "路面濕度"
 
+  pt: "Umidade da pista"
+  pt-pt: "Humidade da estrada"
 "Set visibility, wind, clouds, rain, temperature and road state":
   fr: "Réglez la visibilité, le vent, les nuages, la pluie, la température et l'état de la route"
   zh-tw: "設定能見度、風、雲、雨、溫度和路況"
 
+  pt: "Ajustar visibilidade, vento, nuvens, chuva, temperatura e estado da pista"
+  pt-pt: "Ajustar visibilidade, vento, nuvens, chuva, temperatura e estado da estrada"
 "Snow cover":
   fr: "Couverture neigeuse"
   zh-tw: "積雪覆蓋"
 
+  pt: "Cobertura de neve"
+  pt-pt: "Cobertura de neve"
 "Snow lying on the world and ground.":
   zh-tw: "世界與地面的積雪。"
 
+  pt: "Neve acumulada no cenário e no solo."
+  pt-pt: "Neve acumulada no cenário e no solo."
 "Snow on road":
   fr: "Neige sur la route"
   zh-tw: "路面積雪"
 
+  pt: "Neve na pista"
+  pt-pt: "Neve na estrada"
 "The trips of the chosen tour, where they call, and what to type into the IBIS":
   fr: "Les courses du service choisi, leurs arrêts et ce qu'il faut saisir dans l'IBIS"
   zh-tw: "選定班次的行程、停靠站，以及要輸入 IBIS 的內容"
 
+  pt: "As viagens da escala escolhida, suas paradas e o que digitar no IBIS"
+  pt-pt: "As viagens da escala escolhida, as suas paragens e o que introduzir no IBIS"
 "Where the bus is put down. The orange marks on the map are the same places: click one to take it.":
   fr: "L'endroit où le bus est posé. Les repères orange sur la carte sont les mêmes endroits : cliquez sur l'un d'eux pour le choisir."
   zh-tw: "巴士放置的位置。地圖上的橙色標記是相同位置；點選其中一個即可前往。"
 
+  pt: "Onde o ônibus será colocado. As marcas laranja no mapa são os mesmos locais: clique em uma para escolhê-lo."
+  pt-pt: "Onde o autocarro será colocado. As marcas laranja no mapa são os mesmos locais: clique numa para escolhê-lo."
 "Depot":
   fr: "Dépôt"
   zh-tw: "車庫"
 
+  pt: "Garagem"
+  pt-pt: "Garagem"
 "Station":
   fr: "Gare"
   zh-tw: "車站"
 
+  pt: "Estação"
+  pt-pt: "Estação"
 "The launcher rests while a game runs":
   fr: "Le lanceur se met en pause pendant une partie"
   zh-tw: "啟動器在遊戲執行時暫停"
 
+  pt: "O launcher fica em repouso enquanto o jogo está em execução"
+  pt-pt: "O launcher fica em repouso enquanto o jogo está em execução"
 "The launcher rests while you drive, so that the game has the graphics card to itself. It is back as soon as the game ends.":
   fr: "Le lanceur se met en pause pendant que vous conduisez, pour laisser la carte graphique au jeu. Il revient dès la fin de la partie."
   zh-tw: "駕駛時啟動器會暫停，讓遊戲獨佔顯示卡；遊戲結束後啟動器會立即恢復。"
 
+  pt: "O launcher fica em repouso enquanto você dirige, para deixar a placa de vídeo só para o jogo. Ele volta assim que o jogo termina."
+  pt-pt: "O launcher fica em repouso enquanto conduz, para deixar a placa gráfica só para o jogo. Volta assim que o jogo termina."
 "A right click ends the mouse steering (as in OMSI)":
   fr: "Un clic droit arrête la direction à la souris (comme dans OMSI)"
   zh-tw: "按一下滑鼠右鍵即可停止滑鼠轉向（與 OMSI 相同）"
 
+  pt: "Um clique com o botão direito encerra a direção pelo mouse (como no OMSI)"
+  pt-pt: "Um clique com o botão direito termina a direção pelo rato (como no OMSI)"
 "Applies a graphics profile saved in the launcher":
   zh-tw: "應用啟動器中儲存的圖形設定文件"
 
+  pt: "Aplica um perfil gráfico salvo no launcher"
+  pt-pt: "Aplica um perfil gráfico guardado no launcher"
 "As in OMSI; off: the right button only looks round":
   zh-tw: "與 OMSI 相同；關閉時右鍵僅用於環視"
 
+  pt: "Como no OMSI; desativado: o botão direito apenas gira a visão"
+  pt-pt: "Como no OMSI; desativado: o botão direito apenas olha em redor"
 "Automated manual gearbox":
   zh-tw: "自動手排變速箱"
 
+  pt: "Câmbio manual automatizado"
+  pt-pt: "Caixa de velocidades manual automatizada"
 "Borderless across three equal monitors in one horizontal row; restart required":
   zh-tw: "在水平排中的三個相等的顯示器上無邊框；需要重新啟動"
 
+  pt: "Sem bordas em três monitores iguais, lado a lado na horizontal; requer reinicialização"
+  pt-pt: "Sem margens em três monitores iguais, lado a lado na horizontal; requer reinício"
 "All doors, any bus":
   fr: "Toutes les portes, tout bus"
   zh-tw: "所有車門，任何巴士"
 
+  pt: "Todas as portas, qualquer ônibus"
+  pt-pt: "Todas as portas, qualquer autocarro"
 "Both frames at each join":
   fr: "Les deux montants à chaque jointure"
   zh-tw: "每個接縫處兩側邊框"
 
+  pt: "As duas molduras em cada junção"
+  pt-pt: "As duas molduras em cada junção"
 "Bottom left":
   zh-tw: "左下角"
 
+  pt: "Inferior esquerdo"
+  pt-pt: "Inferior esquerdo"
 "Bottom right":
   zh-tw: "右下角"
 
+  pt: "Inferior direito"
+  pt-pt: "Inferior direito"
 "Cabin and outside, one key":
   fr: "Cabine et extérieur, une seule touche"
   zh-tw: "駕駛室與車外，同一按鍵"
 
+  pt: "Cabine e exterior, uma tecla"
+  pt-pt: "Cabina e exterior, uma tecla"
 "Custom controls":
   fr: "Commandes personnalisées"
   zh-tw: "自訂控制"
 
+  pt: "Controles personalizados"
+  pt-pt: "Controlos personalizados"
 "Discord Rich Presence":
   fr: "Statut Discord (Rich Presence)"
   zh-tw: "Discord 狀態顯示"
 
+  pt: "Discord Rich Presence"
+  pt-pt: "Discord Rich Presence"
 "Display and driver":
   zh-tw: "顯示與駕駛"
 
+  pt: "Exibição e motorista"
+  pt-pt: "Ecrã e condutor"
 "Display and memory":
   zh-tw: "顯示與記憶體"
 
+  pt: "Exibição e memória"
+  pt-pt: "Ecrã e memória"
 "Edit current":
   zh-tw: "編輯目前天氣"
 
+  pt: "Editar atual"
+  pt-pt: "Editar atual"
 "Enter any 4-letter ICAO station.":
   zh-tw: "輸入任 4 個字母的 ICAO 電台。"
 
+  pt: "Digite qualquer estação ICAO de 4 letras."
+  pt-pt: "Introduza qualquer estação ICAO de 4 letras."
 "Evening":
   zh-tw: "傍晚"
 
+  pt: "Entardecer"
+  pt-pt: "Entardecer"
 "Everything but the language, the key bindings and the game folder goes back to how it came":
   zh-tw: "除了語言、按鍵綁定和遊戲資料夾之外的所有內容都可以追溯到它的原始狀態"
 
+  pt: "Tudo, exceto o idioma, as teclas configuradas e a pasta do jogo, volta ao padrão original"
+  pt-pt: "Tudo, exceto o idioma, as teclas configuradas e a pasta do jogo, volta ao estado original"
 "Door 1 (front), any bus":
   fr: "Porte 1 (avant), tout bus"
   zh-tw: "車門 1（前門），任何巴士"
 
+  pt: "Porta 1 (dianteira), qualquer ônibus"
+  pt-pt: "Porta 1 (dianteira), qualquer autocarro"
 "Door 2, any bus":
   fr: "Porte 2, tout bus"
   zh-tw: "車門 2，任何巴士"
 
+  pt: "Porta 2, qualquer ônibus"
+  pt-pt: "Porta 2, qualquer autocarro"
 "Door 3, any bus":
   fr: "Porte 3, tout bus"
   zh-tw: "車門 3，任何巴士"
 
+  pt: "Porta 3, qualquer ônibus"
+  pt-pt: "Porta 3, qualquer autocarro"
 "Door 4, any bus":
   fr: "Porte 4, tout bus"
   zh-tw: "車門 4，任何巴士"
 
+  pt: "Porta 4, qualquer ônibus"
+  pt-pt: "Porta 4, qualquer autocarro"
 "Eye above screen centre":
   fr: "Œil au-dessus du centre de l'écran"
   zh-tw: "眼睛位於螢幕中心上方"
 
+  pt: "Olhos acima do centro da tela"
+  pt-pt: "Olhos acima do centro do ecrã"
 "Eye distance":
   zh-tw: "眼距"
 
+  pt: "Distância dos olhos"
+  pt-pt: "Distância dos olhos"
 "Eye to centre screen":
   fr: "Distance de l'œil à l'écran central"
   zh-tw: "眼睛到螢幕中央"
 
+  pt: "Olhos até a tela central"
+  pt-pt: "Olhos até ao ecrã central"
 "Eye to the centre screen":
   zh-tw: "眼睛注視中央螢幕"
 
+  pt: "Olhos até a tela central"
+  pt-pt: "Olhos até ao ecrã central"
 "Fetch the selected station again without waiting for the next automatic update.":
   zh-tw: "再次取得所選電台，無需等待下一次自動更新。"
 
+  pt: "Consultar novamente a estação selecionada sem esperar pela próxima atualização automática."
+  pt-pt: "Consultar novamente a estação selecionada sem esperar pela próxima atualização automática."
 "Few clouds":
   zh-tw: "少雲"
 
+  pt: "Poucas nuvens"
+  pt-pt: "Poucas nuvens"
 "Frame width at each join":
   zh-tw: "每個連接處的框架寬度"
 
+  pt: "Largura da moldura em cada junção"
+  pt-pt: "Largura da moldura em cada junção"
 "Frames a second at most":
   zh-tw: "每秒最多影格數"
 
+  pt: "Máximo de quadros por segundo"
+  pt-pt: "Máximo de fotogramas por segundo"
 "Freeze the weather currently in force and edit it as a custom weather.":
   zh-tw: "凍結當前有效的天氣並將其編輯為自訂天氣。"
 
+  pt: "Congelar o clima atual e editá-lo como clima personalizado."
+  pt-pt: "Congelar a meteorologia atual e editá-la como meteorologia personalizada."
 "Gear 1 (H-pattern)":
   fr: "Rapport 1 (grille en H)"
   zh-tw: "1 檔（H 型）"
 
+  pt: "Marcha 1 (padrão H)"
+  pt-pt: "1.ª velocidade (padrão H)"
 "Gear R (H-pattern)":
   fr: "Marche arrière (grille en H)"
   zh-tw: "R 檔（H 型）"
 
+  pt: "Ré (padrão H)"
+  pt-pt: "Marcha-atrás (padrão H)"
 "Gear down (manual gearbox)":
   fr: "Rétrograder (boîte manuelle)"
   zh-tw: "降檔（手排變速箱）"
 
+  pt: "Reduzir marcha (câmbio manual)"
+  pt-pt: "Reduzir mudança (caixa manual)"
 "Gear up (manual gearbox)":
   fr: "Monter un rapport (boîte manuelle)"
   zh-tw: "升檔（手排變速箱）"
 
+  pt: "Aumentar marcha (câmbio manual)"
+  pt-pt: "Subir mudança (caixa manual)"
 "HUD on centre screen":
   fr: "HUD sur l'écran central"
   zh-tw: "中央螢幕上的 HUD"
 
+  pt: "HUD na tela central"
+  pt-pt: "HUD no ecrã central"
 "Indicators cancel themselves (as the bus's script does)":
   fr: "Les clignotants s'arrêtent seuls (comme le fait le script du bus)"
   zh-tw: "指示器自行取消（就像總線的腳本一樣）"
 
+  pt: "As setas desligam automaticamente (como o script do ônibus faz)"
+  pt-pt: "Os piscas desligam-se automaticamente (como o script do autocarro faz)"
 "Interface":
   zh-tw: "介面"
 
+  pt: "Interface"
+  pt-pt: "Interface"
 "Inward angle from a flat row":
   zh-tw: "平行向內的角度"
 
+  pt: "Ângulo para dentro em relação a uma fileira plana"
+  pt-pt: "Ângulo para dentro em relação a uma fila plana"
 "Keep the navigator, menus and information on the centre screen":
   zh-tw: "將導航器、選單和資訊保留在中央螢幕上"
 
+  pt: "Manter o navegador, os menus e as informações na tela central"
+  pt-pt: "Manter o navegador, os menus e as informações no ecrã central"
 "Latching":
   fr: "Maintenu"
   zh-tw: "鎖定"
 
+  pt: "Alternância"
+  pt-pt: "Alternância"
 "Left screen inward angle":
   fr: "Angle de l'écran gauche vers l'intérieur"
   zh-tw: "左螢幕向內角度"
 
+  pt: "Ângulo da tela esquerda para dentro"
+  pt-pt: "Ângulo do ecrã esquerdo para dentro"
 "Load graphics profile":
   zh-tw: "載入圖形設定檔"
 
+  pt: "Carregar perfil gráfico"
+  pt-pt: "Carregar perfil gráfico"
 "Load once":
   zh-tw: "載入一次"
 
+  pt: "Carregar uma vez"
+  pt-pt: "Carregar uma vez"
 "Load the selected station once without enabling continuous METAR sync.":
   zh-tw: "載入所選電台一次，無需啟用連續 METAR 同步。"
 
+  pt: "Carregar a estação selecionada uma vez sem ativar a sincronização METAR contínua."
+  pt-pt: "Carregar a estação selecionada uma vez sem ativar a sincronização METAR contínua."
 "METAR report":
   zh-tw: "METAR 報告"
 
+  pt: "Relatório METAR"
+  pt-pt: "Relatório METAR"
 "Morning":
   zh-tw: "早上"
 
+  pt: "Manhã"
+  pt-pt: "Manhã"
 "Mouse look sensitivity":
   fr: "Sensibilité de la vue à la souris"
   zh-tw: "滑鼠環視靈敏度"
 
+  pt: "Sensibilidade da visão com o mouse"
+  pt-pt: "Sensibilidade da visão com o rato"
 "Night":
   zh-tw: "夜間"
 
+  pt: "Noite"
+  pt-pt: "Noite"
 "Multiplayer: write in the chat":
   fr: "Multijoueur : écrire dans le chat"
   zh-tw: "多人遊戲：在聊天中輸入文字"
 
+  pt: "Multijogador: escrever no chat"
+  pt-pt: "Multijogador: escrever no chat"
 "No saved profiles":
   fr: "Aucun profil enregistré"
   zh-tw: "沒有儲存的設定檔"
 
+  pt: "Nenhum perfil salvo"
+  pt-pt: "Nenhum perfil guardado"
 "Noon":
   zh-tw: "中午"
 
+  pt: "Meio-dia"
+  pt-pt: "Meio-dia"
 "None":
   fr: "Aucun"
   zh-tw: "無"
 
+  pt: "Nenhum"
+  pt-pt: "Nenhum"
 "Profiles":
   fr: "Profils"
   zh-tw: "設定檔"
 
+  pt: "Perfis"
+  pt-pt: "Perfis"
 "Put another vehicle in this one's place and drive it":
   zh-tw: "將另一輛車放在這輛車的位置並駕駛它"
 
+  pt: "Colocar outro veículo no lugar deste e dirigi-lo"
+  pt-pt: "Colocar outro veículo no lugar deste e conduzi-lo"
 "Rain":
   zh-tw: "雨天"
 
+  pt: "Chuva"
+  pt-pt: "Chuva"
 "Read the vehicle's files again (.bus, model and sound configuration, scripts) and drive it from here":
   zh-tw: "再次讀取車輛的檔案（.bus、模型和聲音配置、腳本）並從這裡駕駛它"
 
+  pt: "Ler novamente os arquivos do veículo (.bus, configuração de modelo e som, scripts) e dirigi-lo daqui"
+  pt-pt: "Ler novamente os ficheiros do veículo (.bus, configuração de modelo e som, scripts) e conduzi-lo a partir daqui"
 "Refresh now":
   zh-tw: "立即重新整理"
 
+  pt: "Atualizar agora"
+  pt-pt: "Atualizar agora"
 "Relative humidity of the air.":
   zh-tw: "空氣的相對濕度。"
 
+  pt: "Umidade relativa do ar."
+  pt-pt: "Humidade relativa do ar."
 "Reload":
   zh-tw: "重新載入"
 
+  pt: "Recarregar"
+  pt-pt: "Recarregar"
 "Reload this vehicle":
   zh-tw: "重新載入此車輛"
 
+  pt: "Recarregar este veículo"
+  pt-pt: "Recarregar este veículo"
 "Right screen angle":
   zh-tw: "右螢幕角度"
 
+  pt: "Ângulo da tela direita"
+  pt-pt: "Ângulo do ecrã direito"
 "Right screen inward angle":
   fr: "Angle de l'écran droit vers l'intérieur"
   zh-tw: "右螢幕向內角度"
 
+  pt: "Ângulo da tela direita para dentro"
+  pt-pt: "Ângulo do ecrã direito para dentro"
 "Scattered":
   zh-tw: "散佈雲層"
 
+  pt: "Nuvens dispersas"
+  pt-pt: "Nuvens dispersas"
 "Service":
   zh-tw: "服務"
 
+  pt: "Serviço"
+  pt-pt: "Serviço"
 "Sets most of the graphics options at once":
   zh-tw: "一次設定大部分圖形選項"
 
+  pt: "Define a maioria das opções gráficas de uma vez"
+  pt-pt: "Define a maioria das opções gráficas de uma só vez"
 "Shift a manual gearbox's gears for you by the engine speed":
   zh-tw: "根據引擎轉速為您換檔手排變速箱"
 
+  pt: "Troca as marchas de um câmbio manual por você conforme a rotação do motor"
+  pt-pt: "Muda as velocidades de uma caixa manual por si conforme a rotação do motor"
 "Shows the launcher or your map, bus, line and multiplayer status in Discord.":
   fr: "Affiche dans Discord le lanceur ou votre carte, votre bus, votre ligne et votre statut multijoueur."
   zh-tw: "在 Discord 中顯示啟動器或您的地圖、巴士、線路和多人遊戲狀態。"
 
+  pt: "Mostra no Discord o launcher ou o status do seu mapa, ônibus, linha e multijogador."
+  pt-pt: "Mostra no Discord o launcher ou o estado do seu mapa, autocarro, linha e multijogador."
 "Snow":
   zh-tw: "雪天"
 
+  pt: "Neve"
+  pt-pt: "Neve"
 "Span three monitors at startup":
   fr: "Couvrir les trois écrans au démarrage"
   zh-tw: "啟動時跨三個顯示器"
 
+  pt: "Usar três monitores ao iniciar"
+  pt-pt: "Usar três monitores no arranque"
 "Swap":
   zh-tw: "交換"
 
+  pt: "Trocar"
+  pt-pt: "Trocar"
 "Swap for another vehicle":
   zh-tw: "換成另一輛車"
 
+  pt: "Trocar por outro veículo"
+  pt-pt: "Trocar por outro veículo"
 "Takes effect when the game starts the next time":
   zh-tw: "下次遊戲開始時生效"
 
+  pt: "Entra em vigor na próxima vez que o jogo iniciar"
+  pt-pt: "Entra em vigor na próxima vez que o jogo iniciar"
 "Temperature and wind":
   zh-tw: "溫度與風"
 
+  pt: "Temperatura e vento"
+  pt-pt: "Temperatura e vento"
 "The airport used for real weather.":
   zh-tw: "用於即時天氣的機場。"
 
+  pt: "O aeroporto usado para o clima real."
+  pt-pt: "O aeroporto usado para a meteorologia real."
 "The bus's script turns the indicator off after a turn; off: it stays on until you turn it off":
   zh-tw: "巴士的腳本會在轉彎後關閉指示燈； off：它會一直保持打開狀態，直到您將其關閉"
 
+  pt: "O script do ônibus desliga a seta após uma curva; desativado: ela fica ligada até você desligá-la"
+  pt-pt: "O script do autocarro desliga o pisca após uma curva; desativado: fica ligado até o desligar"
 "The language of the game's interface":
   zh-tw: "遊戲介面的語言"
 
+  pt: "O idioma da interface do jogo"
+  pt-pt: "O idioma da interface do jogo"
 "The launcher rests while a game runs (gives the graphics card to the game)":
   fr: "Le lanceur se met en pause pendant une partie (laisse la carte graphique au jeu)"
   zh-tw: "遊戲運行時啟動器休息（提供遊戲顯示卡）"
 
+  pt: "O launcher fica em repouso enquanto um jogo está em execução (deixa a placa de vídeo para o jogo)"
+  pt-pt: "O launcher fica em repouso enquanto um jogo está em execução (deixa a placa gráfica para o jogo)"
 "Three equal screens in a horizontal row. OpenXR takes priority.":
   fr: "Trois écrans identiques côte à côte. OpenXR est prioritaire."
   zh-tw: "水平排的三個相等的螢幕。 OpenXR 優先。"
 
+  pt: "Três telas iguais lado a lado na horizontal. O OpenXR tem prioridade."
+  pt-pt: "Três ecrãs iguais lado a lado na horizontal. O OpenXR tem prioridade."
 "Three physical screen projections; OpenXR takes priority":
   zh-tw: "三個實體螢幕投影； OpenXR 優先"
 
+  pt: "Três projeções físicas de tela; o OpenXR tem prioridade"
+  pt-pt: "Três projeções físicas de ecrã; o OpenXR tem prioridade"
 "Three screen projections":
   fr: "Projection sur trois écrans"
   zh-tw: "三螢幕投影"
 
+  pt: "Três projeções de tela"
+  pt-pt: "Três projeções de ecrã"
 "Tools":
   zh-tw: "工具"
 
+  pt: "Ferramentas"
+  pt-pt: "Ferramentas"
 "Top left":
   zh-tw: "左上"
 
+  pt: "Superior esquerdo"
+  pt-pt: "Superior esquerdo"
 "Top right":
   zh-tw: "右上"
 
+  pt: "Superior direito"
+  pt-pt: "Superior direito"
 "Triple screen":
   fr: "Triple écran"
   zh-tw: "三螢幕"
 
+  pt: "Tela tripla"
+  pt-pt: "Ecrã triplo"
 "triple screen: the window spans three monitors, fullscreen is left alone":
   zh-tw: "三重螢幕：視窗跨越三個顯示器，全螢幕單獨保留"
 
+  pt: "tela tripla: a janela ocupa três monitores; a tela cheia não é alterada"
+  pt-pt: "ecrã triplo: a janela ocupa três monitores; o ecrã completo não é alterado"
 "Vertical eye offset":
   zh-tw: "垂直視點偏移"
 
+  pt: "Deslocamento vertical dos olhos"
+  pt-pt: "Deslocamento vertical dos olhos"
 "Vertical field of view; in triple screen Default uses physical measurements, an override moves the virtual eye":
   zh-tw: "垂直視野；在三重螢幕中預設使用物理測量，覆蓋移動虛擬眼睛"
 
+  pt: "Campo de visão vertical; na tela tripla, Padrão usa medidas físicas e uma substituição move o olho virtual"
+  pt-pt: "Campo de visão vertical; no ecrã triplo, Predefinição usa medidas físicas e uma substituição move o olho virtual"
 "Visible panel width":
   zh-tw: "可見面板寬度"
 
+  pt: "Largura visível do painel"
+  pt-pt: "Largura visível do painel"
 "Visible width of one panel":
   fr: "Largeur visible d'un écran"
   zh-tw: "一塊面板的可見寬度"
 
+  pt: "Largura visível de um painel"
+  pt-pt: "Largura visível de um painel"
 "What passengers say":
   zh-tw: "乘客語音"
 
+  pt: "O que os passageiros dizem"
+  pt-pt: "O que os passageiros dizem"
 "Which keys drive the vehicle":
   zh-tw: "駕駛車輛的按鍵"
 
+  pt: "Quais teclas controlam o veículo"
+  pt-pt: "Quais teclas controlam o veículo"
 "Width of one screen without its frame":
   zh-tw: "不含邊框的一屏寬度"
 
+  pt: "Largura de uma tela sem a moldura"
+  pt-pt: "Largura de um ecrã sem a moldura"
 "What each axis and button of a wheel, pedals or joystick does - OMSI 2's gamectrler.cfg, kept in the content folder.":
   fr: "Ce que fait chaque axe et bouton d'un volant, d'un pédalier ou d'un joystick - le gamectrler.cfg d'OMSI 2, gardé dans le dossier de contenu."
   zh-tw: "方向盤、踏板或操縱桿的每個軸與按鍵功能；OMSI 2 的 gamectrler.cfg 儲存在內容資料夾中。"
 
+  pt: "O que cada eixo e botão de um volante, pedais ou joystick faz — o gamectrler.cfg do OMSI 2, mantido na pasta de conteúdo."
+  pt-pt: "O que cada eixo e botão de um volante, pedais ou joystick faz — o gamectrler.cfg do OMSI 2, mantido na pasta de conteúdo."
 "Window size":
   fr: "Taille de la fenêtre"
   zh-tw: "視窗大小"
 
+  pt: "Tamanho da janela"
+  pt-pt: "Tamanho da janela"
 "Press \"Reset timetable\" again to put the map's own timetable back (the changes made here are lost)":
   fr: "Appuyez de nouveau sur « Réinitialiser l'horaire » pour remettre l'horaire de la carte (les modifications faites ici sont perdues)"
   zh-tw: "再次按下「重設時刻表」以恢復地圖自己的時刻表（此處所做的變更將會遺失）"
 
+  pt: "Pressione \"Redefinir tabela horária\" novamente para restaurar a tabela horária original do mapa (as alterações feitas aqui serão perdidas)"
+  pt-pt: "Prima \"Redefinir horário\" novamente para restaurar o horário original do mapa (as alterações feitas aqui serão perdidas)"
 "Enter takes the first match":
   fr: "Entrée choisit le premier résultat"
   zh-tw: "按 Enter 選取第一個相符項目"
 
+  pt: "Enter seleciona a primeira correspondência"
+  pt-pt: "Enter seleciona a primeira correspondência"
 "Nothing found":
   fr: "Aucun résultat"
   zh-tw: "找不到結果"
 
+  pt: "Nada encontrado"
+  pt-pt: "Nada encontrado"
 "The Vulkan graphics driver stopped while compiling shaders. Starting the game again will switch to OpenGL (or change it in Settings → Graphics API).":
   fr: "Le pilote graphique Vulkan s'est arrêté pendant la compilation des shaders. Relancer le jeu passera en OpenGL (ou changez-le dans Réglages → API graphique)."
   zh-tw: "Vulkan 圖形驅動程式在編譯著色器時停止。重新啟動遊戲將切換至 OpenGL（或在「設定」→「圖形 API」中變更）。"
 
+  pt: "O driver gráfico Vulkan parou durante a compilação dos shaders. Ao iniciar o jogo novamente, ele mudará para OpenGL (ou altere em Configurações → API gráfica)."
+  pt-pt: "O driver gráfico Vulkan parou durante a compilação dos shaders. Ao iniciar o jogo novamente, mudará para OpenGL (ou altere em Definições → API gráfica)."
 "The game was closed by the system":
   fr: "Le jeu a été fermé par le système"
   zh-tw: "遊戲已被系統關閉"
 
+  pt: "O jogo foi fechado pelo sistema"
+  pt-pt: "O jogo foi fechado pelo sistema"
 "The system closed the game while it was running, typically because the device ran out of memory (RAM). Lowering texture resolution or reducing AI traffic in Settings helps prevent memory exhaustion.":
   fr: "Le système a fermé le jeu pendant qu'il tournait, généralement parce que l'appareil a manqué de mémoire (RAM). Baisser la résolution des textures ou réduire la circulation IA dans les Réglages aide à l'éviter."
   zh-tw: "系統在遊戲執行期間將其關閉，通常是因為裝置記憶體（RAM）不足。在「設定」中降低紋理解析度或減少 AI 交通，有助於避免記憶體耗盡。"
 
+  pt: "O sistema fechou o jogo enquanto ele estava em execução, normalmente porque o dispositivo ficou sem memória (RAM). Reduzir a resolução das texturas ou o tráfego de IA em Configurações ajuda a evitar falta de memória."
+  pt-pt: "O sistema fechou o jogo enquanto estava em execução, normalmente porque o dispositivo ficou sem memória (RAM). Reduzir a resolução das texturas ou o tráfego de IA em Definições ajuda a evitar falta de memória."
 "As the map sets it":
   fr: "Comme le prévoit la carte"
   zh-tw: "依地圖設定"
 
+  pt: "Como definido pelo mapa"
+  pt-pt: "Como definido pelo mapa"
 "Asking…":
   fr: "Demande en cours…"
   zh-tw: "詢問中…"
 
+  pt: "Consultando…"
+  pt-pt: "A consultar…"
 "Choose a bus first.":
   fr: "Choisissez d'abord un bus."
   zh-tw: "請先選擇巴士。"
 
+  pt: "Escolha primeiro um ônibus."
+  pt-pt: "Escolha primeiro um autocarro."
 "Choose a map":
   fr: "Choisissez une carte"
   zh-tw: "選擇地圖"
 
+  pt: "Escolha um mapa"
+  pt-pt: "Escolha um mapa"
 "Choose another weather":
   fr: "Choisir une autre météo"
   zh-tw: "選擇其他天氣"
 
+  pt: "Escolher outro clima"
+  pt-pt: "Escolher outra meteorologia"
 "Choose the bus":
   fr: "Choisir le bus"
   zh-tw: "選擇巴士"
 
+  pt: "Escolha o ônibus"
+  pt-pt: "Escolha o autocarro"
 "Choose the livery":
   fr: "Choisir la livrée"
   zh-tw: "選擇塗裝"
 
+  pt: "Escolha a pintura"
+  pt-pt: "Escolha a pintura"
 "Choose the map":
   fr: "Choisir la carte"
   zh-tw: "選擇地圖"
 
+  pt: "Escolha o mapa"
+  pt-pt: "Escolha o mapa"
 "Choose the tour":
   fr: "Choisir le service"
   zh-tw: "選擇班次"
 
+  pt: "Escolha a escala"
+  pt-pt: "Escolha a escala"
 "Current weather (METAR)":
   fr: "Météo actuelle (METAR)"
   zh-tw: "目前天氣（METAR）"
 
+  pt: "Clima atual (METAR)"
+  pt-pt: "Meteorologia atual (METAR)"
 "Games running and their logs":
   fr: "Parties en cours et leurs journaux"
   zh-tw: "正在運行的遊戲及其日誌"
 
+  pt: "Jogos em execução e seus logs"
+  pt-pt: "Jogos em execução e os seus registos"
 "Graphics, sound, gameplay":
   fr: "Graphismes, son, jouabilité"
   zh-tw: "圖形、聲音、遊戲玩法"
 
+  pt: "Gráficos, som e jogabilidade"
+  pt-pt: "Gráficos, som e jogabilidade"
 "How fast the view turns when looking round with the mouse (100% is OMSI's)":
   zh-tw: "使用滑鼠環視時視圖轉動的速度有多快（100% 是 OMSI 的）"
 
+  pt: "Velocidade com que a visão gira ao olhar ao redor com o mouse (100% é o valor do OMSI)"
+  pt-pt: "Velocidade com que a vista gira ao olhar em redor com o rato (100% é o valor do OMSI)"
 "How passengers get their tickets":
   zh-tw: "乘客如何取票"
 
+  pt: "Como os passageiros compram seus bilhetes"
+  pt-pt: "Como os passageiros obtêm os seus bilhetes"
 "Learn to drive the buses":
   fr: "Apprendre à conduire les bus"
   zh-tw: "學習駕駛巴士"
 
+  pt: "Aprenda a dirigir os ônibus"
+  pt-pt: "Aprenda a conduzir os autocarros"
 "Left screen angle":
   zh-tw: "左螢幕角度"
 
+  pt: "Ângulo da tela esquerda"
+  pt-pt: "Ângulo do ecrã esquerdo"
 "Line or free drive":
   fr: "Ligne ou conduite libre"
   zh-tw: "路線或自由駕駛"
 
+  pt: "Linha ou direção livre"
+  pt-pt: "Linha ou condução livre"
 "Looking for the server…":
   fr: "Recherche du serveur…"
   zh-tw: "正在尋找伺服器…"
 
+  pt: "Procurando o servidor…"
+  pt-pt: "À procura do servidor…"
 "Name":
   fr: "Nom"
   zh-tw: "名稱"
 
+  pt: "Nome"
+  pt-pt: "Nome"
 "No timetable: drive where you like, the buses and traffic about you":
   fr: "Sans horaire : roulez où vous voulez, avec les bus et la circulation autour de vous"
   zh-tw: "沒有時刻表：隨你喜歡駕駛，周圍有 AI 巴士和交通"
 
+  pt: "Sem tabela horária: dirija por onde quiser, com ônibus e trânsito ao seu redor"
+  pt-pt: "Sem horário: conduza por onde quiser, com autocarros e trânsito à sua volta"
 "Online":
   fr: "En ligne"
   zh-tw: "線上"
 
+  pt: "Online"
+  pt-pt: "Online"
 "Options":
   zh-tw: "選項"
 
+  pt: "Opções"
+  pt-pt: "Opções"
 "Overcast":
   zh-tw: "陰天"
 
+  pt: "Encoberto"
+  pt-pt: "Encoberto"
 "Overcast 1":
   zh-tw: "陰天 1"
 
+  pt: "Encoberto 1"
+  pt-pt: "Encoberto 1"
 "Place a vehicle":
   zh-tw: "放置車輛"
 
+  pt: "Colocar um veículo"
+  pt-pt: "Colocar um veículo"
 "Place a vehicle of your choice":
   zh-tw: "放置你選擇的車輛"
 
+  pt: "Colocar um veículo à sua escolha"
+  pt-pt: "Colocar um veículo à sua escolha"
 "Play":
   fr: "Jouer"
   zh-tw: "遊玩"
 
+  pt: "Jogar"
+  pt-pt: "Jogar"
 "Remove server":
   fr: "Retirer le serveur"
   zh-tw: "移除伺服器"
 
+  pt: "Remover servidor"
+  pt-pt: "Remover servidor"
 "The METAR is fetched when the game starts.":
   fr: "Le METAR est récupéré au lancement du jeu."
   zh-tw: "遊戲開始時會取得 METAR 數據。"
 
+  pt: "O METAR é consultado quando o jogo inicia."
+  pt-pt: "O METAR é consultado quando o jogo inicia."
 "The OMSI 2 folder and content":
   fr: "Le dossier OMSI 2 et le contenu"
   zh-tw: "OMSI 2 資料夾和內容"
 
+  pt: "A pasta do OMSI 2 e o conteúdo"
+  pt-pt: "A pasta do OMSI 2 e os conteúdos"
 "The map's lines and trips":
   fr: "Les lignes et courses de la carte"
   zh-tw: "地圖上的線路和行程"
 
+  pt: "As linhas e viagens do mapa"
+  pt-pt: "As linhas e viagens do mapa"
 "The map's weather":
   fr: "La météo de la carte"
   zh-tw: "地圖天氣"
 
+  pt: "O clima do mapa"
+  pt-pt: "A meteorologia do mapa"
 "Time and weather":
   fr: "Heure et météo"
   zh-tw: "時間與天氣"
 
+  pt: "Hora e clima"
+  pt-pt: "Hora e meteorologia"
 "Touch, wheels and gamepads":
   fr: "Tactile, volants et manettes"
   zh-tw: "觸摸、方向盤和遊戲手柄"
 
+  pt: "Toque, volantes e gamepads"
+  pt-pt: "Toque, volantes e comandos"
 "Traffic and people":
   zh-tw: "交通與乘客"
 
+  pt: "Trânsito e pessoas"
+  pt-pt: "Trânsito e pessoas"
 "Treat the road surface as snow-covered.":
   zh-tw: "將路面視為積雪。"
 
+  pt: "Tratar a superfície da pista como coberta de neve."
+  pt-pt: "Tratar a superfície da estrada como coberta de neve."
 "Visibility, wind, temperature, rain, snow and road state":
   fr: "Visibilité, vent, température, pluie, neige et état de la route"
   zh-tw: "能見度、風、溫度、雨、雪與路況"
 
+  pt: "Visibilidade, vento, temperatura, chuva, neve e estado da pista"
+  pt-pt: "Visibilidade, vento, temperatura, chuva, neve e estado da estrada"
 "Your driver, level and records":
   fr: "Votre conducteur, son niveau et ses records"
   zh-tw: "你的駕駛員、等級與紀錄"
 
+  pt: "Seu motorista, nível e recordes"
+  pt-pt: "O seu condutor, nível e recordes"
 "VR":
   zh-tw: "VR"
 
+  pt: "VR"
+  pt-pt: "VR"
 "A right click ends the mouse steering":
   zh-tw: "按一下滑鼠右鍵即可停止滑鼠轉向"
 
+  pt: "Um clique com o botão direito encerra a direção pelo mouse"
+  pt-pt: "Um clique com o botão direito termina a direção pelo rato"
 "Natural weather":
   pt: "Clima natural"
   pt-pt: "Tempo natural"
@@ -23619,44 +24109,72 @@ _version: 2
 "Update":
   ru: "Обновить"
 
+  pt: "Atualizar"
+  pt-pt: "Atualizar"
 "Download":
   ru: "Скачать"
 
+  pt: "Baixar"
+  pt-pt: "Transferir"
 "Downloading the server's content:":
   ru: "Загрузка контента сервера:"
 
+  pt: "Baixando o conteúdo do servidor:"
+  pt-pt: "A transferir o conteúdo do servidor:"
 "Downloading the server's content…":
   ru: "Загрузка контента сервера…"
 
+  pt: "Baixando o conteúdo do servidor…"
+  pt-pt: "A transferir o conteúdo do servidor…"
 "Changed on the server:":
   ru: "Изменилось на сервере:"
 
+  pt: "Alterados no servidor:"
+  pt-pt: "Alterados no servidor:"
 "Server files missing:":
   ru: "Не хватает файлов сервера:"
 
+  pt: "Arquivos do servidor ausentes:"
+  pt-pt: "Ficheiros do servidor em falta:"
 "with its map":
   ru: "вместе с картой"
 
+  pt: "incluindo o mapa"
+  pt-pt: "incluindo o mapa"
 "Server buses missing:":
   ru: "Не установлены автобусы сервера:"
 
+  pt: "Ônibus do servidor ausentes:"
+  pt-pt: "Autocarros do servidor em falta:"
 "The server's map is not installed":
   ru: "Карта сервера не установлена"
 
+  pt: "O mapa do servidor não está instalado"
+  pt-pt: "O mapa do servidor não está instalado"
 "The server's content is installed":
   ru: "Контент сервера установлен"
 
+  pt: "O conteúdo do servidor está instalado"
+  pt-pt: "O conteúdo do servidor está instalado"
 "The download failed:":
   ru: "Загрузка не удалась:"
 
+  pt: "Falha no download:"
+  pt-pt: "A transferência falhou:"
 "Download it from the server: it is installed as a mod you can remove under Mods, and kept up to date with the server.":
   ru: "Скачайте его с сервера: он установится как мод (его можно удалить в разделе «Моды») и будет обновляться вместе с сервером."
 
+  pt: "Baixe do servidor: ele será instalado como um mod que você pode remover em Mods e será mantido atualizado com o servidor."
+  pt-pt: "Transfira-o do servidor: será instalado como um mod que pode remover em Mods e será mantido atualizado com o servidor."
 "This server allows only its own buses: choose one of them (or download them on the Bus step).":
   ru: "На этом сервере можно ездить только на его автобусах: выберите один из них (или скачайте их на шаге «Автобус»)."
 
+  pt: "Este servidor permite apenas os próprios ônibus: escolha um deles (ou baixe-os na etapa Ônibus)."
+  pt-pt: "Este servidor permite apenas os seus próprios autocarros: escolha um deles (ou transfira-os no passo Autocarro)."
 "The server has not answered yet: try again in a moment.":
   ru: "Сервер ещё не ответил: попробуйте через минуту."
+  pt: "O servidor ainda não respondeu: tente novamente em instantes."
+  pt-pt: "O servidor ainda não respondeu: tente novamente dentro de instantes."
 "Disconnected from the server":
   ru: "Отключено от сервера"
   de: "Vom Server getrennt"
