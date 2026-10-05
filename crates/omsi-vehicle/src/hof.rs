@@ -14,6 +14,39 @@ pub struct Terminus {
     pub strings: Vec<String>,
 }
 
+impl Terminus {
+    /// Name used for destination text while preserving the original HOF string indices.
+    pub fn display_name(&self) -> String {
+        let first = self.strings.iter().find(|s| !s.trim().is_empty()).map(String::as_str);
+        if first.is_some_and(|s| is_destination_image_path(s)) {
+            return self.texture_id.trim().to_string();
+        }
+        first.map(str::trim).filter(|s| !s.is_empty()).unwrap_or_else(|| self.texture_id.trim()).to_string()
+    }
+
+    /// Name used by the destination menu: the identifier on the second `[addterminus]` line.
+    pub fn menu_name(&self) -> String {
+        let first = self.strings.iter().find(|s| !s.trim().is_empty()).map(String::as_str).unwrap_or("").trim();
+        if !first.is_empty() && (first.eq_ignore_ascii_case("no") || is_destination_image_path(first) || has_route_label(&self.texture_id)) {
+            let id = self.texture_id.trim();
+            if !id.is_empty() {
+                return id.to_string();
+            }
+        }
+        self.display_name()
+    }
+}
+
+fn is_destination_image_path(s: &str) -> bool {
+    let s = s.trim().to_ascii_lowercase();
+    s.ends_with(".bmp") || s.ends_with(".tga") || s.ends_with(".png")
+}
+
+fn has_route_label(s: &str) -> bool {
+    let Some((prefix, _)) = s.trim().split_once(':') else { return false };
+    !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit() || c.is_ascii_alphabetic())
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BusStop {
     pub ident: String,
@@ -111,7 +144,7 @@ impl Hof {
                     let code = r.i32();
                     let texture_id = r.str().to_string();
                     let terminus_stop = if all_exit { None } else { Some(texture_id.clone()) };
-                    let strings = (0..h.string_count_terminus).map(|_| r.str().to_string()).collect();
+                    let strings: Vec<String> = (0..h.string_count_terminus).map(|_| r.str().to_string()).collect();
                     h.termini.push(Terminus { code, texture_id, terminus_stop, all_exit, strings });
                 }
                 "addterminus_list" => {
@@ -377,6 +410,30 @@ mod tests {
         assert_eq!(h.termini[1].terminus_stop.as_deref(), Some("U Ruhleben"));
         assert_eq!(h.termini[1].strings, vec!["RUHLEBEN", "U-BAHNHOF", "RUHLEBEN  "]);
         assert_eq!(h.terminus_by_code(282).map(|t| t.texture_id.as_str()), Some("U Ruhleben"));
+    }
+
+    #[test]
+    fn legacy_hof_destination_name_falls_back_to_ident() {
+        let text = "stringcount_terminus\n6\n[addterminus]\n71910\n71 Eden Tunnel\n\n\n\n\nLegacyRoute\\71Y_1.bmp\n71Y\n";
+        let h = Hof::parse(&CfgFile::from_str("legacy.hof", text));
+        let t = h.terminus_by_code(71910).unwrap();
+        assert_eq!(t.strings[0], "");
+        assert_eq!(t.strings[4], "LegacyRoute\\71Y_1.bmp");
+        assert_eq!(t.strings[5], "71Y");
+        assert_eq!(t.display_name(), "71 Eden Tunnel");
+        assert_eq!(t.menu_name(), "71 Eden Tunnel");
+    }
+
+    #[test]
+    fn normal_hof_menu_name_keeps_display_text() {
+        let t = Terminus { texture_id: "910".into(), strings: vec!["AEC".into()], ..Default::default() };
+        assert_eq!(t.menu_name(), "AEC");
+    }
+
+    #[test]
+    fn route_label_menu_name_uses_the_ident() {
+        let t = Terminus { texture_id: "66: South Valley Railway Station Circular".into(), strings: vec!["S.VALLEY STN CIR".into()], ..Default::default() };
+        assert_eq!(t.menu_name(), "66: South Valley Railway Station Circular");
     }
 
     /// #667: a trip without a stop list (an IVU data route) keeps the lists of the trips
