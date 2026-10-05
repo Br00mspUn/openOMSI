@@ -4,6 +4,12 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1554 - 2026-10-05
+
+### Fixes
+- Enhanced+ ray tracing works on Windows and Linux again (RTX and RDNA 2 cards and newer, Direct3D 12 and Vulkan), not only on Apple silicon: on Direct3D 12 its shaders were refused by the shader compiler, so every frame was thrown away and the picture stood still on the loading screen. Cut-out leaves and fences also cast their full traced shadows on Vulkan and Direct3D 12 now.
+- Should a graphics driver refuse the ray tracing all the same, Enhanced+ falls back to Enhanced instead of freezing.
+
 ## 0.1.1553 - 2026-10-05
 
 ### Fixes

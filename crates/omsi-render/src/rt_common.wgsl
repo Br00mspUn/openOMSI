@@ -57,8 +57,11 @@ const MASK_SHADOW: u32 = 0x01u;
 const MASK_SEEN: u32 = 0x06u;
 // see-through panes (their shadow: part of the sun gets through)
 const MASK_GLASS: u32 = 0x08u;
-const RAY_FLAG_FORCE_OPAQUE: u32 = 0x01u;
-const RAY_FLAG_TERMINATE_ON_FIRST_HIT: u32 = 0x04u;
+// Ray flags. (Not called RAY_FLAG_*: Direct3D's HLSL has those names built in, and naga
+// writes the constants out under their own names - DXC refused the redefinition, the ray
+// tracing's pipelines were never made on Windows, and every frame was thrown away.)
+const RT_FORCE_OPAQUE: u32 = 0x01u;
+const RT_FIRST_HIT: u32 = 0x04u;
 const PI: f32 = 3.14159265;
 
 fn world_pos(uv: vec2<f32>, depth: f32) -> vec3<f32> {
@@ -144,6 +147,17 @@ struct Hit {
     tries: u32,
 };
 
+// One ray query from `start` to `tmax`: its committed intersection. A function of its own,
+// called for every ray: naga's Vulkan and Direct3D 12 code keeps a query's initialization
+// tracker per function, not per loop iteration, and a query started again in a loop after
+// a miss was never traced again there (each later try came back empty).
+fn ray_hit(flags: u32, mask: u32, start: f32, tmax: f32, o: vec3<f32>, d: vec3<f32>) -> RayIntersection {
+    var rq: ray_query;
+    rayQueryInitialize(&rq, acc, RayDesc(flags, mask, start, tmax, o, d));
+    rayQueryProceed(&rq);
+    return rayQueryGetCommittedIntersection(&rq);
+}
+
 // The first hit along a ray within `tmax` (t < 0: none). An alpha-tested hit stops the ray by
 // its coverage's chance; else the ray goes on past it (Metal's ray queries take no any-hit
 // test of their own: the query is started again from there).
@@ -153,10 +167,7 @@ fn trace(o: vec3<f32>, d: vec3<f32>, tmax: f32, mask: u32, seed: vec3<u32>, soli
     out.t = -1.0;
     for (var i = 0u; i < 6u; i++) {
         out.tries = i + 1u;
-        var rq: ray_query;
-        rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_FORCE_OPAQUE, mask, start, tmax, o, d));
-        rayQueryProceed(&rq);
-        let h = rayQueryGetCommittedIntersection(&rq);
+        let h = ray_hit(RT_FORCE_OPAQUE, mask, start, tmax, o, d);
         if (h.kind == RAY_QUERY_INTERSECTION_NONE) {
             return out;
         }
