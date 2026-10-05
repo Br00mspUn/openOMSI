@@ -1162,11 +1162,22 @@ pub fn start(args: &Args) -> Option<LanSession> {
 pub fn share_mods(args: &mut Args, lan: &mut LanSession) {
     match lan.role {
         Role::Host => {
+            if args.no_lan_share_mods {
+                log::info!("LAN mods: sharing switched off by the host");
+                return;
+            }
             if let Some(port) = lan.local_addr().map(|a| a.port()) {
                 crate::lan_mods::serve(port, lan.session, args);
             }
         }
         Role::Client => {
+            if args.no_lan_download_mods {
+                lan.warnings.retain(|w| !w.starts_with("Host's mods"));
+                lan.warnings.push("Host's mods: downloads disabled; playing with what is installed here".into());
+                write_status(lan, &Default::default(), None);
+                log::info!("LAN mods: downloads switched off by this client");
+                return;
+            }
             let Some(mut host) = lan.host.filter(|_| lan.welcome.is_some()) else {
                 log::info!("LAN mods: no host to ask yet (its mods are not fetched)");
                 return;

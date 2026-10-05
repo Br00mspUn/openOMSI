@@ -48,7 +48,7 @@ pub fn draw(l: &mut Launcher, area: Rect) {
 fn by_code(l: &mut Launcher, r: Rect) {
     let col = (r.w - 24.0) / 2.0;
     // host
-    let host = Rect::new(r.x, r.y, col, 300.0);
+    let host = Rect::new(r.x, r.y, col, 360.0);
     l.ui.panel(host);
     let mut y = host.y + 18.0;
     l.ui.heading(Rect::new(host.x + 18.0, y, host.w - 36.0, 28.0), "Host a game", Some("wifi_tethering"));
@@ -67,7 +67,13 @@ fn by_code(l: &mut Launcher, r: Rect) {
             std::thread::spawn(omsi_net::tunnel::ensure_cloudflared);
         }
     }
-    y += 44.0;
+    y += 40.0;
+    let mut share_mods = l.state.choice.lan_share_mods;
+    if l.ui.toggle("mp-share-mods", Rect::new(host.x + 18.0, y, host.w - 36.0, 32.0), &mut share_mods, "Share session mods with players") {
+        l.state.choice.lan_share_mods = share_mods;
+        l.state.touched();
+    }
+    y += 40.0;
     // the running session's code, when there is one
     let session = l.state.instances.iter().filter(|i| i.running).filter_map(|i| i.lan_status.clone()).find(|s| s.get("role").and_then(Value::as_str) == Some("host"));
     match session {
@@ -100,7 +106,7 @@ fn by_code(l: &mut Launcher, r: Rect) {
         l.go(super::Page::Drive);
     }
     // join
-    let join = Rect::new(r.x + col + 24.0, r.y, col, 300.0);
+    let join = Rect::new(r.x + col + 24.0, r.y, col, 360.0);
     l.ui.panel(join);
     let mut y = join.y + 18.0;
     l.ui.heading(Rect::new(join.x + 18.0, y, join.w - 36.0, 28.0), "Connect by Code", Some("link"));
@@ -115,6 +121,12 @@ fn by_code(l: &mut Launcher, r: Rect) {
         l.state.touched();
     }
     y += ROW + 8.0;
+    let mut download_mods = l.state.choice.lan_download_mods;
+    if l.ui.toggle("mp-download-mods", Rect::new(join.x + 18.0, y, join.w - 36.0, 32.0), &mut download_mods, "Download missing mods from host") {
+        l.state.choice.lan_download_mods = download_mods;
+        l.state.touched();
+    }
+    y += 40.0;
     if l.state.choice.lan_mode == "join" && l.state.joined_server.is_none() {
         l.state.check_join();
         let (ok, text) = l.state.join.clone();

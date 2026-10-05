@@ -2300,6 +2300,10 @@ pub struct Duty {
     pub lan: Option<String>,
     /// The name the other LAN players see (default: the profile).
     pub lan_name: Option<String>,
+    /// Whether a LAN host offers its non-stock session content to joiners (default: true).
+    pub lan_share_mods: Option<bool>,
+    /// Whether a joining client downloads missing non-stock content from the host (default: true).
+    pub lan_download_mods: Option<bool>,
     /// Season override: spring / summer / autumn / winter (empty = by date).
     pub season: Option<String>,
     /// One of OMSI's tutorials (1..4): its own situation, nothing else of the duty.
@@ -2490,10 +2494,16 @@ pub fn duty_args(d: &Duty) -> Result<Vec<String>> {
         if lan.eq_ignore_ascii_case("host") {
             // 0: the default port, or the next free one when a session runs here already
             a.extend(["--lan-host".into(), "0".into()]);
+            if !d.lan_share_mods.unwrap_or(true) {
+                a.push("--no-lan-share-mods".into());
+            }
         } else if let Some(target) = lan.strip_prefix("join:") {
             let target = target.trim();
             omsi_net::describe_join(target).map_err(|e| anyhow!("LAN join: {e}"))?;
             a.extend(["--lan-join".into(), if target.is_empty() { "auto".into() } else { target.to_string() }]);
+            if !d.lan_download_mods.unwrap_or(true) {
+                a.push("--no-lan-download-mods".into());
+            }
         } else {
             return Err(anyhow!("LAN play: '{lan}' is neither host nor join:<code or address>"));
         }
