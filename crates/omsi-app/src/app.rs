@@ -1004,17 +1004,23 @@ impl App {
             Some(Instant::now() + std::time::Duration::from_millis(2)),
         );
         w.update_texture_budget(r, scene, &centers, false);
-        if centers.is_empty()
-            || !streamer.update(
+        if centers.is_empty() {
+            return;
+        }
+        let changed = streamer.update(
             r,
             scene,
             &centers,
             std::time::Duration::from_millis(6),
             self.audio.as_ref(),
-        )
-        {
+        );
+        // Uploads can temporarily exceed the texture budget before the next frame's
+        // housekeeping pass. Recheck immediately after streaming so far textures are
+        // reduced before the renderer allocates more frame resources.
+        if !changed {
             return;
         }
+        w.update_texture_budget(r, scene, &centers, true);
         if let Some(p) = self.player.as_mut() {
             // (OMSI's [no_collision]: no solid object stops the bus)
             p.vehicle.collision = self.settings.collision_objects.then(|| w.collision.lock().clone());

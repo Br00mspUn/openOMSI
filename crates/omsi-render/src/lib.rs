@@ -7483,6 +7483,17 @@ impl Renderer {
             self.options.msaa,
             self.adapter_name
         );
+        // Release render targets before building their single-sample replacements. Keeping
+        // the old targets alive while the new renderer is built can turn a recoverable OOM
+        // into another allocation failure.
+        self.depth = None;
+        self.msaa_targets.clear();
+        self.ao = None;
+        self.hdr_targets.clear();
+        self.scale_targets.clear();
+        self.triple_targets = None;
+        self.glass_picture = None;
+        self.target_use.clear();
         let options = RenderOptions {
             msaa: 1,
             ..self.options
