@@ -4,6 +4,16 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1707 - 2026-10-05
+
+### Merged pull requests
+- Headlamps in Enhanced and Enhanced+ light the road as real ones do: evenly from the bumper on, wide, with a low beam's cut-off, instead of one bright pool where the lamp's axis meets the road; lamps pointing down (over a door) keep their cone [#1522](https://github.com/openOMSI-Project/openOMSI/pull/1522).
+- Performance: meshes share pages of vertex and index buffers, about a third less drawing work on the CPU; Enhanced+ keeps one ray tracing structure per mesh in its page [#1340](https://github.com/openOMSI-Project/openOMSI/pull/1340).
+- Catalan as an interface language [#1521](https://github.com/openOMSI-Project/openOMSI/pull/1521); Portuguese (Brazil and Portugal) complete again [#1501](https://github.com/openOMSI-Project/openOMSI/pull/1501).
+- Launcher: buttons that set the start to the current time and date [#1517](https://github.com/openOMSI-Project/openOMSI/pull/1517); no automatic update from a server while downloading missing mods is off [#1511](https://github.com/openOMSI-Project/openOMSI/pull/1511).
+- The personnel file stores late arrivals before early departures, as OMSI 2 does: the counts no longer swap between the two games [#1499](https://github.com/openOMSI-Project/openOMSI/pull/1499).
+- Dependency updates [#1510](https://github.com/openOMSI-Project/openOMSI/pull/1510) [#1509](https://github.com/openOMSI-Project/openOMSI/pull/1509) [#1508](https://github.com/openOMSI-Project/openOMSI/pull/1508) [#1507](https://github.com/openOMSI-Project/openOMSI/pull/1507) [#1506](https://github.com/openOMSI-Project/openOMSI/pull/1506); a plugin DLL that does not load says the system's reason again.
+
 ## 0.1.1674 - 2026-10-05
 
 ### Merged pull requests
