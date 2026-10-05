@@ -1170,6 +1170,14 @@ pub struct Scene {
     origin_moved: bool,
     cache_bounds: bool,
     bounds_meshes: Vec<bool>,
+    /// The meshes ever reshaped (skinned), and the instances drawing one of them, so that a
+    /// new pose rescans those instead of the whole scene; stale when an instance's mesh changes.
+    bounds_known: Vec<bool>,
+    bounds_users: Vec<usize>,
+    bounds_users_stale: bool,
+    /// A mesh slot was freed or taken by another mesh: its instances' bounds are redone once
+    /// by a scan of the whole scene, without counting the slot as reshaped.
+    bounds_rescan: bool,
     block_bounds: Vec<(DVec3, DVec3)>,
     block_dirty: Vec<bool>,
     block_cursor: usize,
@@ -4522,6 +4530,10 @@ impl Renderer {
             origin_moved: false,
             cache_bounds: omsi_cfg::env::var_os("OMSI_NO_BOUNDS_CACHE").is_none(),
             bounds_meshes: Vec::new(),
+            bounds_known: Vec::new(),
+            bounds_users: Vec::new(),
+            bounds_users_stale: true,
+            bounds_rescan: false,
             bounds_dirty: false,
             block_bounds: Vec::new(),
             block_dirty: Vec::new(),
@@ -4543,6 +4555,7 @@ impl Renderer {
     pub fn set_instance_mesh(&self, scene: &mut Scene, instance: usize, mesh: MeshId) {
         if scene.instances[instance].mesh != mesh {
             scene.instances[instance].mesh = mesh;
+            scene.bounds_users_stale = true;
             Self::mark_changed(scene, instance);
         }
     }
@@ -5961,6 +5974,9 @@ impl Renderer {
             casts_shadow: true,
             roof: None,
         });
+        if scene.bounds_known.get(mesh).copied().unwrap_or(false) {
+            scene.bounds_users.push(scene.instances.len() - 1);
+        }
         scene.instances.len() - 1
     }
 
@@ -6012,6 +6028,9 @@ impl Renderer {
             casts_shadow: false,
             roof: None,
         });
+        if scene.bounds_known.get(mesh).copied().unwrap_or(false) {
+            scene.bounds_users.push(scene.instances.len() - 1);
+        }
         scene.instances.len() - 1
     }
 
@@ -6243,6 +6262,23 @@ impl Renderer {
         scene.bounds_meshes.resize(scene.meshes.len(), false);
         scene.bounds_meshes[mesh] = true;
         scene.bounds_dirty = true;
+        scene.bounds_known.resize(scene.meshes.len(), false);
+        if !scene.bounds_known[mesh] {
+            scene.bounds_known[mesh] = true;
+            scene.bounds_users_stale = true;
+        }
+    }
+
+    /// Slot `mesh` holds another mesh now (freed, or recycled): no longer a reshaped one.
+    fn mesh_slot_replaced(scene: &mut Scene, mesh: MeshId) {
+        scene.bounds_meshes.resize(scene.meshes.len(), false);
+        scene.bounds_meshes[mesh] = true;
+        scene.bounds_dirty = true;
+        scene.bounds_rescan = true;
+        if scene.bounds_known.get(mesh).copied().unwrap_or(false) {
+            scene.bounds_known[mesh] = false;
+            scene.bounds_users_stale = true;
+        }
     }
 
     fn prepare_bounds(scene: &mut Scene) {
@@ -6277,7 +6313,20 @@ impl Renderer {
             if scene.bounds_dirty {
                 // Skinning can alter a shared mesh without changing any model matrix.
                 // Scan once per pose update, rather than once per shadow/mirror view.
-                for (k, i) in scene.instances.iter_mut().enumerate() {
+                if scene.bounds_users_stale {
+                    let known = &scene.bounds_known;
+                    scene.bounds_users = (0..scene.instances.len()).filter(|&k| known.get(scene.instances[k].mesh).copied().unwrap_or(false)).collect();
+                    scene.bounds_users_stale = false;
+                }
+                let all: Vec<usize>;
+                let scan: &[usize] = if std::mem::take(&mut scene.bounds_rescan) {
+                    all = (0..scene.instances.len()).collect();
+                    &all
+                } else {
+                    &scene.bounds_users
+                };
+                for &k in scan {
+                    let Some(i) = scene.instances.get_mut(k) else { continue };
                     if scene.bounds_meshes.get(i.mesh).copied().unwrap_or(false) {
                         i.bounds = InstanceBounds::new(&scene.meshes[i.mesh], i.transform);
                         grow(&mut scene.block_bounds[k / CULL_BLOCK], i);
@@ -9285,6 +9334,7 @@ impl Renderer {
             let mut c = self.counts.borrow_mut();
             *c.entry("scene instances").or_default() += scene.instances.len() as f64;
             *c.entry("visible instances").or_default() += visible.len() as f64;
+            *c.entry("bounds users").or_default() += scene.bounds_users.len() as f64;
             *c.entry("main draws").or_default() += (main_draws[0] + main_draws[1]) as f64;
             *c.entry("opaque draws").or_default() += main_draws[0] as f64;
             *c.entry("blended draws").or_default() += main_draws[1] as f64;
@@ -12019,7 +12069,7 @@ impl Renderer {
         m.ranges.clear();
         m.bounds_center = Vec3::ZERO;
         m.bounds_radius = 0.0;
-        Self::mesh_bounds_changed(scene, id);
+        Self::mesh_slot_replaced(scene, id);
     }
 
     /// Release a texture (a material still using it keeps it alive until it is freed too).
@@ -12103,11 +12153,13 @@ impl Renderer {
             }
         }
         cut(&mut scene.meshes, meshes);
+        scene.bounds_known.truncate(meshes);
         cut(&mut scene.textures, textures);
         cut(&mut scene.materials, materials);
         // hidden (freed) instances may still name a cut mesh or material: slot 0 instead,
         // they are not drawn and whoever takes them over sets their own
         let (nm, nt) = (scene.meshes.len(), scene.materials.len());
+        scene.bounds_users_stale = true;
         for inst in scene.instances.iter_mut() {
             if inst.mesh >= nm {
                 debug_assert!(!inst.visible, "a drawn instance lost its mesh");
@@ -12135,7 +12187,7 @@ impl Renderer {
         }
         let m = scene.meshes.pop().unwrap();
         scene.meshes[into] = m;
-        Self::mesh_bounds_changed(scene, into);
+        Self::mesh_slot_replaced(scene, into);
         into
     }
 
@@ -12175,6 +12227,7 @@ impl Renderer {
         let mut inst = scene.instances.pop().unwrap();
         inst.base = scene.instances[into].base;
         scene.instances[into] = inst;
+        scene.bounds_users_stale = true;
         Self::mark_changed(scene, into);
         into
     }
@@ -12587,6 +12640,44 @@ mod tests {
 
     #[test]
     #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
+    fn a_reshaped_mesh_moves_the_bounds_of_every_instance_drawing_it() {
+        let adapter = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let renderer = pollster::block_on(Renderer::new_with(
+            &adapter, None, Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            RenderOptions { msaa: 1, shadow_size: 1024, ..Default::default() },
+        )).expect("test renderer");
+        let mut scene = renderer.new_scene();
+        scene.cache_bounds = true;
+        let material = renderer.add_material(&mut scene, None, AlphaMode::Opaque, [1.0; 4], true);
+        let data = MeshData {
+            positions: vec![Vec3::ZERO, Vec3::X, Vec3::Y],
+            normals: vec![Vec3::Z; 3], uvs: vec![glam::Vec2::ZERO; 3],
+            indices: vec![0, 1, 2], ranges: vec![(0, 3, 0)], ..Default::default()
+        };
+        let (skinned, plain) = (renderer.add_mesh(&mut scene, &data), renderer.add_mesh(&mut scene, &data));
+        let mut add = |scene: &mut Scene, mesh, x: f64| renderer.add_instance(scene, mesh, DVec3::new(x, 0.0, 0.0), Mat4::IDENTITY, vec![material]);
+        let first = add(&mut scene, skinned, 0.0);
+        let others: Vec<usize> = (0..300).map(|k| add(&mut scene, plain, k as f64 * 10.0)).collect();
+        renderer.prepare(&mut scene);
+        let pose = |scale: f32| -> Vec<Vec3> { data.positions.iter().map(|p| *p * scale).collect() };
+        renderer.update_mesh(&mut scene, skinned, &pose(5.0), &data.normals, &data.uvs);
+        renderer.prepare(&mut scene);
+        // one added after the first pose, one switched to the skinned mesh
+        let late = add(&mut scene, skinned, 50.0);
+        renderer.set_instance_mesh(&mut scene, others[7], skinned);
+        renderer.prepare(&mut scene);
+        renderer.update_mesh(&mut scene, skinned, &pose(9.0), &data.normals, &data.uvs);
+        renderer.prepare(&mut scene);
+        let expected = InstanceBounds::new(&scene.meshes[skinned], Mat4::IDENTITY);
+        for i in [first, late, others[7]] {
+            assert_eq!(scene.instances[i].bounds.radius, expected.radius, "instance {i}");
+        }
+        assert_ne!(scene.instances[others[8]].bounds.radius, expected.radius);
+        assert!(scene.bounds_users.len() <= 4, "{} instances rescanned", scene.bounds_users.len());
+    }
+
+    #[test]
+    #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
     fn terrain_paint_fast_path_preserves_composition() {
         fn quad(
             renderer: &Renderer,
@@ -12780,6 +12871,43 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
+    fn a_freed_and_recycled_mesh_slot_is_no_longer_counted_as_reshaped() {
+        let adapter = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let renderer = pollster::block_on(Renderer::new_with(
+            &adapter, None, Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            RenderOptions { msaa: 1, shadow_size: 1024, ..Default::default() },
+        )).expect("test renderer");
+        let mut scene = renderer.new_scene();
+        scene.cache_bounds = true;
+        let material = renderer.add_material(&mut scene, None, AlphaMode::Opaque, [1.0; 4], true);
+        let data = MeshData {
+            positions: vec![Vec3::ZERO, Vec3::X, Vec3::Y],
+            normals: vec![Vec3::Z; 3], uvs: vec![glam::Vec2::ZERO; 3],
+            indices: vec![0, 1, 2], ranges: vec![(0, 3, 0)], ..Default::default()
+        };
+        let pose = |scale: f32| -> Vec<Vec3> { data.positions.iter().map(|p| *p * scale).collect() };
+        let (once_skinned, skinned) = (renderer.add_mesh(&mut scene, &data), renderer.add_mesh(&mut scene, &data));
+        let first = renderer.add_instance(&mut scene, skinned, DVec3::ZERO, Mat4::IDENTITY, vec![material]);
+        renderer.update_mesh(&mut scene, once_skinned, &pose(2.0), &data.normals, &data.uvs);
+        renderer.prepare(&mut scene);
+        // the slot is freed and taken by a plain mesh, which a whole tile then draws
+        renderer.free_mesh(&mut scene, once_skinned);
+        renderer.prepare(&mut scene);
+        let plain = renderer.add_mesh(&mut scene, &data);
+        assert_eq!(renderer.recycle_mesh(&mut scene, plain, once_skinned), once_skinned);
+        let tile: Vec<usize> = (0..200).map(|k| renderer.add_instance(&mut scene, once_skinned, DVec3::new(k as f64, 0.0, 0.0), Mat4::IDENTITY, vec![material])).collect();
+        renderer.prepare(&mut scene);
+        renderer.update_mesh(&mut scene, skinned, &pose(7.0), &data.normals, &data.uvs);
+        renderer.prepare(&mut scene);
+        assert!(scene.bounds_users.len() <= 2, "{} instances rescanned", scene.bounds_users.len());
+        let expected = InstanceBounds::new(&scene.meshes[skinned], Mat4::IDENTITY);
+        assert_eq!(scene.instances[first].bounds.radius, expected.radius);
+        let plain_bounds = InstanceBounds::new(&scene.meshes[once_skinned], Mat4::IDENTITY);
+        assert_eq!(scene.instances[tile[42]].bounds.radius, plain_bounds.radius);
     }
 
     #[test]
