@@ -1,41 +1,27 @@
 // Enhanced+: ray-traced lighting with hardware ray queries (rt.rs).
 //
-// Per pixel of the depth prepass, at full size: one ray towards a point of the sun's disc
-// (the sun shadow, its penumbra growing with the distance to the caster) and one ray into
-// the cosine-weighted hemisphere over the surface (ambient occlusion within a couple of
-// metres). The noisy single rays are accumulated over the frames along the camera's motion
-// (and the player's vehicle's: its cab moves with the camera) and filtered by depth.
-// Alpha-tested meshes (leaves, fences) are traced too: without a texture lookup at the hit
-// their texels' coverage is taken as the chance a ray is stopped there, so a crown of
-// leaves lets a dappled part of the light through.
+// Per pixel of the depth prepass, at full size, and the same every frame (nothing noisy that
+// needs frames to settle, so nothing that smears or crawls when the camera moves):
+// - the sun's shadow: one ray towards the sun, its edge as sharp as the geometry, softened
+//   over a pixel or two by the filter;
+// - ambient occlusion: two rays over the surface's hemisphere, their directions one of 32 of
+//   a fixed pattern that repeats every 4 x 4 pixels; the filter averages the pattern away
+//   over 5 x 5 pixels at the same depth.
 
-// the history (temporal pass), the filter's input (filter passes)
+// the filter's input: this frame's rays
 @group(0) @binding(5) var t_in: texture_2d<f32>;
-// this frame's raw rays (temporal pass)
 @group(0) @binding(6) var t_raw: texture_2d<f32>;
 @group(0) @binding(7) var t_out: texture_storage_2d<rgba16float, write>;
 
-// The untraced pixel beside a traced one: its depth, no rays (a = 0).
-fn store_other(q: vec2<i32>) {
-    if (f32(q.x) >= p.size.x) {
-        return;
-    }
-    let d = textureLoad(t_depth, q, 0);
-    textureStore(t_out, q, select(vec4<f32>(1.0, linear_depth(d), 1.0, 0.0), vec4<f32>(1.0, 0.0, 1.0, 0.0), d <= 0.0));
+// The k-th of n points of a Hammersley set.
+fn hammersley(k: u32, n: u32) -> vec2<f32> {
+    return vec2<f32>((f32(k) + 0.5) / f32(n), f32(reverseBits(k)) * 2.3283064e-10);
 }
 
-// (dispatched over half the width: each thread traces one pixel of the frame's half of a
-// checkerboard that alternates, so that every lane of the GPU has a ray to follow; the other
-// half takes its traced neighbours' rays, and the history fills in over two frames)
 @compute @workgroup_size(8, 8)
 fn cs_trace(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let row = i32(gid.y);
-    let px = vec2<i32>(i32(gid.x) * 2 + ((row + i32(p.eye.w)) & 1), row);
-    if (f32(px.y) >= p.size.y) {
-        return;
-    }
-    store_other(vec2<i32>(px.x ^ 1, row));
-    if (f32(px.x) >= p.size.x) {
+    let px = vec2<i32>(gid.xy);
+    if (f32(px.x) >= p.size.x || f32(px.y) >= p.size.y) {
         return;
     }
     let depth = textureLoad(t_depth, px, 0);
@@ -54,160 +40,82 @@ fn cs_trace(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     let n = depth_normal(px, world, depth);
-    let o = world + n * (0.015 + dist * 0.0012);
-    let fp = vec2<f32>(px);
-    let seed = vec3<u32>(gid.xy, u32(p.eye.w));
-    // --- the sun: a ray to a point of its disc
+    // (off the surface by more than its depth's precision and the normal's error)
+    let o = world + n * (0.03 + dist * 0.002);
+    // --- the sun (solid casters only: the cut-out ones are in the shadow map, see the main
+    // pass)
     var vis = 1.0;
     if (p.sun.w > 0.0) {
-        let a = noise(fp, 0.0) * 2.0 * PI;
-        let r = sqrt(noise(fp + vec2<f32>(13.0, 7.0), 1.0)) * p.sun.w;
-        let b = basis(p.sun.xyz);
-        let d = normalize(p.sun.xyz + b[0] * cos(a) * r + b[1] * sin(a) * r);
-        // (solid casters only, any of them: the cut-out ones are in the shadow map, see the
-        // main pass)
         var rq: ray_query;
-        rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_TERMINATE_ON_FIRST_HIT, MASK_SHADOW, 0.0, 2000.0, o, d));
+        rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_TERMINATE_ON_FIRST_HIT, MASK_SHADOW, 0.0, 2000.0, o, p.sun.xyz));
         rayQueryProceed(&rq);
-        let h = rayQueryGetCommittedIntersection(&rq);
-        vis = select(1.0, 0.0, h.kind != RAY_QUERY_INTERSECTION_NONE);
-    }
-    // --- the sky: a cosine-weighted ray over the surface, occluded within the AO radius
-    var ao = 1.0;
-    {
-        let u1 = noise(fp + vec2<f32>(5.0, 29.0), 2.0);
-        let u2 = noise(fp + vec2<f32>(31.0, 3.0), 3.0);
-        let rr = sqrt(u1);
-        let phi = 2.0 * PI * u2;
-        let d = basis(n) * vec3<f32>(rr * cos(phi), rr * sin(phi), sqrt(max(1.0 - u1, 0.0)));
-        let h = trace(o, d, p.proj.w, MASK_SEEN, seed + vec3<u32>(0u, 0u, 1u << 20u), false);
-        if (h.t >= 0.0) {
-            // (a hit at the far end of the radius takes away less than one right beside it)
-            ao = smoothstep(0.0, 1.0, h.t / p.proj.w) * 0.6;
+        vis = select(1.0, 0.0, rayQueryGetCommittedIntersection(&rq).kind != RAY_QUERY_INTERSECTION_NONE);
+        if (vis > 0.0) {
+            // through a bus's or a car's window: tinted glass lets only part of it in
+            var gq: ray_query;
+            rayQueryInitialize(&gq, acc, RayDesc(RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_TERMINATE_ON_FIRST_HIT, MASK_GLASS, 0.0, 200.0, o, p.sun.xyz));
+            rayQueryProceed(&gq);
+            vis = select(1.0, 0.35, rayQueryGetCommittedIntersection(&gq).kind != RAY_QUERY_INTERSECTION_NONE);
         }
     }
-    textureStore(t_out, px, vec4<f32>(ao, lin, vis, 1.0));
+    // --- the sky's occlusion
+    let cell = u32(px.x & 3) + u32(px.y & 3) * 4u;
+    let b = basis(n);
+    var ao = 0.0;
+    for (var j = 0u; j < 2u; j++) {
+        let u = hammersley(cell * 2u + j, 32u);
+        let rr = sqrt(u.x);
+        let phi = 2.0 * PI * u.y;
+        let d = b * vec3<f32>(rr * cos(phi), rr * sin(phi), sqrt(max(1.0 - u.x, 0.0)));
+        let h = trace(o, d, p.proj.w, MASK_SEEN, vec3<u32>(cell, j, 7u), false);
+        // (a hit at the far end of the radius takes away less than one right beside it)
+        ao += select(1.0, mix(0.35, 1.0, smoothstep(0.0, 1.0, h.t / p.proj.w)), h.t >= 0.0);
+    }
+    textureStore(t_out, px, vec4<f32>(ao * 0.5, lin, vis, 1.0));
 }
 
-// A point of the player's vehicle where it stood a frame ago: its cab moves with the camera.
-fn vehicle_prev(w: vec3<f32>) -> vec3<f32> {
-    if (p.vehicle_box.w < 0.5) {
-        return w;
-    }
-    let d = w - p.vehicle_now.xyz;
-    let c = cos(p.vehicle_now.w);
-    let s = sin(p.vehicle_now.w);
-    // into the vehicle's frame
-    let local = vec3<f32>(d.x * c + d.y * s, -d.x * s + d.y * c, d.z);
-    if (any(abs(local - p.vehicle_centre.xyz) > p.vehicle_box.xyz + vec3<f32>(0.3))) {
-        return w;
-    }
-    let c2 = cos(p.vehicle_prev.w);
-    let s2 = sin(p.vehicle_prev.w);
-    return p.vehicle_prev.xyz + vec3<f32>(local.x * c2 - local.y * s2, local.x * s2 + local.y * c2, local.z);
-}
-
-// A workgroup's pixels and a border round them, read once (the filter's neighbours).
+// A workgroup's pixels and a border of two round them, read once.
 var<workgroup> tile: array<vec4<f32>, 144>;
 
-fn load_tile(t: texture_2d<f32>, wid: vec2<u32>, li: u32, border: i32) -> vec2<i32> {
-    let side = 8 + 2 * border;
-    let origin = vec2<i32>(wid) * 8 - vec2<i32>(border);
+// The rays filtered at the pixel's own depth: the occlusion over 5 x 5 pixels (the whole
+// direction pattern), the sun's visibility over 3 x 3 (its edge kept to a pixel's softness).
+@compute @workgroup_size(8, 8)
+fn cs_denoise(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) li: u32) {
+    let origin = vec2<i32>(wid.xy) * 8 - vec2<i32>(2);
     let size = vec2<i32>(p.size.xy);
-    for (var k = i32(li); k < side * side; k += 64) {
-        let q = origin + vec2<i32>(k % side, k / side);
-        tile[k] = textureLoad(t, clamp(q, vec2<i32>(0), size - vec2<i32>(1)), 0);
+    for (var k = i32(li); k < 144; k += 64) {
+        let q = origin + vec2<i32>(k % 12, k / 12);
+        tile[k] = textureLoad(t_in, clamp(q, vec2<i32>(0), size - vec2<i32>(1)), 0);
     }
     workgroupBarrier();
-    return origin;
-}
-
-@compute @workgroup_size(8, 8)
-fn cs_temporal(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) li: u32) {
-    let origin = load_tile(t_raw, wid.xy, li, 2);
     let px = vec2<i32>(gid.xy);
     if (f32(px.x) >= p.size.x || f32(px.y) >= p.size.y) {
         return;
     }
     let lp = px - origin;
-    let raw = tile[lp.y * 12 + lp.x];
-    if (raw.g <= 0.0 || raw.b < 0.0) {
-        textureStore(t_out, px, vec4<f32>(raw.rgb, 1.0));
+    let c = tile[lp.y * 12 + lp.x];
+    if (c.g <= 0.0 || c.b < 0.0 || p.temporal.z == 7.0) {
+        textureStore(t_out, px, c);
         return;
     }
-    let size = vec2<i32>(p.size.xy);
-    // this frame's rays, filtered over 5 x 5 pixels at the pixel's depth (the other half of
-    // the checkerboard has none of its own), and the range the rays right round it span
-    var k = array<f32, 3>(0.375, 0.25, 0.0625);
-    var sum5 = vec2<f32>(0.0);
-    var w5 = 0.0;
-    var lo = vec2<f32>(2.0);
-    var hi = vec2<f32>(-1.0);
-    let near = 0.02 * raw.g + 0.05;
+    let tol = 0.012 * c.g + 0.02;
+    var ao = 0.0;
+    var aw = 0.0;
+    var sun = 0.0;
+    var sw = 0.0;
     for (var j = -2; j <= 2; j++) {
         for (var i = -2; i <= 2; i++) {
-            let r = tile[(lp.y + j) * 12 + lp.x + i];
-            if (r.a > 0.5 && r.b >= 0.0 && abs(r.g - raw.g) < near) {
-                let w = k[abs(i)] * k[abs(j)];
-                sum5 += r.rb * w;
-                w5 += w;
+            let s = tile[(lp.y + j) * 12 + lp.x + i];
+            if (s.g > 0.0 && s.b >= 0.0 && abs(s.g - c.g) < tol) {
+                ao += s.r;
+                aw += 1.0;
                 if (abs(i) <= 1 && abs(j) <= 1) {
-                    lo = min(lo, r.rb);
-                    hi = max(hi, r.rb);
+                    let w = select(0.5, 1.0, i == 0) * select(0.5, 1.0, j == 0);
+                    sun += s.b * w;
+                    sw += w;
                 }
             }
         }
     }
-    let have = w5 > 0.0;
-    var cur = select(raw.rb, sum5 / max(w5, 1e-6), have);
-    if (lo.x > hi.x) {
-        lo = cur;
-        hi = cur;
-    }
-    // the history where the point was a frame ago, from the taps at its depth only
-    var found = false;
-    var hist = vec4<f32>(0.0);
-    if (p.temporal.x > 0.5 && p.temporal.z != 7.0) {
-        let depth = textureLoad(t_depth, px, 0);
-        let uv = (vec2<f32>(px) + vec2<f32>(0.5)) * p.size.zw;
-        let world = vehicle_prev(world_pos(uv, depth));
-        let pc = p.prev_view_proj * vec4<f32>(world, 1.0);
-        let puv = vec2<f32>(pc.x / pc.w * 0.5 + 0.5, 0.5 - pc.y / pc.w * 0.5);
-        if (pc.w > 0.01 && all(puv >= vec2<f32>(0.0)) && all(puv <= vec2<f32>(1.0))) {
-            let q = puv * p.size.xy - vec2<f32>(0.5);
-            let base = vec2<i32>(floor(q));
-            let fr = q - floor(q);
-            let tol = 0.05 + 0.025 * pc.w;
-            var sum = vec4<f32>(0.0);
-            var wsum = 0.0;
-            for (var j = 0; j < 2; j++) {
-                for (var i = 0; i < 2; i++) {
-                    let c = clamp(base + vec2<i32>(i, j), vec2<i32>(0), size - vec2<i32>(1));
-                    let h = textureLoad(t_in, c, 0);
-                    let bw = select(1.0 - fr.x, fr.x, i == 1) * select(1.0 - fr.y, fr.y, j == 1);
-                    let w = bw * select(0.0, 1.0, abs(h.g - pc.w) < tol && h.b >= 0.0 && h.a > 0.0);
-                    sum += h * w;
-                    wsum += w;
-                }
-            }
-            if (wsum > 0.05) {
-                hist = sum / wsum;
-                found = true;
-            }
-        }
-    }
-    if (!found) {
-        textureStore(t_out, px, vec4<f32>(cur.x, raw.g, cur.y, select(0.0, 1.0, have)));
-        return;
-    }
-    if (!have) {
-        textureStore(t_out, px, vec4<f32>(hist.r, raw.g, hist.b, hist.a));
-        return;
-    }
-    // kept within what the rays around say now: a shadow that moved away leaves no ghost
-    let kept = clamp(hist.rb, lo, hi);
-    let n = min(hist.a + 1.0, p.temporal.w);
-    let a = max(1.0 / n, p.temporal.y);
-    let v = mix(kept, cur, a);
-    textureStore(t_out, px, vec4<f32>(v.x, raw.g, v.y, n));
+    textureStore(t_out, px, vec4<f32>(ao / max(aw, 1.0), c.g, sun / max(sw, 1e-4), 1.0));
 }

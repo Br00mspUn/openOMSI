@@ -4,8 +4,8 @@
 // distance from the eye, its roughness) and how much of the reflection lands on the screen
 // (GBUF_FORMAT), and drew the picture without the probe's reflection there. At half size
 // (each ray from the most reflective of four pixels) a ray goes out along the mirror
-// direction - spread over the GGX lobe for a rough surface, the frames accumulating it - and
-// what it meets is
+// direction (one ray, the same every frame: a rough surface is blurred by the composite
+// instead of jittered rays that need frames to settle) and what it meets is
 // - on the screen and seen there: the picture's own colour at that place (lit, fogged,
 //   reflections and all, exactly as drawn);
 // - off the screen or hidden: the hit mesh's mean colour (its texture's and its
@@ -145,16 +145,6 @@ fn cs_reflect(@builtin(global_invocation_id) gid: vec3<u32>) {
     let view = normalize(world_pos(uv, 0.001) - p.eye.xyz);
     let pt = p.eye.xyz + view * dist;
     var d = reflect(view, n);
-    // (a glossy surface keeps the mirror ray: the composite blurs it by its roughness; a
-    // rough one spreads its rays over the lobe and the frames gather them)
-    if (rough > 0.22) {
-        let fp = vec2<f32>(hp);
-        let h = ggx_normal(n, rough, vec2<f32>(noise(fp, 5.0), noise(fp + vec2<f32>(11.0, 23.0), 6.0)));
-        let dd = reflect(view, h);
-        if (dot(dd, n) > 0.02) {
-            d = dd;
-        }
-    }
     // (a reflection into the surface would show what is under it: bent up along it)
     let below = dot(d, n);
     if (below < 0.02) {
@@ -208,8 +198,8 @@ fn cs_reflect(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // --- the composite: the traced reflection times its weight, added to the picture (blended
-// additively). From the four half-size rays around the pixel at its own distance; a rough
-// surface gathers from further round, the frames' history keeps its noise down.
+// additively). From the rays around the pixel at its own distance; a rough surface gathers
+// from further round.
 struct VsOut {
     @builtin(position) clip: vec4<f32>,
 };
@@ -264,51 +254,4 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
         return vec4<f32>(select(l * 0.3, vec3<f32>(0.0), p.temporal.z == 10.0) + vec3<f32>(0.0, 0.0, g.w * 10.0), 0.0);
     }
     return vec4<f32>(l * g.w, 0.0);
-}
-
-// The reflections accumulated over the frames (rough ones only gather noise otherwise):
-// where the surface was a frame ago, kept when it lay at the same distance.
-@compute @workgroup_size(8, 8)
-fn cs_reflect_temporal(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let hp = vec2<i32>(gid.xy);
-    let hsize = vec2<i32>(textureDimensions(t_out));
-    if (any(hp >= hsize)) {
-        return;
-    }
-    // (t_hist: this frame's rays; t_scene: the history)
-    let cur = textureLoad(t_hist, hp, 0);
-    if (cur.a <= 0.0 || p.temporal.x < 0.5 || p.temporal.z == 7.0) {
-        textureStore(t_out, hp, cur);
-        return;
-    }
-    let size = vec2<i32>(p.size.xy);
-    let px = min(hp * REFL_DIV, size - vec2<i32>(1));
-    let g = textureLoad(t_gbuf, px, 0);
-    let rough = select(0.0, clamp(textureLoad(t_aux, px, 0).g / max(g.w, 1e-5), 0.0, 1.0), g.w > 0.002);
-    // a mirror needs no history (and would smear while the camera moves): rough ones do
-    let keep = smoothstep(0.05, 0.3, rough) * 0.85;
-    if (keep < 0.01) {
-        textureStore(t_out, hp, cur);
-        return;
-    }
-    let uv = (vec2<f32>(px) + vec2<f32>(0.5)) * p.size.zw;
-    let view = normalize(world_pos(uv, 0.001) - p.eye.xyz);
-    let pt = p.eye.xyz + view * cur.a;
-    let pc = p.prev_view_proj * vec4<f32>(pt, 1.0);
-    if (pc.w <= 0.05) {
-        textureStore(t_out, hp, cur);
-        return;
-    }
-    let puv = vec2<f32>(pc.x / pc.w * 0.5 + 0.5, 0.5 - pc.y / pc.w * 0.5);
-    let hq = clamp(vec2<i32>(puv * vec2<f32>(hsize)), vec2<i32>(0), hsize - vec2<i32>(1));
-    let h = textureLoad(t_scene, hq, 0);
-    if (any(puv < vec2<f32>(0.0)) || any(puv > vec2<f32>(1.0)) || h.a <= 0.0 || abs(h.a - cur.a) > 0.03 * cur.a + 0.1) {
-        textureStore(t_out, hp, cur);
-        return;
-    }
-    // (held near this frame's ray, so that a moved highlight leaves no trail)
-    let lo = cur.rgb * 0.25 - vec3<f32>(0.02);
-    let hi = cur.rgb * 4.0 + vec3<f32>(0.02);
-    let hist = clamp(h.rgb, min(lo, hi), max(lo, hi) + vec3<f32>(0.5 * dot(h.rgb, vec3<f32>(0.33))));
-    textureStore(t_out, hp, vec4<f32>(mix(cur.rgb, hist, keep), cur.a));
 }

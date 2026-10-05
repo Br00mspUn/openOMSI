@@ -11,9 +11,8 @@
 //! OMSI_NO_RT=1 opens no ray queries (Enhanced+ draws as Enhanced), OMSI_NO_RT_FRAME=1 keeps
 //! them but traces nothing, OMSI_NO_RT_GRADE=1 leaves out Enhanced+'s grade, and
 //! OMSI_RT_REFL_HALF=1 traces the reflections at half size. OMSI_DEBUG_RT=1 logs the
-//! structures now and then; its numbers show: 1 the history's length, 3 cut-out meshes as
-//! solid, 4 cut-out meshes as clear, 7 no accumulation, 8 / 9 / 10 the reflections' rays and
-//! weights (OMSI_DEBUG_ENHANCED=1 and 2 show the traced shadow and occlusion).
+//! structures now and then; its numbers show: 3 cut-out meshes as solid, 4 cut-out meshes
+//! as clear, 7 the rays unfiltered, 8 / 9 / 10 the reflections' rays and weights (OMSI_DEBUG_ENHANCED=1 and 2 show the traced shadow and occlusion).
 
 use super::*;
 
@@ -40,6 +39,8 @@ struct BlasKey {
     /// The mesh's ranges traced as solid, and as alpha-tested (a bit per range).
     solid: u64,
     cut: u64,
+    /// ... and as see-through panes (the sun's shadow only: they let part of it through)
+    glass: u64,
 }
 
 struct BlasEntry {
@@ -88,7 +89,6 @@ struct Params {
 pub(super) struct Targets {
     pub(super) size: (u32, u32),
     raw: wgpu::TextureView,
-    hist: [wgpu::TextureView; 2],
     tmp: wgpu::TextureView,
     /// What the main pass reads (camera bind group binding 8 in place of the SSAO).
     pub(super) out: wgpu::TextureView,
@@ -114,7 +114,6 @@ pub(super) struct RayTracer {
     params: wgpu::Buffer,
     pub(super) targets: Option<Targets>,
     frame: u64,
-    front: usize,
     /// Last frame's view-projection, render origin and player vehicle (origin, heading deg).
     prev: Option<(Mat4, DVec3, Option<(DVec3, f64)>)>,
     /// Which structures to build this frame.
@@ -123,11 +122,11 @@ pub(super) struct RayTracer {
     /// The reflections: their layout, the rays, their history and the composite.
     refl_layout: wgpu::BindGroupLayout,
     reflect: wgpu::ComputePipeline,
-    refl_temporal: wgpu::ComputePipeline,
     composite: wgpu::RenderPipeline,
-    /// Half-size: this frame's rays, and the history drawn into by turns.
-    refl: Option<((u32, u32), wgpu::TextureView, [wgpu::TextureView; 2])>,
-    refl_front: usize,
+    /// The reflections' rays (one per `refl_div()` x `refl_div()` pixels).
+    refl: Option<((u32, u32), wgpu::TextureView)>,
+    /// A 1 x 1 storage texture for the composite's unused output binding.
+    spare: wgpu::TextureView,
 }
 
 /// One reflection ray per this many pixels each way (OMSI_RT_REFL_HALF=1: per 2 x 2).
@@ -227,7 +226,7 @@ impl RayTracer {
             })
         };
         let trace = pipeline("cs_trace", None);
-        let temporal = pipeline("cs_temporal", None);
+        let temporal = pipeline("cs_denoise", None);
         let avg_stride = (device.limits().min_storage_buffer_offset_alignment as u64).max(256);
         let avg_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("texture means"),
@@ -299,7 +298,6 @@ impl RayTracer {
             })
         };
         let reflect = refl_compute("cs_reflect");
-        let refl_temporal = refl_compute("cs_reflect_temporal");
         let add = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::One, operation: wgpu::BlendOperation::Add };
         let composite = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("reflections composite"),
@@ -337,16 +335,25 @@ impl RayTracer {
             params: device.create_buffer(&wgpu::BufferDescriptor { label: Some("ray tracing params"), size: std::mem::size_of::<Params>() as u64, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false }),
             targets: None,
             frame: 0,
-            front: 0,
             prev: None,
             to_build: Vec::new(),
             instances: 0,
             refl_layout,
             reflect,
-            refl_temporal,
             composite,
             refl: None,
-            refl_front: 0,
+            spare: device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("rt spare"),
+                    size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    usage: wgpu::TextureUsages::STORAGE_BINDING,
+                    view_formats: &[],
+                })
+                .create_view(&Default::default()),
         }
     }
 
@@ -392,7 +399,7 @@ impl RayTracer {
                 })
                 .create_view(&Default::default())
         };
-        self.targets = Some(Targets { size: (w, h), raw: mk("rt rays"), hist: [mk("rt history a"), mk("rt history b")], tmp: mk("rt filter"), out: mk("rt lighting") });
+        self.targets = Some(Targets { size: (w, h), raw: mk("rt rays"), tmp: mk("rt filter"), out: mk("rt lighting") });
         self.prev = None;
         true
     }
@@ -401,9 +408,9 @@ impl RayTracer {
 impl Renderer {
     /// Which of an instance's mesh ranges are traced, solid or cut out (a bit per range), as
     /// its materials draw them; blended ones (glass, decals, dirt) are not.
-    fn traced_ranges(scene: &Scene, inst: &Instance) -> (u64, u64) {
+    fn traced_ranges(scene: &Scene, inst: &Instance) -> (u64, u64, u64) {
         let m = &scene.meshes[inst.mesh];
-        let (mut solid, mut cut) = (0u64, 0u64);
+        let (mut solid, mut cut, mut glass) = (0u64, 0u64, 0u64);
         for (ri, (_, count, slot)) in m.ranges.iter().enumerate().take(64) {
             if *count < 3 {
                 continue;
@@ -417,10 +424,11 @@ impl Renderer {
                 AlphaMode::Test => cut |= 1 << ri,
                 // a body whose paint is cut by its transmap writes depth: cut out as well
                 AlphaMode::Blend if mat.transmap.is_some() && !mat.no_z_write => cut |= 1 << ri,
-                AlphaMode::Blend => {}
+                // a pane (any other blended layer): the shadow rays' tint
+                AlphaMode::Blend => glass |= 1 << ri,
             }
         }
-        (solid, cut)
+        (solid, cut, glass)
     }
 
     /// The frame's ray-tracing input: the instances near the camera with their structures
@@ -474,8 +482,8 @@ impl Renderer {
                     continue;
                 }
             }
-            let (solid, cut) = Self::traced_ranges(scene, inst);
-            if solid | cut == 0 {
+            let (solid, cut, glass) = Self::traced_ranges(scene, inst);
+            if solid | cut | glass == 0 {
                 continue;
             }
             let caster = inst.casts_shadow && !(self.options.omsi_shadow_casters && !inst.omsi_caster);
@@ -486,12 +494,23 @@ impl Renderer {
             let rows = [c[0], c[4], c[8], c[12], c[1], c[5], c[9], c[13], c[2], c[6], c[10], c[14]];
             // the solid ranges and the cut-out ones as two instances: the shadow rays take the
             // first hit of the solid ones alone, the others stop at the nearest of either
-            for (bits, is_cut) in [(solid, false), (cut, true)] {
-                let mask = if is_cut { (seen as u8) << 2 } else { (caster as u8) | ((seen as u8) << 1) };
+            for (bits, kind) in [(solid, 0), (cut, 1), (glass, 2)] {
+                let is_cut = kind == 1;
+                let mask = match kind {
+                    0 => (caster as u8) | ((seen as u8) << 1),
+                    1 => (seen as u8) << 2,
+                    _ => (caster as u8) << 3,
+                };
                 if bits == 0 || mask == 0 {
                     continue;
                 }
-                let key = BlasKey { vb: m.vertex_buf.clone(), ib: m.index_buf.clone(), solid: if is_cut { 0 } else { bits }, cut: if is_cut { bits } else { 0 } };
+                let key = BlasKey {
+                    vb: m.vertex_buf.clone(),
+                    ib: m.index_buf.clone(),
+                    solid: if kind == 0 { bits } else { 0 },
+                    cut: if kind == 1 { bits } else { 0 },
+                    glass: if kind == 2 { bits } else { 0 },
+                };
                 let entry = match rt.blas.get_mut(&key) {
                     Some(e) => e,
                     None => {
@@ -727,8 +746,6 @@ impl Renderer {
                 .collect();
             encoder.build_acceleration_structures(entries.iter(), std::iter::once(&rt.tlas));
         }
-        let front = rt.front;
-        rt.front = 1 - front;
         let group = |inp: &wgpu::TextureView, raw: &wgpu::TextureView, out: &wgpu::TextureView| {
             self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("ray tracing"),
@@ -748,13 +765,9 @@ impl Renderer {
         };
         // (each pass's input never is its output)
         let trace_bg = group(&t.tmp, &t.tmp, &t.raw);
-        let temporal_bg = group(&t.hist[1 - front], &t.raw, &t.hist[front]);
+        let denoise_bg = group(&t.raw, &t.tmp, &t.out);
         let (gx, gy) = (t.size.0.div_ceil(8), t.size.1.div_ceil(8));
-        let passes: [(&str, &[(&wgpu::ComputePipeline, &wgpu::BindGroup)]); 2] = [
-            ("rt trace", &[(&rt.trace, &trace_bg)]),
-            ("rt denoise", &[(&rt.temporal, &temporal_bg)]),
-        ];
-        for (label, steps) in passes {
+        for (label, pipe, bg) in [("rt trace", &rt.trace, &trace_bg), ("rt denoise", &rt.temporal, &denoise_bg)] {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some(label),
                 timestamp_writes: pass_timer(queries, timed, label).map(|t| wgpu::ComputePassTimestampWrites {
@@ -763,17 +776,10 @@ impl Renderer {
                     end_of_pass_write_index: t.end_of_pass_write_index,
                 }),
             });
-            for (pipe, bg) in steps {
-                pass.set_pipeline(pipe);
-                pass.set_bind_group(0, *bg, &[]);
-                // (the rays over half the width, see cs_trace)
-                pass.dispatch_workgroups(if std::ptr::eq(*pipe, &rt.trace) { t.size.0.div_ceil(16) } else { gx }, gy, 1);
-            }
+            pass.set_pipeline(pipe);
+            pass.set_bind_group(0, bg, &[]);
+            pass.dispatch_workgroups(gx, gy, 1);
         }
-        // (the history is what the main pass reads, at a place of its own: the camera bind group
-        // that points at it is made once)
-        let full = wgpu::Extent3d { width: t.size.0, height: t.size.1, depth_or_array_layers: 1 };
-        encoder.copy_texture_to_texture(t.hist[front].texture().as_image_copy(), t.out.texture().as_image_copy(), full);
     }
 }
 
@@ -799,11 +805,9 @@ impl Renderer {
                     })
                     .create_view(&Default::default())
             };
-            rt.refl = Some((half, mk("rt reflection rays"), [mk("rt reflections a"), mk("rt reflections b")]));
+            rt.refl = Some((half, mk("rt reflection rays")));
         }
-        let front = rt.refl_front;
-        rt.refl_front = 1 - front;
-        let (_, raw, hist) = rt.refl.as_ref().unwrap();
+        let (_, raw) = rt.refl.as_ref().unwrap();
         let dummy = &self.black_texture.view;
         let group = |out: &wgpu::TextureView, scene: &wgpu::TextureView, h12: &wgpu::TextureView| {
             self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -828,8 +832,7 @@ impl Renderer {
         };
         // (no pass's output is among its inputs)
         let trace_bg = group(raw, &hdr.view, dummy);
-        let temporal_bg = group(&hist[front], &hist[1 - front], raw);
-        let composite_bg = group(&hist[1 - front], dummy, &hist[front]);
+        let composite_bg = group(&rt.spare, dummy, raw);
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("rt reflections"),
@@ -842,9 +845,6 @@ impl Renderer {
             let (gx, gy) = (half.0.div_ceil(8), half.1.div_ceil(8));
             pass.set_pipeline(&rt.reflect);
             pass.set_bind_group(0, &trace_bg, &[]);
-            pass.dispatch_workgroups(gx, gy, 1);
-            pass.set_pipeline(&rt.refl_temporal);
-            pass.set_bind_group(0, &temporal_bg, &[]);
             pass.dispatch_workgroups(gx, gy, 1);
         }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

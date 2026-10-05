@@ -532,30 +532,11 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         metal = select(0.0, smoothstep(0.3, 0.85, refl), masked || metal_ok);
         f0 = mix(vec3<f32>(clamp(refl, 0.02, 0.08)), mix(albedo, vec3<f32>(1.0), 0.4) * refl, metal);
         rough = mix(max(0.3 - 0.12 * smoothstep(0.0, 0.25, refl), select(0.22, 0.0, masked || metal_ok)), 0.14, metal);
-        if (camera.clouds.w > 1.5) {
-            // Enhanced+: a polished clear coat over the paint, the world mirrored in it as
-            // the traced reflections can show it
-            rough = mix(0.06, rough, metal);
-            f0 = max(f0, vec3<f32>(0.05));
-        }
     } else if (!thin && material.specular.w > 0.0 && dot(material.specular.rgb, vec3<f32>(1.0)) > 0.05) {
         // the o3d material's Blinn-Phong power as GGX roughness
         rough = clamp(sqrt(sqrt(2.0 / (material.specular.w + 2.0))), 0.4, 0.9);
     } else if (thin) {
         rough = 0.7;
-    }
-    // Enhanced+: what the o3d material gives a bright highlight (a car's or a bus's paint,
-    // chrome, polished trim - a W123's paint says power 10, colour 0.3 each) is lacquered or
-    // polished: it mirrors its surroundings through the traced reflections, a little
-    // sharper the tighter the highlight
-    // (not a road, a pavement or anything else lying on the ground: no lacquer there)
-    let glossy = camera.clouds.w > 1.5 && !terrain && !thin && !glass && !reflective_env && !is_water
-        && in.params2.w < 0.5 && material.params2.z <= 0.0 && material.params.y < 0.5 && material.specular.w >= 8.0
-        && dot(material.specular.rgb, vec3<f32>(1.0)) > 0.6
-        && near_player_vehicle(in.world) * inside_vehicle(camera.cam_pos.xyz) < 0.5;
-    if (glossy) {
-        rough = clamp(0.16 - material.specular.w / 250.0, 0.05, 0.16);
-        f0 = vec3<f32>(0.05);
     }
     if (is_water) {
         // water: a dielectric of 2 % at normal incidence, nearly a mirror where it is seen
@@ -797,8 +778,8 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     // (a wet road mirrors the sky probe as well; and what reflects nothing keeps the light
     // the Fresnel term took off its ambient above - at a grazing angle that term is near 1,
     // and the far road and ground went dark with no reflection in its place, #374)
-    let reflects = reflective_env || glass || pbr_reflects || is_water || glossy || wet_road > 0.0;
-    var refl_f = env_brdf(f0, rough, nv) * spec_occ * select(1.0, wet_road, !(reflective_env || glass || pbr_reflects || is_water || glossy));
+    let reflects = reflective_env || glass || pbr_reflects || is_water || wet_road > 0.0;
+    var refl_f = env_brdf(f0, rough, nv) * spec_occ * select(1.0, wet_road, !(reflective_env || glass || pbr_reflects || is_water));
     if (!reflects) {
         ambient = e_amb * sf.albedo / PI;
     }

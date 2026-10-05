@@ -52,9 +52,11 @@ struct TexAvg {
 @group(0) @binding(4) var<storage, read> tex_avg: array<TexAvg>;
 
 // instance masks: solid shadow casters, solid meshes seen (by the occlusion, the
-// reflections), cut-out ones seen
+// reflections), cut-out ones seen, panes
 const MASK_SHADOW: u32 = 0x01u;
 const MASK_SEEN: u32 = 0x06u;
+// see-through panes (their shadow: part of the sun gets through)
+const MASK_GLASS: u32 = 0x08u;
 const RAY_FLAG_FORCE_OPAQUE: u32 = 0x01u;
 const RAY_FLAG_TERMINATE_ON_FIRST_HIT: u32 = 0x04u;
 const PI: f32 = 3.14159265;
