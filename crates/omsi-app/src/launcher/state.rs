@@ -85,201 +85,6 @@ fn servers_path() -> std::path::PathBuf {
     core::data_dir().join("servers.json")
 }
 
-/// A download of a server's content (see `LauncherState::download_server_content`).
-#[derive(Default)]
-pub struct ServerDownload {
-    /// The server's address, as the server list has it.
-    pub address: String,
-    /// What it does now, for the page.
-    pub doing: std::sync::Mutex<String>,
-    pub done: std::sync::atomic::AtomicU64,
-    pub total: std::sync::atomic::AtomicU64,
-    /// How it ended: what to say.
-    pub finished: std::sync::Mutex<Option<Result<String, String>>>,
-    pub cancel: std::sync::atomic::AtomicBool,
-    /// Installed: the lists are to be read again (by the window's thread).
-    pub reread: std::sync::atomic::AtomicBool,
-}
-
-impl ServerDownload {
-    pub fn running(&self) -> bool {
-        self.finished.lock().map(|f| f.is_none()).unwrap_or(false)
-    }
-
-    fn say(&self, text: impl Into<String>) {
-        *self.doing.lock().unwrap_or_else(|e| e.into_inner()) = text.into();
-    }
-}
-
-/// The folder name a server's content is installed under (`Mods/installed/<it>`).
-fn server_mod_name(server: &str) -> String {
-    let clean: String = server.chars().filter(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.' | '(' | ')')).collect();
-    let clean = clean.trim().trim_matches('.').trim();
-    let clean: String = clean.chars().take(60).collect();
-    if clean.is_empty() {
-        "Server content".into()
-    } else {
-        format!("Server {clean}")
-    }
-}
-
-/// What was installed from each server (`~/.openomsi/server-content.json`): by its address,
-/// the files (lower-case path -> SHA-256). A file the server changes later is fetched again;
-/// one installed from elsewhere is never touched.
-#[derive(Serialize, Deserialize, Default)]
-struct ServerContentRecord {
-    #[serde(default)]
-    servers: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
-    /// The files of each server an install left out (they are not asked for again).
-    #[serde(default)]
-    skipped: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
-}
-
-fn server_content_path() -> std::path::PathBuf {
-    core::data_dir().join("server-content.json")
-}
-
-fn read_server_content() -> ServerContentRecord {
-    std::fs::read(server_content_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
-}
-
-/// The files installed from the server at `address` (empty: nothing yet), and those an
-/// install left out.
-fn installed_from(address: &str) -> (std::collections::HashMap<String, String>, std::collections::HashSet<String>) {
-    let mut r = read_server_content();
-    (r.servers.remove(address).map(|m| m.into_iter().collect()).unwrap_or_default(), r.skipped.remove(address).map(|m| m.into_iter().collect()).unwrap_or_default())
-}
-
-fn note_installed_from(address: &str, files: &[(String, String)], left_out: &[String]) {
-    let mut r = read_server_content();
-    let m = r.servers.entry(address.to_string()).or_default();
-    for (path, sha) in files {
-        m.insert(path.to_lowercase(), sha.clone());
-    }
-    r.skipped.entry(address.to_string()).or_default().extend(left_out.iter().map(|p| p.to_lowercase()));
-    let _ = std::fs::create_dir_all(core::data_dir());
-    let _ = std::fs::write(server_content_path(), serde_json::to_vec_pretty(&r).unwrap_or_default());
-}
-
-/// The local end of a connection to a server's mods: through its web gateway (`…/tcp`),
-/// which answers wherever its status does. One forward a gateway.
-fn server_mods_addr(info: &omsi_net::ws::ServerInfo) -> Result<(std::net::SocketAddr, u64), String> {
-    static FORWARDS: std::sync::Mutex<Option<std::collections::HashMap<String, std::net::SocketAddr>>> = std::sync::Mutex::new(None);
-    let session = u64::from_str_radix(&info.session, 16).ok().filter(|_| !info.session.is_empty()).ok_or("this server runs an older openOMSI, which does not hand out its content before a join")?;
-    let base = omsi_net::ws::ws_url(&info.reached_at).ok_or("the server's web address is not known")?;
-    let url = format!("{}/tcp", base.strip_suffix("/ws").unwrap_or(&base));
-    let mut g = FORWARDS.lock().unwrap_or_else(|e| e.into_inner());
-    let map = g.get_or_insert_with(Default::default);
-    if let Some(a) = map.get(&url) {
-        return Ok((*a, session));
-    }
-    let a = omsi_net::ws::tcp_forward(&url).map_err(|e| e.to_string())?;
-    map.insert(url, a);
-    Ok((a, session))
-}
-
-/// What the joined server's content lacks here, asked in the background when it is joined
-/// (and again now and then).
-pub struct ServerCheck {
-    pub address: String,
-    pub at: Instant,
-    pub result: std::sync::Arc<std::sync::Mutex<Option<Result<crate::lan_mods::Lacking, String>>>>,
-    /// Something was installed from this server before: what it changed is fetched by itself.
-    pub had_before: bool,
-    /// The update was started for this check already.
-    pub acted: bool,
-}
-
-impl ServerCheck {
-    pub fn lacking(&self) -> Option<crate::lan_mods::Lacking> {
-        self.result.lock().ok().and_then(|r| r.as_ref().and_then(|r| r.as_ref().ok().cloned()))
-    }
-}
-
-/// Fetch what of the server's content is missing here (or changed since it was installed
-/// from there) into a hidden folder of the Mods inbox (the inbox watcher leaves names with a
-/// dot alone), then install it like a mod dropped there.
-fn download_server(address: &str, info: &omsi_net::ws::ServerInfo, dl: &ServerDownload) -> Result<String, String> {
-    use std::sync::atomic::Ordering;
-    dl.say("Connecting to the server…");
-    let (host, session) = server_mods_addr(info)?;
-    let content = core::content_dir().ok_or("there is no content folder to install into")?;
-    let mods = content.join("Mods");
-    let name = server_mod_name(&info.name);
-    let part = mods.join(format!(".download-{name}"));
-    dl.say("Asking the server what it uses…");
-    let (installed, skipped) = installed_from(address);
-    let r = crate::lan_mods::fetch_missing(
-        host,
-        session,
-        &part,
-        &installed,
-        &skipped,
-        &mut |done, total, file| {
-            dl.done.store(done, Ordering::Relaxed);
-            dl.total.store(total, Ordering::Relaxed);
-            dl.say(file);
-        },
-        &dl.cancel,
-    );
-    let (report, placed) = match r {
-        Ok(r) => r,
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(&part);
-            return Err(if e == "cancelled" { "Cancelled - nothing was installed.".into() } else { e });
-        }
-    };
-    if placed.is_empty() {
-        let _ = std::fs::remove_dir_all(&part);
-        return Ok("Everything the server uses is installed here already.".into());
-    }
-    let mut dest = mods.join(&name);
-    let mut n = 2;
-    while dest.exists() {
-        dest = mods.join(format!("{name} ({n})"));
-        n += 1;
-    }
-    // (a virus scanner looking at the thousands of new files holds them for a while, and
-    // Windows refuses to rename their folder meanwhile: it is tried again for a minute; the
-    // folder stays, and a next attempt takes what is in it)
-    let mut tries = 0;
-    while let Err(e) = std::fs::rename(&part, &dest) {
-        tries += 1;
-        if tries >= 40 {
-            return Err(format!("{}: {e} (the downloaded files stay in {} for the next attempt)", dest.display(), part.display()));
-        }
-        dl.say("Waiting for the files to be free (a virus scanner?)…");
-        std::thread::sleep(std::time::Duration::from_millis(1500));
-    }
-    dl.say("Installing…");
-    let job = core::start_install(&dest, "extract").map_err(|e| format!("{e:#}"))?;
-    // (until it is in place: then the lists are read again here, not left to the content
-    // poll, which misses an install that ends while it reads something else)
-    let end = loop {
-        std::thread::sleep(std::time::Duration::from_millis(300));
-        match core::install::jobs().into_iter().find(|j| j.id == job.id) {
-            Some(j) if j.finished.is_none() => {
-                dl.done.store(j.bytes_done, Ordering::Relaxed);
-                dl.total.store(j.bytes_total, Ordering::Relaxed);
-            }
-            Some(j) => break j,
-            None => return Err("the install of the server's content went missing".into()),
-        }
-    };
-    if end.state != "done" {
-        return Err(format!("installing {}: {}", dest.display(), end.message));
-    }
-    // what the install left out stays in `Mods/installed/<name>`: not installed, and not to
-    // be fetched again
-    let leftover = mods.join("installed").join(dest.file_name().unwrap_or_default());
-    let (left_out, put): (Vec<(String, String)>, Vec<(String, String)>) = placed.into_iter().partition(|(p, _)| p.split('/').fold(leftover.clone(), |d, c| d.join(c)).is_file());
-    note_installed_from(address, &put, &left_out.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>());
-    let placed = put;
-    dl.reread.store(true, Ordering::Relaxed);
-    let name = dest.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    Ok(format!("{} files ({:.1} GB downloaded) installed as the mod \"{name}\" (see Mods).", placed.len(), report.bytes as f64 / 1e9))
-}
-
 /// The duty as it is remembered between launches (`~/.openomsi/launcher-duty.json`).
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
@@ -460,13 +265,6 @@ pub struct State {
     pub server_info: std::collections::HashMap<String, (Instant, Result<omsi_net::ws::ServerInfo, String>)>,
     pub server_asked: std::collections::HashMap<String, Instant>,
     pub joined_server: Option<String>,
-    /// The content of a server being downloaded, or the last download's end (see
-    /// `download_server_content`).
-    pub server_download: Option<std::sync::Arc<ServerDownload>>,
-    /// What the joined server's content lacks here.
-    pub server_check: Option<ServerCheck>,
-    /// The servers whose content was updated by itself in this run.
-    server_updated: std::collections::HashSet<String>,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
 }
@@ -535,9 +333,6 @@ impl State {
             server_info: Default::default(),
             server_asked: Default::default(),
             joined_server: None,
-            server_download: None,
-            server_check: None,
-            server_updated: Default::default(),
             tx,
             rx,
         };
@@ -819,79 +614,9 @@ impl State {
             self.set_status("A session needs the original OMSI 2: choose its folder under Setup first.", true);
             return;
         }
-        // (a server with a `vehicles` list sends a player in another bus away at once)
-        if let Some(list) = self.host_vehicles() {
-            let bus = self.choice.bus.replace('\\', "/");
-            if !list.iter().any(|v| v.replace('\\', "/").eq_ignore_ascii_case(&bus)) {
-                self.set_status("This server allows only its own buses: choose one of them (or download them on the Bus step).", true);
-                return;
-            }
-        }
         let d = self.duty();
         self.set_status("Starting the game…", false);
         self.queued_launch = Some(d);
-    }
-
-    /// Download what of the server's content (its map, what the map uses, the buses it
-    /// offers) is not installed here at all, or changed there since it was downloaded from
-    /// it, and install it as a mod (`Mods/installed`,
-    /// where deleting it uninstalls it again). In the background; `server_download` follows it.
-    pub fn download_server_content(&mut self, address: &str) {
-        if self.server_download.as_ref().is_some_and(|d| d.running()) {
-            return;
-        }
-        let Some(info) = self.server_info.get(address).and_then(|x| x.1.as_ref().ok()).cloned() else {
-            self.set_status("The server has not answered yet: try again in a moment.", true);
-            return;
-        };
-        let dl = std::sync::Arc::new(ServerDownload { address: address.to_string(), ..Default::default() });
-        self.server_download = Some(dl.clone());
-        std::thread::spawn(move || {
-            let address = dl.address.clone();
-            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| download_server(&address, &info, &dl))).unwrap_or_else(|_| Err("the download stopped with an internal error".into()));
-            if let Err(e) = &r {
-                log::warn!("launcher: server content: {e}");
-            }
-            *dl.finished.lock().unwrap_or_else(|e| e.into_inner()) = Some(r);
-        });
-    }
-
-    /// Ask the joined server (in the background) what of its content this machine lacks,
-    /// when it is joined and every ten minutes; what was installed from it before and
-    /// changed there since is then fetched by itself.
-    fn check_server_content(&mut self) {
-        let Some(address) = self.joined_server.clone() else {
-            self.server_check = None;
-            return;
-        };
-        if self.server_download.as_ref().is_some_and(|d| d.running()) {
-            return;
-        }
-        if let Some(c) = self.server_check.as_mut().filter(|c| c.address == address) {
-            if let Some(l) = c.lacking() {
-                if c.had_before && !c.acted && l.missing + l.outdated > 0 {
-                    c.acted = true;
-                    self.server_updated.insert(address.clone());
-                    log::info!("launcher: {address} has {} new and {} changed files: updating them", l.missing, l.outdated);
-                    self.download_server_content(&address);
-                    return;
-                }
-            }
-            if c.at.elapsed().as_secs() < 600 {
-                return;
-            }
-        }
-        let Some(info) = self.server_info.get(&address).and_then(|x| x.1.as_ref().ok()).filter(|i| !i.session.is_empty()).cloned() else { return };
-        let (installed, skipped) = installed_from(&address);
-        // (one update by itself a launcher run: one that brings nothing to install does not
-        // start over and over)
-        let had_before = !installed.is_empty() && !self.server_updated.contains(&address);
-        let result = std::sync::Arc::new(std::sync::Mutex::new(None));
-        self.server_check = Some(ServerCheck { address, at: Instant::now(), result: result.clone(), had_before, acted: false });
-        std::thread::spawn(move || {
-            let r = server_mods_addr(&info).and_then(|(host, session)| crate::lan_mods::check_missing(host, session, &installed, &skipped));
-            *result.lock().unwrap_or_else(|e| e.into_inner()) = Some(r);
-        });
     }
 
     /// The duty as the backend takes it.
@@ -1084,19 +809,6 @@ impl State {
         if self.choice.lan_mode == "join" {
             self.check_join();
         }
-        // a server's content was installed: its buses and map are read
-        self.check_server_content();
-        if self.server_download.as_ref().is_some_and(|d| d.reread.swap(false, std::sync::atomic::Ordering::Relaxed)) {
-            omsi_cfg::content_changed();
-            // (and what it lacks now is asked again)
-            self.server_check = None;
-            if self.loading_content {
-                self.reload_content = true;
-            } else {
-                self.load_content();
-            }
-            self.load_mods();
-        }
         let now = Instant::now();
         self.fresh.retain(|_, t| now.duration_since(*t).as_secs() < 600);
     }
@@ -1176,17 +888,6 @@ impl State {
                     }
                 }
                 self.pick_map();
-                // on a server whose map came with its content just now: that map, with its lines
-                let theirs = self.joined_server.as_ref().and_then(|a| self.server_info.get(a)).and_then(|x| x.1.as_ref().ok()).map(|i| i.map.replace('\\', "/"));
-                if let Some(file) = theirs.and_then(|m| self.maps.iter().find(|x| x.file.eq_ignore_ascii_case(&m)).map(|x| x.file.clone())) {
-                    if !self.choice.map.eq_ignore_ascii_case(&file) {
-                        self.choice.map = file;
-                        self.choice.line = None;
-                        self.choice.tour = None;
-                        self.choice.entry = 0;
-                        self.touched();
-                    }
-                }
                 // (the first reading asked for the lines with the maps already)
                 if !std::mem::take(&mut self.content_first) || self.lines_for != (self.choice.map.clone(), self.choice.date.clone()) {
                     self.load_lines();
@@ -1756,15 +1457,4 @@ mod crash_tests {
 
 fn read_settings_file() -> Option<String> {
     std::fs::read_to_string(core::data_dir().join("settings.cfg")).ok()
-}
-
-#[cfg(test)]
-mod server_download_tests {
-    #[test]
-    fn a_servers_content_gets_a_plain_folder_name() {
-        assert_eq!(super::server_mod_name("My server"), "Server My server");
-        assert_eq!(super::server_mod_name("../../x: <y>"), "Server x y");
-        assert_eq!(super::server_mod_name("  ...  "), "Server content");
-        assert_eq!(super::server_mod_name("Чугуев 2025"), "Server Чугуев 2025");
-    }
 }

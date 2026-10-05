@@ -58,10 +58,6 @@ pub struct ServerInfo {
     pub local_admin_failures: Vec<Instant>,
     /// A dedicated server's shared world now (`"world"` in `GET /status`); none elsewhere.
     pub world: Option<WorldCounts>,
-    /// The session id (`session_hex`), as `WELCOME` and the discovery answers say it: the
-    /// launcher greets the host's mods with it to fetch them before joining. Empty: not
-    /// said (an older game).
-    pub session: String,
 }
 
 /// What a dedicated server's shared world holds: the AI cars on the roads (`cars`), its
@@ -148,7 +144,7 @@ pub fn players_json(players: &[PlayerInfo]) -> String {
 impl ServerInfo {
     pub fn to_json(&self) -> String {
         format!(
-            "{{\"name\":{},\"motd\":{},\"map\":{},\"players\":{},\"max_players\":{},\"version\":{},\"icon\":{},\"time\":{},\"weather\":{},\"password\":{},\"protocol\":{},\"vehicles\":{},\"session\":{},\"world\":{}}}",
+            "{{\"name\":{},\"motd\":{},\"map\":{},\"players\":{},\"max_players\":{},\"version\":{},\"icon\":{},\"time\":{},\"weather\":{},\"password\":{},\"protocol\":{},\"vehicles\":{},\"world\":{}}}",
             json_str(&self.name),
             json_str(&self.motd),
             json_str(&self.map),
@@ -161,7 +157,6 @@ impl ServerInfo {
             self.password,
             crate::PROTOCOL,
             json_str(&self.vehicles.join(";")),
-            json_str(&self.session),
             self.world.map(|w| w.to_json()).unwrap_or_else(|| "null".into())
         )
     }
@@ -183,7 +178,6 @@ impl ServerInfo {
             password: json_value(s, "password").map(|v| v.trim() == "true").unwrap_or(false),
             vehicles: text("vehicles").map(|v| v.split(';').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()).unwrap_or_default(),
             reached_at: String::new(),
-            session: text("session").filter(|s| s.len() <= 16 && s.bytes().all(|b| b.is_ascii_hexdigit())).unwrap_or_default(),
             ..Default::default()
         })
     }
@@ -886,15 +880,11 @@ mod tests {
 
     #[test]
     fn status_round_trip() {
-        let i = ServerInfo { name: "Spandau \"1\"".into(), motd: "hi".into(), map: "maps/Berlin-Spandau/global.cfg".into(), players: 2, max_players: 16, version: "0.1".into(), icon: vec![1, 2], time: "08:00".into(), weather: "Sommerlich".into(), password: false, vehicles: vec!["Vehicles/MAN_SD202/SD202.bus".into()], session: "00a1b2c3d4e5".into(), ..Default::default() };
+        let i = ServerInfo { name: "Spandau \"1\"".into(), motd: "hi".into(), map: "maps/Berlin-Spandau/global.cfg".into(), players: 2, max_players: 16, version: "0.1".into(), icon: vec![1, 2], time: "08:00".into(), weather: "Sommerlich".into(), password: false, vehicles: vec!["Vehicles/MAN_SD202/SD202.bus".into()], ..Default::default() };
         let j = i.to_json();
         let b = ServerInfo::from_json(&j).unwrap();
         assert_eq!(b.name, i.name);
         assert_eq!(b.vehicles, i.vehicles);
-        assert_eq!(b.session, "00a1b2c3d4e5");
-        // (an older server's status has none; something else than a session id is not taken)
-        assert_eq!(ServerInfo::from_json("{\"name\":\"x\"}").unwrap().session, "");
-        assert_eq!(ServerInfo::from_json("{\"name\":\"x\",\"session\":\"../etc\"}").unwrap().session, "");
         assert_eq!(b.players, 2);
         assert_eq!(b.max_players, 16);
         assert!(!b.icon.is_empty());

@@ -753,10 +753,8 @@ pub fn tunnel_url() -> Option<String> {
 /// session's topic - the way in for a player whose router and ours cannot be punched
 /// through (the code alone found a friend across the world once, and then never again).
 /// `web_port` 0 picks the session port + 10.
-pub fn open_public_gateway(session: &LanSession, mut info: omsi_net::ws::ServerInfo, web_port: u16, want_tunnel: bool) {
+pub fn open_public_gateway(session: &LanSession, info: omsi_net::ws::ServerInfo, web_port: u16, want_tunnel: bool) {
     let Some(udp) = session.local_addr() else { return };
-    // (for the launcher, which fetches the host's mods before it joins)
-    info.session = omsi_net::session_hex(session.session);
     let target = SocketAddr::from(([127, 0, 0, 1], udp.port()));
     let port = if web_port == 0 { udp.port().saturating_add(10) } else { web_port };
     let gateway = match omsi_net::ws::WsGateway::start(SocketAddr::from(([0, 0, 0, 0], port)), target, info.clone()).or_else(|_| omsi_net::ws::WsGateway::start(SocketAddr::from(([0, 0, 0, 0], 0)), target, info)) {
