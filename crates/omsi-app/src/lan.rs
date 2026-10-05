@@ -1158,6 +1158,22 @@ pub fn start(args: &Args) -> Option<LanSession> {
     Some(session)
 }
 
+/// The line the launcher looks for in the game's log when the game is over: the server sent
+/// the player away (kick, ban) or turned it away at the door, with the server's message.
+pub const LEFT_SERVER: &str = "LAN: disconnected from the server: ";
+
+/// A joining game the server sent or turned away: the reason, once (the game then ends and the
+/// launcher shows "Disconnected from the server" with it). None for a host, or while it may play.
+pub fn turned_away(lan: &LanSession) -> Option<String> {
+    static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let why = lan.turned_away.clone().filter(|_| lan.role == Role::Client)?;
+    if SAID.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return None;
+    }
+    log::warn!("{LEFT_SERVER}{why}");
+    Some(why)
+}
+
 /// The host's mods (see `lan_mods`): the host serves them on its session's port number
 /// (TCP), a joining player fetches what it lacks before its world is made, and says how
 /// far it has got in the status the launcher shows.
