@@ -94,6 +94,6 @@ ct2rs = { version = "0.9.17", default-features = false, features = ["tokenizers"
 # Java offers (storage permission, the screen's cut-outs, vibration)
 [target.'cfg(target_os = "android")'.dependencies]
 winit = { workspace = true, features = ["android-native-activity"] }
-android_logger = "0.14"
+android_logger = "0.15"
 jni = "0.21"
 ndk-context = "0.1"
