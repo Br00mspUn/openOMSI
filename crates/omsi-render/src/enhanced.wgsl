@@ -540,12 +540,17 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         n = normalize(n - (t * inv * slope.x + b * inv * slope.y) * 0.6);
     }
     var albedo = tex.rgb * material.color.rgb;
+    // OMSI materials have separate diffuse and ambient colours. Some interiors have
+    // black diffuse but white ambient: using diffuse for both made them pitch black.
+    // Keep the direct response, and weather both colours with the same surface effects.
+    var ambient_albedo = tex.rgb * material.ambient.rgb;
     var detail_factor = 1.0;
     if (camera.flags.x > 0.5 && (terrain || in.params2.w > 0.5)) {
         let k = clamp(1.0 - (dist - 25.0) / 120.0, 0.0, 1.0);
         let pattern_xy = world_pattern_xy(in.world);
         detail_factor = 1.0 + (detail_noise(pattern_xy) - 0.5) * 0.42 * k;
         albedo = albedo * detail_factor;
+        ambient_albedo = ambient_albedo * detail_factor;
     }
     // --- the material in physical terms
     var refl = 0.0;
@@ -627,6 +632,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     var puddle = 0.0;
     if (wet_road > 0.0) {
         albedo = albedo * mix(1.0, 0.5, wet_road);
+        ambient_albedo = ambient_albedo * mix(1.0, 0.5, wet_road);
         rough = mix(rough, 0.12, wet_road);
         f0 = mix(f0, vec3<f32>(0.02), wet_road);
         // Puddles: standing water pools in low, flat spots rather than spreading evenly
@@ -653,6 +659,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
             // Standing water hides most of the fine asphalt grain. Keep dry and damp
             // asphalt's detail, but let the reflected image read across a filled pool.
             albedo = albedo * (1.0 - 0.68 * puddle) / mix(1.0, detail_factor, puddle * 0.8);
+            ambient_albedo = ambient_albedo * (1.0 - 0.68 * puddle) / mix(1.0, detail_factor, puddle * 0.8);
             rough = clamp(mix(rough, 0.03, puddle) - ripple.z * 0.12, 0.02, 1.0);
             f0 = mix(f0, vec3<f32>(enh.debug.y), puddle);
             n = normalize(mix(n, geo_n, puddle) + vec3<f32>(ripple.xy, 0.0));
@@ -670,6 +677,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         let ground = select(0.0, 1.0, terrain || material.params2.z > 0.0);
         let cover = snow * clamp(max(ground, smoothstep(0.78, 0.95, up) * 0.8), 0.0, 1.0) * (0.55 + 0.35 * tex.a);
         albedo = mix(albedo, vec3<f32>(0.82, 0.84, 0.88), cover);
+        ambient_albedo = mix(ambient_albedo, vec3<f32>(0.82, 0.84, 0.88), cover);
         // fresh snow is all but matte: it scatters the light and shows no highlight
         rough = mix(rough, 0.95, cover);
         f0 = mix(f0, vec3<f32>(0.02), cover);
@@ -686,6 +694,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     }
     var sf: Surface;
     sf.albedo = albedo * (1.0 - metal);
+    ambient_albedo = ambient_albedo * (1.0 - metal);
     sf.f0 = f0;
     sf.rough = rough;
     let nv = clamp(dot(n, v), 1e-4, 1.0);
@@ -757,8 +766,8 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     ao = mix(ao, 1.0 - (1.0 - ao) * 0.35, in_cab);
     let avg_e = enh.fog_color.rgb * (PI / 0.9);
     let cab_e = vec3<f32>(dot(avg_e, vec3<f32>(0.2126, 0.7152, 0.0722))) * vec3<f32>(1.0, 0.98, 0.95);
-    let e_amb = mix(sh_irradiance(n), cab_e * CAB_AMBIENT, 0.6 * in_cab) * ao_bounce(ao, sf.albedo);
-    var ambient = e_amb * sf.albedo / PI * (vec3<f32>(1.0) - fr * (1.0 - rough));
+    let e_amb = mix(sh_irradiance(n), cab_e * CAB_AMBIENT, 0.6 * in_cab) * ao_bounce(ao, ambient_albedo);
+    var ambient = e_amb * ambient_albedo / PI * (vec3<f32>(1.0) - fr * (1.0 - rough));
     // --- reflections: the sky probe, as sharp as the surface is smooth
     var r = reflect(-v, n);
     // a reflection pointing into the surface would show the probe's ground: bend it up
@@ -843,7 +852,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     let reflects = reflective_env || glass || pbr_reflects || is_water || wet_road > 0.0;
     var refl_f = env_brdf(f0, rough, nv) * spec_occ * select(1.0, wet_road, !(reflective_env || glass || pbr_reflects || is_water)) * wet_share;
     if (!reflects) {
-        ambient = e_amb * sf.albedo / PI;
+        ambient = e_amb * ambient_albedo / PI;
     }
     if (glass) {
         // Transparent bus panes need a readable outside reflection from the driver's
