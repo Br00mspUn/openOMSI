@@ -7091,6 +7091,8 @@ impl World {
                         if !gpu.trees.contains_key(&tkey) {
                             let dirs = ot.texture_dirs(&self.root);
                             let found = gpu.texture(renderer, scene, texture, &dirs, images);
+                            // (not repeated: the picture's bottom row, a wide trunk or grass, drew a line along the top of the card)
+                            renderer.address_next.set(omsi_render::TexAddressing::Clamp);
                             let m = renderer.add_material_extra(
                                 scene,
                                 found.as_ref().map(|f| f.0),
