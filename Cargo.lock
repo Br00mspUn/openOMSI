@@ -1926,8 +1926,6 @@ version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
 dependencies = [
- "allocator-api2",
- "equivalent",
  "foldhash 0.1.5",
 ]
 
@@ -1947,6 +1945,11 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+dependencies = [
+ "allocator-api2",
+ "equivalent",
+ "foldhash 0.2.0",
+]
 
 [[package]]
 name = "heck"
@@ -3202,7 +3205,7 @@ dependencies = [
  "env_logger",
  "gilrs",
  "glam",
- "hashbrown 0.15.5",
+ "hashbrown 0.17.1",
  "image",
  "jni 0.21.1",
  "libc",
@@ -3256,7 +3259,7 @@ dependencies = [
  "cpal",
  "env_logger",
  "glam",
- "hashbrown 0.15.5",
+ "hashbrown 0.17.1",
  "log",
  "omsi-cfg",
  "omsi-vehicle",
@@ -3406,7 +3409,7 @@ dependencies = [
  "bytemuck",
  "env_logger",
  "glam",
- "hashbrown 0.15.5",
+ "hashbrown 0.17.1",
  "log",
  "naga",
  "omsi-cfg",
@@ -3432,7 +3435,7 @@ dependencies = [
 name = "omsi-script"
 version = "0.1.0"
 dependencies = [
- "hashbrown 0.15.5",
+ "hashbrown 0.17.1",
  "log",
  "omsi-cfg",
  "thiserror 2.0.20",
@@ -3445,7 +3448,7 @@ dependencies = [
  "ab_glyph",
  "anyhow",
  "glam",
- "hashbrown 0.15.5",
+ "hashbrown 0.17.1",
  "log",
  "omsi-audio",
  "omsi-cfg",
@@ -3464,7 +3467,7 @@ dependencies = [
 name = "omsi-texture"
 version = "0.1.0"
 dependencies = [
- "hashbrown 0.15.5",
+ "hashbrown 0.17.1",
  "image",
  "log",
  "omsi-cfg",
@@ -3488,7 +3491,7 @@ dependencies = [
  "ab_glyph",
  "bytemuck",
  "glam",
- "hashbrown 0.15.5",
+ "hashbrown 0.17.1",
  "image",
  "log",
  "naga",
