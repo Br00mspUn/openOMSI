@@ -20,9 +20,9 @@ use super::*;
 pub(super) const RT_RANGE: f32 = 420.0;
 /// How far the ambient occlusion looks (m).
 const AO_RADIUS: f32 = 2.2;
-/// The sun disc as traced (tangent of its radius): a little larger than the real 0.27 deg, for
-/// the soft edge a shadow takes on away from its caster.
-const SUN_CONE: f32 = 0.0085;
+/// The sun disc as traced (tangent of its radius): larger than the real 0.27 deg, for the
+/// soft edge a shadow takes on away from its caster (the shadow map's is softer still).
+const SUN_CONE: f32 = 0.012;
 /// Bottom-level structures built (or rebuilt) per frame at most: a map tile streamed in
 /// brings hundreds of meshes; they come into the shadows over a few frames instead of a hitch.
 const BLAS_BUDGET: usize = 320;

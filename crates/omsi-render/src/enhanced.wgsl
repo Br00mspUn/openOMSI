@@ -710,7 +710,13 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     if (below < 0.0) {
         r = normalize(r - geo_n * below * 1.02);
     }
-    let lod = rough * (enh.lights.x - 1.0);
+    // A wet road, a wet pavement is no mirror: a soft, dim sheen of what stands round it, a
+    // puddle a blurred picture of it (panes, envmapped paint and still water keep their own
+    // smoothness). Its reflection is taken this rough, at this share.
+    let wet_only = !(reflective_env || glass || is_water || ((material.pbr.z > 0.5 || material.pbr.w > 0.5) && !terrain));
+    let refl_rough = select(rough, max(rough, mix(0.35, 0.16, puddle)), wet_only);
+    let wet_share = select(1.0, mix(0.35, 0.6, puddle), wet_only);
+    let lod = refl_rough * (enh.lights.x - 1.0);
     var env = textureSampleLevel(t_probe, s_lin, to_cube(r), lod).rgb * enh.fog_color.w;
     // the probe holds only the sky: in a street the low sky is hidden behind houses and
     // trees, which reflect about as much light as a quarter-white wall (without this every
@@ -779,7 +785,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     // the Fresnel term took off its ambient above - at a grazing angle that term is near 1,
     // and the far road and ground went dark with no reflection in its place, #374)
     let reflects = reflective_env || glass || pbr_reflects || is_water || wet_road > 0.0;
-    var refl_f = env_brdf(f0, rough, nv) * spec_occ * select(1.0, wet_road, !(reflective_env || glass || pbr_reflects || is_water));
+    var refl_f = env_brdf(f0, rough, nv) * spec_occ * select(1.0, wet_road, !(reflective_env || glass || pbr_reflects || is_water)) * wet_share;
     if (!reflects) {
         ambient = e_amb * sf.albedo / PI;
     }
@@ -790,8 +796,10 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     }
     var reflection = select(vec3<f32>(0.0), env * refl_f, reflects);
     // Enhanced+: traced instead (rough surfaces keep the probe, which is as good as a
-    // ray there; the cab's own panes too, seen from the driver's seat)
-    let traced = camera.clouds.w > 1.5 && reflects && rough < 0.75 && !capture;
+    // ray there; so does a body's paint: OMSI's photographed envmap on its low-poly panels
+    // looks better than a sharp picture of the street, only chrome is traced)
+    let paint = reflective_env && !glass && metal < 0.5;
+    let traced = camera.clouds.w > 1.5 && reflects && !paint && refl_rough < 0.75 && !capture;
     if (traced) {
         var w = dot(refl_f, vec3<f32>(0.2126, 0.7152, 0.0722)) * aer.a;
         if (glass) {
@@ -800,14 +808,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
             // (a blended layer reflects only where it is there: a painted ground's brush mask)
             w = w * clamp(alpha, 0.0, 1.0);
         }
-        // A wet road, a wet pavement is no mirror: a soft, dim sheen of what stands round it,
-        // a puddle a blurred picture of it (only panes, paint's envmap and still water keep
-        // their own smoothness)
-        var rough_t = rough;
-        if (!(reflective_env || glass || pbr_reflects || is_water)) {
-            w = w * mix(0.35, 0.6, puddle);
-            rough_t = max(rough, mix(0.35, 0.16, puddle));
-        }
+        let rough_t = refl_rough;
         if (w > 0.002) {
             reflection = vec3<f32>(0.0);
             rt_gbuf = vec4<f32>(n * w, w);
@@ -938,7 +939,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     // and coverage are resolved together, including terrain painting and glass over roads.
     if (!glass && !reflective_env) {
         let weight = clamp(puddle * env_brdf(f0, rough, nv).g
-            * select(wet_road, 1.0, pbr_reflects) * aer.a, 0.0, 1.0);
+            * select(wet_road, 1.0, pbr_reflects) * wet_share * aer.a, 0.0, 1.0);
         *puddle_weight = vec2<f32>(weight, weight * spec_occ);
     }
     // water hides what lies under it as far as it reflects (Fresnel): see-through from

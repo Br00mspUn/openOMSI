@@ -2,8 +2,8 @@
 //
 // Per pixel of the depth prepass, at full size, and the same every frame (nothing noisy that
 // needs frames to settle, so nothing that smears or crawls when the camera moves):
-// - the sun's shadow: one ray towards the sun, its edge as sharp as the geometry, softened
-//   over a pixel or two by the filter;
+// - the sun's shadow: one ray towards a point of the sun's disc, one of 16 of a fixed
+//   pattern that repeats every 4 x 4 pixels;
 // - ambient occlusion: two rays over the surface's hemisphere, their directions one of 32 of
 //   a fixed pattern that repeats every 4 x 4 pixels; the filter averages the pattern away
 //   over 5 x 5 pixels at the same depth.
@@ -44,22 +44,29 @@ fn cs_trace(@builtin(global_invocation_id) gid: vec3<u32>) {
     let o = world + n * (0.03 + dist * 0.002);
     // --- the sun (solid casters only: the cut-out ones are in the shadow map, see the main
     // pass)
+    let cell = u32(px.x & 3) + u32(px.y & 3) * 4u;
     var vis = 1.0;
     if (p.sun.w > 0.0) {
+        // (towards one of 16 points of the sun's disc, a pattern of 4 x 4 pixels the filter
+        // averages: the shadow's edge softens with the distance to its caster, as the
+        // sun's own does, and nothing is noisy)
+        let su = hammersley(cell, 16u);
+        let sb = basis(p.sun.xyz);
+        let sr = sqrt(su.x) * p.sun.w;
+        let sd = normalize(p.sun.xyz + sb[0] * cos(6.2831853 * su.y) * sr + sb[1] * sin(6.2831853 * su.y) * sr);
         var rq: ray_query;
-        rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_TERMINATE_ON_FIRST_HIT, MASK_SHADOW, 0.0, 2000.0, o, p.sun.xyz));
+        rayQueryInitialize(&rq, acc, RayDesc(RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_TERMINATE_ON_FIRST_HIT, MASK_SHADOW, 0.0, 2000.0, o, sd));
         rayQueryProceed(&rq);
         vis = select(1.0, 0.0, rayQueryGetCommittedIntersection(&rq).kind != RAY_QUERY_INTERSECTION_NONE);
         if (vis > 0.0) {
             // through a bus's or a car's window: tinted glass lets only part of it in
             var gq: ray_query;
-            rayQueryInitialize(&gq, acc, RayDesc(RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_TERMINATE_ON_FIRST_HIT, MASK_GLASS, 0.0, 200.0, o, p.sun.xyz));
+            rayQueryInitialize(&gq, acc, RayDesc(RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_TERMINATE_ON_FIRST_HIT, MASK_GLASS, 0.0, 200.0, o, sd));
             rayQueryProceed(&gq);
-            vis = select(1.0, 0.35, rayQueryGetCommittedIntersection(&gq).kind != RAY_QUERY_INTERSECTION_NONE);
+            vis = select(1.0, 0.45, rayQueryGetCommittedIntersection(&gq).kind != RAY_QUERY_INTERSECTION_NONE);
         }
     }
     // --- the sky's occlusion
-    let cell = u32(px.x & 3) + u32(px.y & 3) * 4u;
     let b = basis(n);
     var ao = 0.0;
     for (var j = 0u; j < 2u; j++) {
@@ -77,8 +84,8 @@ fn cs_trace(@builtin(global_invocation_id) gid: vec3<u32>) {
 // A workgroup's pixels and a border of two round them, read once.
 var<workgroup> tile: array<vec4<f32>, 144>;
 
-// The rays filtered at the pixel's own depth: the occlusion over 5 x 5 pixels (the whole
-// direction pattern), the sun's visibility over 3 x 3 (its edge kept to a pixel's softness).
+// The rays filtered at the pixel's own depth over 5 x 5 pixels (the whole pattern of
+// directions).
 @compute @workgroup_size(8, 8)
 fn cs_denoise(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) li: u32) {
     let origin = vec2<i32>(wid.xy) * 8 - vec2<i32>(2);
@@ -109,11 +116,8 @@ fn cs_denoise(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_
             if (s.g > 0.0 && s.b >= 0.0 && abs(s.g - c.g) < tol) {
                 ao += s.r;
                 aw += 1.0;
-                if (abs(i) <= 1 && abs(j) <= 1) {
-                    let w = select(0.5, 1.0, i == 0) * select(0.5, 1.0, j == 0);
-                    sun += s.b * w;
-                    sw += w;
-                }
+                sun += s.b;
+                sw += 1.0;
             }
         }
     }
