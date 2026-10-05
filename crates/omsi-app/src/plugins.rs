@@ -100,7 +100,7 @@ pub(crate) fn game_info(app: &crate::App) -> Vec<(&'static str, InfoValue)> {
         v.push(("tile_pos_y", Num(ly)));
         v.push(("heading", Num(veh.heading.rem_euclid(360.0))));
         v.push(("vehicle_manufacturer", Text(veh.ty.def.manufacturer.trim().to_string())));
-        v.push(("vehicle_type", Text(veh.ty.def.type_name.trim().to_string())));
+        v.push(("vehicle_model", Text(veh.ty.def.type_name.trim().to_string())));
         // the terminus the bus shows (the hof entry its scripts chose; none for an
         // `[addterminus_allexit]` one), which is not always the timetable's
         let shown = match (veh.var("target_index_int"), veh.host.hof.as_ref()) {
@@ -131,9 +131,14 @@ pub(crate) fn game_info(app: &crate::App) -> Vec<(&'static str, InfoValue)> {
 }
 
 impl Io<'_> {
+    /// The `omsi.info()` key of an `.opl` list's `openomsi_<key>` name (any case).
+    fn game_key(name: &str) -> Option<&str> {
+        name.get(..9).filter(|p| p.eq_ignore_ascii_case("openomsi_")).map(|_| &name[9..])
+    }
+
     /// The value of `omsi.info()` an `.opl` list names as `openomsi_<key>` (any case).
     fn game_value(&self, name: &str) -> Option<&InfoValue> {
-        let key = name.get(..9).filter(|p| p.eq_ignore_ascii_case("openomsi_")).map(|_| &name[9..])?;
+        let key = Self::game_key(name)?;
         self.info.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v)
     }
 
@@ -179,6 +184,10 @@ impl PluginIo for Io<'_> {
     }
 
     fn set_var(&mut self, name: &str, v: f32) {
+        // (the game's values are read-only: no script variable is made under their names)
+        if Self::game_key(name).is_some() {
+            return;
+        }
         if let Some(veh) = self.vehicle.as_mut() {
             veh.set_var(name, v);
         }
