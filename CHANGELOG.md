@@ -4,6 +4,26 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.1.1553 - 2026-10-05
+
+### Fixes
+- Enhanced+ no longer stops drawing at the end of the loading screen on Windows and Linux: its ray tracing is used on Apple silicon (Metal) only for now, and elsewhere Enhanced+ draws as Enhanced. The graphics library's ray tracing on Vulkan and Direct3D 12 is still experimental; `OMSI_RT=1` tries it.
+
+## 0.1.1552 - 2026-10-05
+
+### Fixes
+- "Playing now" stays up all day: the game reports every ten minutes instead of every three and waits half an hour when the counter is busy, and the website asks every five minutes - the counter had run out of its daily requests and answered nobody until midnight UTC.
+
+## 0.1.1551 - 2026-10-05
+
+### New
+- Enhanced+ graphics (Settings → Graphics, `--enhanced-plus`): hardware ray tracing on Apple M3/M4 and newer, RTX and RDNA 2 cards - ray-traced sun shadows (soft away from their caster, crisp at the contact), ambient occlusion and reflections: wet roads, puddles, water, glass and chrome mirror what really stands around them, off the screen too. Elsewhere it draws as Enhanced.
+- Natural light in Enhanced and Enhanced+: the sky is computed from the physics of the atmosphere (multiple scattering, ozone, the day's haze and its particle size, a stratospheric layer), so the blue hour, the twilight's purple and every sunset look their own. Clouds glow after the sun has set for the street, a veil of high cloud gives a milky sun with soft pale shadows, passing cumulus take the sun away and bring it back, the moon stands at its real place with its real phase and lights the night, stars show in a dark sky and a city lights its own clouds. A camera's tone curve and exposure, street lamps as bright points with a little glare (wide halos in mist and rain).
+- Natural weather (the default when no weather is chosen, `--weather natural`): a physical weather model instead of one fixed state. Highs and lows pass through, cumulus grows in the afternoon and dissolves in the evening, calm clear nights leave morning fog, fronts bring a grey deck and rain, snow lies in winter and thaws in a mild spell, rain leaves clear air behind - grey days, blue evenings and sunny mornings follow from the days before, as the season and the map's latitude allow.
+
+### Fixes
+- Vehicle shadow blobs no longer flicker against the road, and in Enhanced and Enhanced+ they darken the ground under the bus as in OMSI 2.
+
 ## 0.1.1541 - 2026-10-04
 
 ### Merged pull requests

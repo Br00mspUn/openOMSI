@@ -3089,6 +3089,18 @@ impl App {
                 }
             }
         }
+        // the physical model goes on with the clock (unless a change is coming in)
+        if self.weather_blend.is_none() {
+            if let Some(w) = crate::weather_model::refresh(&self.clock) {
+                let kind_changed = self.weather.as_ref().is_none_or(|old| old.clouds.0 != w.clouds.0);
+                self.weather = Some(w);
+                if kind_changed {
+                    if let (Some(r), Some(scene)) = (self.renderer.as_ref(), self.scene.as_mut()) {
+                        crate::weather_setup::setup_sky(&self.args, r, scene, self.envir.as_ref(), self.weather.as_ref());
+                    }
+                }
+            }
+        }
         if let Some(w) = self.weather.as_ref() {
             crate::weather_setup::cloud_drift_step(&mut self.cloud_drift, w, secs as f64);
         }

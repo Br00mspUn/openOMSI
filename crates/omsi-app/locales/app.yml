@@ -23328,3 +23328,19 @@ _version: 2
 
 "A right click ends the mouse steering":
   zh-tw: "按一下滑鼠右鍵即可停止滑鼠轉向"
+
+"Natural weather":
+  pt: "Clima natural"
+  pt-pt: "Tempo natural"
+  zh: "自然天气"
+  pl: "Naturalna pogoda"
+  fr: "Météo naturelle"
+  zh-tw: "自然天氣"
+
+"Develops by itself through the day and the season":
+  pt: "Evolui sozinho ao longo do dia e da estação"
+  pt-pt: "Evolui sozinho ao longo do dia e da estação"
+  zh: "随一天和季节自行演变"
+  pl: "Rozwija się sama w ciągu dnia i pory roku"
+  fr: "Évolue d'elle-même au fil de la journée et de la saison"
+  zh-tw: "隨一天與季節自行演變"

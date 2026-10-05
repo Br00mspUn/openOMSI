@@ -3,6 +3,7 @@
 pub mod atmosphere;
 pub mod clouds;
 mod puddles;
+mod rt;
 mod triple;
 pub use triple::{panel_width, ScreenView, TripleScreen};
 
@@ -79,6 +80,7 @@ struct PostUniform {
     a: [f32; 4],
     b: [f32; 4],
     c: [f32; 4],
+    d: [f32; 4],
 }
 
 /// The enhanced lighting (enhanced_common.wgsl `Enhanced`).
@@ -101,6 +103,13 @@ struct EnhancedUniform {
     /// x how bright an LED panel's dots burn (`Lighting::led_glow`), y how much of the
     /// mip chain an LED panel is held at (`Lighting::led_mips`)
     led: [f32; 4],
+    /// xyz towards the moon, w its angular radius
+    moon: [f32; 4],
+    /// rgb the moon disc's irradiance at the ground before the clouds, w how much of the
+    /// starry sky shows (the city's lamps and the haze wash the faint stars out)
+    moon_disc: [f32; 4],
+    /// rgb the sun's irradiance at the clouds' heights (`atmosphere::CLOUD_SUN_HEIGHTS`)
+    cloud_sun: [[f32; 4]; 4],
 }
 
 /// High-range colour targets of the enhanced path for one size: the multisampled one the
@@ -112,6 +121,9 @@ struct HdrTargets {
     /// The screen mask (`MASK_FORMAT`), multisampled and resolved like the picture.
     mask_msaa: Option<wgpu::TextureView>,
     mask: wgpu::TextureView,
+    /// Enhanced+: the reflections' surfaces (`GBUF_FORMAT`, `AUX_FORMAT`): (multisampled,
+    /// resolved) each.
+    gbuf: Option<[(Option<wgpu::TextureView>, wgpu::TextureView); 2]>,
     /// Glow levels at 1/2, 1/4, ... of the size, and the upsampled sums per level.
     down: Vec<wgpu::TextureView>,
     up: Vec<wgpu::TextureView>,
@@ -196,10 +208,16 @@ const METER_GAIN: f32 = 0.4;
 const METER_TARGET: f32 = -2.84;
 const METER_DARKEN: f32 = 0.6;
 const METER_BRIGHTEN: f32 = 0.8;
+/// The tone curve's contrast about mid grey by day and at night (see `tone_contrast`).
+const TONE_CONTRAST_DAY: f32 = 1.22;
+const TONE_CONTRAST_NIGHT: f32 = 0.94;
 /// How far night vision takes the colour out of a dark scene (post.wgsl `night_vision`).
-const NIGHT_VISION: f32 = 0.55;
+const NIGHT_VISION: f32 = 0.3;
 /// The sun's angular radius as drawn (a little larger than the real 0.27°).
 const SUN_RADIUS: f32 = 0.0065;
+/// The moon's, as drawn (the real one is as large as the sun's; a little more, as the
+/// eye sees it).
+const MOON_RADIUS: f32 = 0.0062;
 
 /// The textures of the ambient-occlusion pass for one target size.
 struct AoTargets {
@@ -631,6 +649,21 @@ pub struct Lighting {
     /// The player's vehicle's velocity (m/s, world): at speed the airstream drives the drops
     /// on its glass up the windscreen and back along the side windows.
     pub glass_wind: Vec3,
+    /// Towards the moon (world space) and how much of its disc is lit (0 new .. 1 full):
+    /// the enhanced night's moonlight and the moon in its sky.
+    pub moon_dir: Vec3,
+    pub moon_illum: f32,
+    /// The day of the year (1..366) and the latitude (degrees north): the season's air.
+    pub day_of_year: f32,
+    pub latitude: f32,
+    /// One number per calendar day, which the enhanced sky draws the day's own air from.
+    pub day_seed: u32,
+    /// The optical depth of a high ice-cloud veil (0 none .. 2 a thick milky one).
+    pub veil: f32,
+    /// The air as a weather model knows it: aerosol amount relative to a clear day, its
+    /// Ångström exponent and its layer's depth (m); without it the day's own air is drawn
+    /// from the calendar (`day_air`).
+    pub air: Option<[f32; 3]>,
 }
 
 impl Lighting {
@@ -680,6 +713,13 @@ impl Default for Lighting {
             led_glow: 1.5,
             led_mips: 1.3,
             glass_wind: Vec3::ZERO,
+            moon_dir: Vec3::new(0.0, -0.5, -0.866),
+            moon_illum: 0.0,
+            day_of_year: 150.0,
+            latitude: 52.5,
+            day_seed: 0,
+            veil: 0.0,
+            air: None,
         }
     }
 }
@@ -1825,6 +1865,10 @@ pub struct Renderer {
     cloud_shape_view: wgpu::TextureView,
     cloud_detail_view: wgpu::TextureView,
     cloud_sampler: wgpu::Sampler,
+    /// The shape map's second level (RGBA8), for the clouds' shadow on the street, and how
+    /// much of the sun the clouds let through over the camera now (smoothed).
+    cloud_shape_cpu: Vec<u8>,
+    cloud_sun: Option<f32>,
     sky_mesh: (wgpu::Buffer, wgpu::Buffer, u32),
     overlay_pipeline: wgpu::RenderPipeline,
     overlay_layout: wgpu::BindGroupLayout,
@@ -1997,6 +2041,8 @@ pub struct Renderer {
     pending_meshes: std::cell::RefCell<Vec<(MeshId, Vec<u8>)>>,
     /// What a freed mesh and a freed material hold (see `free_mesh`), made once.
     freed: std::cell::OnceCell<Freed>,
+    /// Enhanced+: the ray tracer (on a device with ray queries, see `RenderOptions::ray_tracing`).
+    rt: Option<rt::RayTracer>,
 }
 
 /// The placeholders freed scene slots share: an empty vertex and index buffer and a plain
@@ -2059,6 +2105,10 @@ pub struct RenderOptions {
     /// Mali and Adreno drivers before the first frame, #364, #333, #316, #371). Asked for,
     /// they are built on every device and graphics API; a computer always builds them.
     pub no_enhanced: bool,
+    /// Enhanced+: the enhanced path with ray-traced sun shadows, ambient occlusion and
+    /// reflections, where the device can trace rays (hardware ray queries); elsewhere the
+    /// enhanced picture as it is.
+    pub ray_tracing: bool,
 }
 
 impl Default for RenderOptions {
@@ -2077,6 +2127,7 @@ impl Default for RenderOptions {
             shadow_blobs: true,
             reflections: true,
             no_enhanced: false,
+            ray_tracing: false,
         }
     }
 }
@@ -2104,12 +2155,23 @@ pub const LAMP_CODE_STRIDE: u32 = 64;
 /// reflected-light weight; a is blend coverage. Sharing this attachment avoids another
 /// geometry pass or a full normal/material buffer just for water.
 const MASK_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+/// Enhanced+: the enhanced pass's third and fourth targets, what the ray-traced reflections
+/// start from (rt.wgsl): the surface's normal (xyz) and how much it reflects (w), and its
+/// view depth and roughness (rg) - all weighted by that reflection (premultiplied), so that
+/// a pane blended over a wet road leaves the stronger reflection's surface in them.
+const GBUF_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+const AUX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
+/// The renderer is built for Enhanced+: its HDR pipelines and targets have the two above.
+static RT_GBUF: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+fn rt_gbuf() -> bool {
+    RT_GBUF.load(std::sync::atomic::Ordering::Relaxed)
+}
 const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 /// The colour targets of a pipeline drawing into `format`: Enhanced and classic puddle
 /// shading draw into `HDR_FORMAT` with the screen mask beside it,
 /// written by the scene's own shader only (`mask`), coverage-blended where the colour is.
-fn color_targets(format: wgpu::TextureFormat, blend: Option<wgpu::BlendState>, write: wgpu::ColorWrites, mask: bool) -> Vec<Option<wgpu::ColorTargetState>> {
+fn color_targets(format: wgpu::TextureFormat, blend: Option<wgpu::BlendState>, write: wgpu::ColorWrites, mask: bool, gbuf: bool) -> Vec<Option<wgpu::ColorTargetState>> {
     let mut v = vec![Some(wgpu::ColorTargetState { format, blend, write_mask: write })];
     if format == HDR_FORMAT {
         v.push(Some(wgpu::ColorTargetState {
@@ -2120,6 +2182,16 @@ fn color_targets(format: wgpu::TextureFormat, blend: Option<wgpu::BlendState>, w
             }),
             write_mask: if mask { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::empty() },
         }));
+        if rt_gbuf() {
+            // (premultiplied by the reflection's weight, the shader's alpha)
+            let over = blend.map(|_| wgpu::BlendState {
+                color: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha, operation: wgpu::BlendOperation::Add },
+                alpha: wgpu::BlendComponent { src_factor: wgpu::BlendFactor::One, dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha, operation: wgpu::BlendOperation::Add },
+            });
+            let write = if gbuf { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::empty() };
+            v.push(Some(wgpu::ColorTargetState { format: GBUF_FORMAT, blend: over, write_mask: write }));
+            v.push(Some(wgpu::ColorTargetState { format: AUX_FORMAT, blend: over, write_mask: write }));
+        }
     }
     v
 }
@@ -2351,6 +2423,26 @@ impl Renderer {
             // textures are decoded to RGBA by upload_texture on this device.
             required_features = wgpu::Features::empty();
         }
+        // Enhanced+: hardware ray queries where the device has them and they are known to
+        // work - Metal (Apple silicon from the M3/A17 on). wgpu's ray queries are still
+        // experimental on Vulkan and Direct3D 12: there the game stopped drawing at the end
+        // of the loading screen (sounds and controls going on behind it), so those take
+        // them only with OMSI_RT=1, for testing. OMSI_NO_RT=1 leaves them out everywhere.
+        let rt_backend_ok = info.backend == wgpu::Backend::Metal || omsi_cfg::env::var_os("OMSI_RT").is_some();
+        let ray_query = options.ray_tracing
+            && !intel_vulkan_safe
+            && info.backend != wgpu::Backend::Noop
+            && rt_backend_ok
+            && adapter.features().contains(wgpu::Features::EXPERIMENTAL_RAY_QUERY)
+            && omsi_cfg::env::var_os("OMSI_NO_RT").is_none();
+        if ray_query {
+            required_features |= wgpu::Features::EXPERIMENTAL_RAY_QUERY;
+            limits = limits.using_acceleration_structure_values(adapter.limits());
+        } else if options.ray_tracing && !rt_backend_ok && adapter.features().contains(wgpu::Features::EXPERIMENTAL_RAY_QUERY) {
+            log::warn!("{}: ray tracing on {:?} is not ready yet; Enhanced+ is drawn as Enhanced (OMSI_RT=1 tries it)", info.name, info.backend);
+        } else if options.ray_tracing {
+            log::warn!("{}: no hardware ray queries; Enhanced+ is drawn as Enhanced", info.name);
+        }
         // the per-draw arrays as storage buffers where the device reads them in a vertex
         // shader (three there, two lights arrays in a fragment shader), else as textures;
         // OMSI_GPU_ARRAYS=textures|nostorage takes those paths on any device
@@ -2380,6 +2472,8 @@ impl Renderer {
                 // "Out of memory" in the first frames with the textures well under budget,
                 // #332, #295)
                 memory_hints: if weak || modest || vram.is_some_and(|v| v <= 4200) { wgpu::MemoryHints::MemoryUsage } else { wgpu::MemoryHints::Performance },
+                // (the ray queries are still an experimental feature of wgpu)
+                experimental_features: if ray_query { unsafe { wgpu::ExperimentalFeatures::enabled() } } else { wgpu::ExperimentalFeatures::disabled() },
                 ..Default::default()
             })
             .await
@@ -2417,8 +2511,10 @@ impl Renderer {
             // 16x showed none of it - 16x kept the far dashes narrow where 8x smeared them
             // sideways - so 16x is the player's choice again, 8x the default)
             anisotropy: options.anisotropy.clamp(1, 16),
+            ray_tracing: ray_query,
             ..options
         };
+        RT_BUFFERS.store(ray_query, std::sync::atomic::Ordering::Relaxed);
         let bc = device
             .features()
             .contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
@@ -2468,6 +2564,7 @@ impl Renderer {
         options: RenderOptions,
     ) -> Renderer {
         let (msaa, shadow_size) = (options.msaa, options.shadow_size);
+        RT_GBUF.store(options.ray_tracing, std::sync::atomic::Ordering::Relaxed);
         // A GPU error while multisampling is on is logged and switches multisampling off
         // at the next frame (`render_inner`). Otherwise it is logged and the game goes on:
         // wgpu's own handler ends the process, and one call a driver refused (a limit of
@@ -2655,6 +2752,7 @@ impl Renderer {
                         blend,
                         if fs == "fs_surface_depth" { wgpu::ColorWrites::empty() } else { wgpu::ColorWrites::ALL },
                         fs != "fs_surface_depth",
+                        fs == "fs_enhanced",
                     ),
                     // only the alpha-tested pipelines keep their `discard` (see ALPHA_TEST
                     // in shader.wgsl): early depth testing for everything else
@@ -3019,7 +3117,7 @@ impl Renderer {
                 fragment: Some(wgpu::FragmentState {
                     module: &corona_shader,
                     entry_point: Some(fs),
-                    targets: &color_targets(f, Some(blend), wgpu::ColorWrites::COLOR, false),
+                    targets: &color_targets(f, Some(blend), wgpu::ColorWrites::COLOR, false, false),
                     compilation_options: Default::default(),
                 }),
                 multiview_mask: None,
@@ -3111,7 +3209,7 @@ impl Renderer {
                 },
             ],
         });
-        let (cloud_shape_view, cloud_detail_view, cloud_sampler) = cloud_noise_textures(&device, &queue);
+        let (cloud_shape_view, cloud_detail_view, cloud_sampler, cloud_shape_cpu) = cloud_noise_textures(&device, &queue);
         log::info!("renderer: compiling the sky and clouds shaders");
         let sky_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("sky"),
@@ -3158,7 +3256,7 @@ impl Renderer {
                 fragment: Some(wgpu::FragmentState {
                     module: &sky_shader,
                     entry_point: Some(fs),
-                    targets: &color_targets(f, None, wgpu::ColorWrites::COLOR, false),
+                    targets: &color_targets(f, None, wgpu::ColorWrites::COLOR, false, false),
                     compilation_options: Default::default(),
                 }),
                 multiview_mask: None,
@@ -4159,6 +4257,7 @@ impl Renderer {
         let puddles = (!gl && !leave_out_enhanced).then(|| {
             puddles::Pipelines::new(&device, &shader, &camera_layout, &material_layout)
         });
+        let rt = options.ray_tracing.then(|| rt::RayTracer::new(&device));
         Renderer {
             _device_poller: DevicePoller::start(&device),
             upscale_pipeline,
@@ -4242,6 +4341,8 @@ impl Renderer {
             cloud_shape_view,
             cloud_detail_view,
             cloud_sampler,
+            cloud_shape_cpu,
+            cloud_sun: None,
             sky_mesh,
             overlay_pipeline,
             overlay_layout,
@@ -4280,6 +4381,7 @@ impl Renderer {
             },
             pending_meshes: Default::default(),
             freed: std::cell::OnceCell::new(),
+            rt,
         }
     }
 
@@ -4483,6 +4585,9 @@ impl Renderer {
     /// creation failed validation and mapping it panicked (Windows, Vulkan).
     fn flush_pending_meshes(&self, scene: &Scene, _encoder: &mut wgpu::CommandEncoder) {
         let pending = std::mem::take(&mut *self.pending_meshes.borrow_mut());
+        if let Some(rt) = self.rt.as_ref() {
+            rt.meshes_changed(pending.iter().map(|(id, _)| *id));
+        }
         for (id, b) in &pending {
             let Some(m) = scene.meshes.get(*id) else { continue };
             let len = (b.len() as u64) / 4 * 4;
@@ -6443,6 +6548,9 @@ impl Renderer {
         let view = target("hdr", w, h, fmt, 1);
         let mask_msaa = (self.options.msaa > 1).then(|| target("screen mask msaa", w, h, MASK_FORMAT, self.options.msaa));
         let mask = target("screen mask", w, h, MASK_FORMAT, 1);
+        let gbuf = rt_gbuf().then(|| {
+            [GBUF_FORMAT, AUX_FORMAT].map(|f| ((self.options.msaa > 1).then(|| target("rt surfaces msaa", w, h, f, self.options.msaa)), target("rt surfaces", w, h, f, 1)))
+        });
         // the glow: halving until the smallest level is a few dozen pixels across
         let levels = GLOW_LEVELS
             .min((w.min(h).max(16) as f32).log2() as usize - 3)
@@ -6516,6 +6624,7 @@ impl Renderer {
                 view,
                 mask_msaa,
                 mask,
+                gbuf,
                 down,
                 up,
                 ldr,
@@ -6605,10 +6714,46 @@ impl Renderer {
             }
         }
         let input_overcast = input.overcast;
+        // the cumulus over the street: how much of the sun gets through them along the sun's
+        // way from here, a little blurred (a cloud's shadow has a soft edge tens of metres
+        // wide) and followed over a moment as the clouds drift
+        let cloud_t = {
+            let now = if lighting.enhanced && lighting.cloud_density > 0.0 {
+                cloud_sun_transmittance(&self.cloud_shape_cpu, lighting, cam_rel, ro)
+            } else {
+                1.0
+            };
+            let k = if self.instant_exposure || dt <= 0.0 { 1.0 } else { 1.0 - (-dt / 0.7).exp() };
+            if omsi_cfg::env::var_os("OMSI_DEBUG_SKY").is_some() {
+                // (what share of the sky's directions are clear, against the cover asked for)
+                let mut clear = 0;
+                let mut n = 0;
+                for i in 0..64 {
+                    let az = i as f32 * 0.7;
+                    let el = 0.25 + (i % 8) as f32 * 0.09;
+                    let mut l = lighting.clone();
+                    l.sun_dir = Vec3::new(el.cos() * az.cos(), el.cos() * az.sin(), el.sin());
+                    if cloud_sun_transmittance(&self.cloud_shape_cpu, &l, cam_rel, ro) > 0.5 {
+                        clear += 1;
+                    }
+                    n += 1;
+                }
+                log::info!("cloud sun: {now:.3} here, {clear} of {n} directions clear (cover {:.2})", lighting.cloud_density);
+            }
+            let t = self.cloud_sun.map(|c| c + (now - c) * k).unwrap_or(now);
+            self.cloud_sun = Some(t);
+            t
+        };
         let st = self.sky_state.as_ref().expect("sky state");
         // the exposure follows the light over a second or two (in log space); an offscreen
         // picture and the first frame take it at once
-        let target = st.exposure.max(1e-6).ln();
+        // (the eye takes to a cloud's shadow as to any other light: the exposure is for the
+        // sun the street actually gets)
+        // (half of the way in log terms: a camera, and the eye, take a cloud's shadow as
+        // darker - it is darker - only not as much as the light meter says)
+        let full = st.exposure.max(1e-6).ln();
+        let shaded = atmosphere::exposure_for(st.e_sun * cloud_t + st.e_rest).max(1e-6).ln();
+        let target = full + (shaded - full) * CLOUD_SHADE_ADAPT;
         let log_exposure = match self.exposure {
             Some(e) if !self.instant_exposure && dt > 0.0 => {
                 e + (target - e) * (1.0 - (-dt / 1.5).exp())
@@ -6626,9 +6771,10 @@ impl Renderer {
             / 6.0;
         let fog_rgb = avg * 0.9 / std::f32::consts::PI;
         let weather_fog = enhanced_weather_fog(lighting);
-        // (the air near the ground: the Rayleigh part and half the aerosols of the sky
-        // model's, whose layer is thinner where a street is than its average)
-        let clear_air = 1.3e-5 + 2.2e-5 * input.haze;
+        // (the air near the ground: the Rayleigh part and more than the sky model's
+        // average aerosol - a city's air near the ground holds its dust and exhaust, which is what gives a street its depth - the houses a few
+        // hundred metres off a shade paler and bluer than the ones beside the road)
+        let clear_air = 1.8e-5 + 3.6e-5 * input.haze;
         // the fog lies on the ground under the player's vehicle, or just under the camera
         let base = match lighting.fog_base.or(lighting.inside.map(|v| v.0.z)) {
             Some(z) => (z - ro.z) as f32,
@@ -6680,7 +6826,7 @@ impl Renderer {
         let u = EnhancedUniform {
             // (self-lit surfaces at their own brightness after the metering, see ExposureLog)
             exposure: [pre, 2f32.powf(-self.exposure_log.as_ref().map(|l| l.ev).unwrap_or(0.0)).clamp(0.7, 1.6), pre * WINDOW_RADIANCE, 1.6],
-            sun: st.sun.extend(SUN_RADIUS).to_array(),
+            sun: (st.sun * cloud_t).extend(SUN_RADIUS).to_array(),
             sh,
             ground: st.ground.extend(st.lut_scale).to_array(),
             fog: [weather_fog, FOG_FALLOFF, base, clear_air],
@@ -6702,13 +6848,24 @@ impl Renderer {
                     .ok()
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(1.0),
-                0.0,
+                // the tone curve's contrast, which self-lit pictures undo (`display_level`)
+                tone_contrast(log_exposure),
             ],
             eye: eye_off.extend(0.0).to_array(),
             // x how bright an LED panel's dots burn (see `MaterialExtra::led`; the settings'
             // 16 levels give 0 = off .. 3.75), y whether the LED panels' `\S:n` masks keep
             // their mip chain (0: at full resolution, the dots stay visible when small)
             led: [lighting.led_glow, lighting.led_mips, 0.0, 0.0],
+            moon: lighting.moon_dir.normalize_or_zero().extend(MOON_RADIUS).to_array(),
+            // (w of the first: the veil's optical depth, which the sky draws as the high
+            // layer; of the second: how far the veil spreads the sun, which softens shadows)
+            cloud_sun: {
+                let mut c = st.sun_at.map(|c| c.extend(0.0).to_array());
+                c[0][3] = st.input.veil;
+                c[1][3] = 1.0 - (-st.input.veil / st.input.sun_dir.z.max(0.03)).exp();
+                c
+            },
+            moon_disc: st.moon_disc.extend((1.0 - 0.18 * (st.input.haze - 1.0).max(0.0)).clamp(0.2, 1.0) * 0.55).to_array(),
         };
         self.queue
             .write_buffer(&self.enh_buf, 0, bytemuck::bytes_of(&u));
@@ -6994,10 +7151,13 @@ impl Renderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 8,
+                    // (Enhanced+: the traced lighting, full size, in place of the SSAO)
                     resource: wgpu::BindingResource::TextureView(
-                        self.ao
+                        self.rt
                             .as_ref()
-                            .map(|a| &a.blur_view)
+                            .and_then(|r| r.targets.as_ref())
+                            .map(|t| &t.out)
+                            .or(self.ao.as_ref().map(|a| &a.blur_view))
                             .unwrap_or(&self.white_texture.view),
                     ),
                 },
@@ -8000,7 +8160,10 @@ impl Renderer {
         self.prepare_coronas(scene, lighting.night, lighting.inside.as_ref().filter(|v| point_in_vehicle_box(camera.position, v)));
         self.prepare_smoke(scene, camera.position);
         // ambient occlusion only for the real picture, not for the mirrors
-        let ao_on = with_overlays && self.options.ssao && self.ssao_pipeline.is_some() && omsi_cfg::env::var_os("OMSI_NO_AO").is_none();
+        // Enhanced+: the window's picture traces its sun shadow and ambient occlusion (not the
+        // mirrors, a headset's eyes or a triple screen's panels: they keep the shadow map)
+        let rt_frame = self.rt.is_some() && enhanced && with_overlays && projection.is_none() && omsi_cfg::env::var_os("OMSI_NO_RT_FRAME").is_none();
+        let ao_on = with_overlays && self.rt.is_none() && self.options.ssao && self.ssao_pipeline.is_some() && omsi_cfg::env::var_os("OMSI_NO_AO").is_none();
         // the enhanced path's shading is costly: the depth prepass keeps it to the visible
         // surface (without multisampling, see `share_depth`)
         let prepass_on = ao_on || puddles_wanted || glass_on || (enhanced && (with_overlays || xr_view));
@@ -8009,6 +8172,11 @@ impl Renderer {
             scene.dirty = true;
             scene.model_buf = None;
             self.hdr_targets.clear();
+        }
+        if rt_frame && self.rt.as_mut().is_some_and(|rt| rt.ensure_targets(&self.device, width, height)) {
+            // the camera bind group must point at the new lighting texture
+            scene.dirty = true;
+            scene.model_buf = None;
         }
         if masked_frame {
             self.hdr_targets(width, height);
@@ -8201,7 +8369,8 @@ impl Renderer {
                 lighting.cloud_density,
                 lighting.cloud_offset[0],
                 lighting.cloud_offset[1],
-                if ao_on { 1.0 } else { 0.0 },
+                // (2: the traced lighting, full size, see `ao_at`)
+                if rt_frame { 2.0 } else if ao_on { 1.0 } else { 0.0 },
             ],
             // (w: the heading the sphere maps are laid out by in the headset, see
             // `set_env_heading`; flagged by cam_up.w)
@@ -8253,6 +8422,11 @@ impl Renderer {
         };
         self.queue
             .write_buffer(&self.camera_buf, 0, bytemuck::bytes_of(&cu));
+        if rt_frame {
+            let proj = Mat4::perspective_rh(camera.fov_deg.to_radians(), aspect, camera.far, camera.near);
+            self.prepare_ray_tracing(scene, camera, lighting, vp_mat, proj, width, height, dt);
+            stage(self, "ray tracing", "mirror.ray tracing");
+        }
         // (a mirror takes the window's light - its own call would move the exposure on -
         // unless it comes before the window's first frame)
         let probe_redraw = enhanced
@@ -8326,6 +8500,12 @@ impl Renderer {
                     if cut_body {
                         kind = PIPE_ALPHA_TEST;
                     }
+                    // (Enhanced+: what is solid casts its shadow by the traced rays; the
+                    // close and near maps keep the cut-out leaves and fences, whose texels
+                    // the rays cannot see)
+                    if rt_frame && kind == PIPE_OPAQUE {
+                        kind = PIPE_KINDS;
+                    }
                     ranges.push((kind, ri as u32, *slot, mat_id));
                 }
                 for (cascade, &(range, lvp, min_radius)) in boxes.iter().enumerate() {
@@ -8351,6 +8531,14 @@ impl Renderer {
                         log::info!("shadow: caster r={r:.1} at {:?} slots {:?}", inst.origin, ranges.iter().map(|x| x.0).collect::<Vec<_>>());
                     }
                     for &(kind, ri, slot, mat_id) in &ranges {
+                        let kind = if kind == PIPE_KINDS {
+                            if cascade != 1 {
+                                continue;
+                            }
+                            PIPE_OPAQUE
+                        } else {
+                            kind
+                        };
                         out[cascade].push(DrawItem {
                             pipe: kind,
                             mesh: inst.mesh as u32,
@@ -8474,7 +8662,7 @@ impl Renderer {
                 let m = &scene.meshes[inst.mesh];
                 let (c, _) = Self::bounding_sphere(scene, inst);
                 let v = view.transform_point3(c);
-                log::info!("cull {i}: mesh {} r {:.2} centre {:?} origin {:?} view {:?} visible {} lod {:?} tan ({tan_x:.2}, {tan_y:.2}) fog {fog_far:.0}", inst.mesh, m.bounds_radius, m.bounds_center, inst.origin, v, inst.visible, inst.lod);
+                log::info!("cull {i}: mesh {} r {:.2} centre {:?} origin {:?} view {:?} visible {} lod {:?} tan ({tan_x:.2}, {tan_y:.2}) fog {fog_far:.0} surface {} decal {} casts {} phase {:?} source {:?}", inst.mesh, m.bounds_radius, m.bounds_center, inst.origin, v, inst.visible, inst.lod, inst.surface, inst.decal, inst.casts_shadow, inst.render_phase, m.source);
             }
         }
         let fov_y = camera.fov_deg.to_radians().max(1e-3);
@@ -8929,7 +9117,12 @@ impl Renderer {
                         } else {
                             0
                         };
-                        let dist = if let Some(sort_origin) = inst.blend_sort_origin {
+                        // A vehicle's shadow blob goes after all the ground: it writes no depth, so
+                        // every road piece nearer than its origin, drawn after it by distance,
+                        // painted the road back over it (OMSI draws it over the road it lies on).
+                        let dist = if inst.blob {
+                            -1.0
+                        } else if let Some(sort_origin) = inst.blend_sort_origin {
                             // Spline surfaces use the C++ handler's placement-origin distance
                             // in the horizontal plane (Rust's world axes are x/y horizontal,
                             // z vertical).
@@ -9256,6 +9449,9 @@ impl Renderer {
                 pass.draw(0..3, 0..1);
             }
         }
+        if rt_frame {
+            self.encode_ray_tracing(&mut prepass_encoder, scene, tset.as_ref(), &mut timed);
+        }
         // --- the enhanced sky cube: a face a frame (all six the first time and for a new
         // sky), drawn in the window's frame only
         if enhanced && (lead_view || probe_redraw) {
@@ -9493,10 +9689,22 @@ impl Renderer {
                             resolve_target: None,
                             ops: wgpu::Operations { load: if first { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) } else { wgpu::LoadOp::Load }, store: wgpu::StoreOp::Store },
                         }),
+                        hdr.and_then(|h| h.gbuf.as_ref()).map(|g| wgpu::RenderPassColorAttachment {
+                            view: g[0].0.as_ref().unwrap_or(&g[0].1),
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations { load: if first { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) } else { wgpu::LoadOp::Load }, store: wgpu::StoreOp::Store },
+                        }),
+                        hdr.and_then(|h| h.gbuf.as_ref()).map(|g| wgpu::RenderPassColorAttachment {
+                            view: g[1].0.as_ref().unwrap_or(&g[1].1),
+                            depth_slice: None,
+                            resolve_target: None,
+                            ops: wgpu::Operations { load: if first { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) } else { wgpu::LoadOp::Load }, store: wgpu::StoreOp::Store },
+                        }),
                     ];
                     let mut pass = part.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("main part"),
-                        color_attachments: if part_colors[1].is_some() { &part_colors[..] } else { &part_colors[..1] },
+                        color_attachments: if part_colors[2].is_some() { &part_colors[..] } else if part_colors[1].is_some() { &part_colors[..2] } else { &part_colors[..1] },
                         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                             view: depth_view,
                             depth_ops: Some(wgpu::Operations { load: if first { depth_first } else { wgpu::LoadOp::Load }, store: wgpu::StoreOp::Store }),
@@ -9534,8 +9742,22 @@ impl Renderer {
                         },
                     },
                 });
-            let colors = [main_attachment, mask_attachment];
-            let colors = if colors[1].is_some() { &colors[..] } else { &colors[..1] };
+            let gbuf_attachments = hdr.and_then(|h| h.gbuf.as_ref()).map(|g| {
+                g.each_ref().map(|(msaa, view)| {
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: msaa.as_ref().unwrap_or(view),
+                        depth_slice: None,
+                        resolve_target: msaa.as_ref().map(|_| view),
+                        ops: wgpu::Operations {
+                            load: if parts > 1 { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) },
+                            store: if msaa.is_some() { wgpu::StoreOp::Discard } else { wgpu::StoreOp::Store },
+                        },
+                    })
+                })
+            });
+            let [g0, g1] = gbuf_attachments.unwrap_or([None, None]);
+            let colors = [main_attachment, mask_attachment, g0, g1];
+            let colors = if colors[2].is_some() { &colors[..] } else if colors[1].is_some() { &colors[..2] } else { &colors[..1] };
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main"),
                 // drawn with MSAA samples and resolved into the real target at the end
@@ -9627,7 +9849,12 @@ impl Renderer {
         }
         // Weather alone is insufficient: leave the allocation and reflection passes out when
         // the visible batches contain no moisture-tagged surface (a showroom, bare terrain).
+        // Enhanced+: the traced reflections (wet roads' too) in place of the puddles' rays
+        if rt_frame {
+            self.encode_rt_reflections(&mut encoder, width, height, tset.as_ref(), &mut timed);
+        }
         let puddles_on = puddles_wanted
+            && !rt_frame
             && main_batches.iter().any(|b| scene.materials[b.material as usize].uniform.params2[2] > 0.0)
             && self.prepare_puddle_reflections(width, height, camera, aspect, projection, &cu, lighting, ro);
         if puddles_on {
@@ -9659,11 +9886,19 @@ impl Renderer {
                     view: &h.mask, depth_slice: None, resolve_target: None,
                     ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
                 }),
+                hdr.and_then(|h| h.gbuf.as_ref()).map(|g| wgpu::RenderPassColorAttachment {
+                    view: &g[0].1, depth_slice: None, resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                }),
+                hdr.and_then(|h| h.gbuf.as_ref()).map(|g| wgpu::RenderPassColorAttachment {
+                    view: &g[1].1, depth_slice: None, resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                }),
             ];
             let pipes = &self.main_pass(enhanced, reflection_frame).rain_pipelines;
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("rain on current scene"),
-                color_attachments: &colours[..if hdr.is_some() { 2 } else { 1 }],
+                color_attachments: &colours[..if colours[2].is_some() { 4 } else if hdr.is_some() { 2 } else { 1 }],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.ao.as_ref().unwrap().depth_view,
                     depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }),
@@ -9730,6 +9965,12 @@ impl Renderer {
                 // there instead of being drawn burning: their halo shows, they don't bleach.
                 // `Led glow`, 0 = not at all.)
                 c: [m[0], m[5], self.exposure.map(f32::exp).unwrap_or(1.0), lighting.led_glow * 10.0],
+                // Enhanced+: its grade, the vignette and the sharpening; both: the tone
+                // curve's contrast (post.wgsl `natural_tone`)
+                d: {
+                    let contrast = tone_contrast(self.exposure.unwrap_or(0.0));
+                    if rt_frame && omsi_cfg::env::var_os("OMSI_NO_RT_GRADE").is_none() { [1.0, 0.08, 0.0, contrast] } else { [0.0, 0.0, 0.0, contrast] }
+                },
             };
             self.queue
                 .write_buffer(&self.post_buf, 0, bytemuck::bytes_of(&pu));
@@ -10123,6 +10364,10 @@ fn buffer_init(device: &wgpu::Device, queue: &wgpu::Queue, label: Option<&str>, 
     buf
 }
 
+/// Meshes are made for the ray tracer's acceleration structures as well (Enhanced+ on a
+/// device with ray queries: their buffers are its geometry input).
+static RT_BUFFERS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The GPU buffers of a mesh.
 fn make_mesh(device: &wgpu::Device, queue: &wgpu::Queue, data: &MeshData) -> GpuMesh {
     let verts: Vec<Vertex> = data
@@ -10136,8 +10381,9 @@ fn make_mesh(device: &wgpu::Device, queue: &wgpu::Queue, data: &MeshData) -> Gpu
             uv: uv.to_array(),
         })
         .collect();
-    let vertex_buf = buffer_init(device, queue, None, bytemuck::cast_slice(&verts), wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST);
-    let index_buf = buffer_init(device, queue, None, bytemuck::cast_slice(&data.indices), wgpu::BufferUsages::INDEX);
+    let blas = if RT_BUFFERS.load(std::sync::atomic::Ordering::Relaxed) { wgpu::BufferUsages::BLAS_INPUT } else { wgpu::BufferUsages::empty() };
+    let vertex_buf = buffer_init(device, queue, None, bytemuck::cast_slice(&verts), wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST | blas);
+    let index_buf = buffer_init(device, queue, None, bytemuck::cast_slice(&data.indices), wgpu::BufferUsages::INDEX | blas);
     let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for p in &data.positions {
         lo = lo.min(*p);
@@ -10448,6 +10694,104 @@ fn meter_tuning() -> [f32; 6] {
     })
 }
 
+/// The tone curve's contrast about mid grey for a pre-exposure (its natural log): a
+/// camera's by day, falling off through the dusk to a little under none at night, where
+/// the eye's own adaptation to the dark between the street lamps lifts it out of black
+/// (a street a few hundred times darker than the pool under a lamp is still seen). `OMSI_TONE_CONTRAST=day,night`
+/// overrides it.
+fn tone_contrast(log_pre: f32) -> f32 {
+    static OVERRIDE: std::sync::OnceLock<Option<(f32, f32)>> = std::sync::OnceLock::new();
+    let (day, night) = OVERRIDE
+        .get_or_init(|| {
+            let v = omsi_cfg::env::var("OMSI_TONE_CONTRAST").ok()?;
+            let mut it = v.split(',').map(|x| x.trim().parse::<f32>().ok());
+            Some((it.next()??, it.next().flatten().unwrap_or(1.0)))
+        })
+        .unwrap_or((TONE_CONTRAST_DAY, TONE_CONTRAST_NIGHT));
+    // (the pre-exposure is about 1 by day, 70 in the blue hour and 400-700 at night)
+    let t = atmosphere::smoothstep(2.0, 8.0, log_pre / std::f32::consts::LN_2);
+    day + (night - day) * t
+}
+
+/// How much of the sun the enhanced sky's cumulus lets through to the camera: the same
+/// cloud the sky shader draws (sky_enhanced.wgsl `cloud_base_shape`, `cloud_sigma`: the
+/// shape map's heaps cut by the cover, rounded with height, without the billows), its
+/// extinction integrated along the sun's direction through the layer, over a few rays a
+/// few tens of metres apart (the penumbra of a cloud a kilometre and a half up).
+const CLOUD_SHADOW_EROSION: f32 = 0.15;
+/// How far the exposure follows the light into a cloud's shadow (log terms).
+const CLOUD_SHADE_ADAPT: f32 = 0.5;
+
+fn cloud_sun_transmittance(shape: &[u8], lighting: &Lighting, cam_rel: Vec3, ro: DVec3) -> f32 {
+    const BOTTOM: f32 = 1400.0;
+    const TOP: f32 = 2800.0;
+    const PERIOD: f32 = 13000.0;
+    const SIGMA: f32 = 0.035;
+    let s = lighting.sun_dir.normalize_or_zero();
+    if s.z <= 0.02 || shape.is_empty() {
+        return 1.0;
+    }
+    let size = (clouds::SHAPE_SIZE / 2) as usize;
+    if shape.len() < size * size * 4 {
+        return 1.0;
+    }
+    let texel = |x: i64, y: i64| {
+        let (x, y) = (x.rem_euclid(size as i64) as usize, y.rem_euclid(size as i64) as usize);
+        let i = (y * size + x) * 4;
+        [shape[i] as f32 / 255.0, shape[i + 1] as f32 / 255.0, shape[i + 2] as f32 / 255.0]
+    };
+    let sample = |u: f32, v: f32| {
+        let (x, y) = (u * size as f32 - 0.5, v * size as f32 - 0.5);
+        let (x0, y0) = (x.floor(), y.floor());
+        let (fx, fy) = (x - x0, y - y0);
+        let (x0, y0) = (x0 as i64, y0 as i64);
+        let a = texel(x0, y0);
+        let b = texel(x0 + 1, y0);
+        let c = texel(x0, y0 + 1);
+        let d = texel(x0 + 1, y0 + 1);
+        let mut o = [0.0f32; 3];
+        for k in 0..3 {
+            o[k] = (a[k] * (1.0 - fx) + b[k] * fx) * (1.0 - fy) + (c[k] * (1.0 - fx) + d[k] * fx) * fy;
+        }
+        o
+    };
+    let lin = |a: f32, b: f32, v: f32| ((v - a) / (b - a)).clamp(0.0, 1.0);
+    let cover = lighting.cloud_density.clamp(0.0, 1.0);
+    // (less the billows' erosion, which the sky shader takes off the heaps' edges and this
+    // leaves out: on average about this much of the cover)
+    let coverage = (0.3 + cover * 0.55 - CLOUD_SHADOW_EROSION).clamp(0.0, 1.0);
+    let origin = glam::Vec2::new(ro.x.rem_euclid(CLOUD_ORIGIN_PERIOD) as f32, ro.y.rem_euclid(CLOUD_ORIGIN_PERIOD) as f32);
+    let drift = glam::Vec2::new(lighting.cloud_offset[0], lighting.cloud_offset[1]) * 2500.0;
+    let t0 = (BOTTOM - cam_rel.z).max(0.0) / s.z;
+    let t1 = ((TOP - cam_rel.z).max(0.0) / s.z).min(t0 + 12_000.0);
+    let steps = 24;
+    let ds = (t1 - t0) / steps as f32;
+    let side = glam::Vec2::new(-s.y, s.x).normalize_or_zero();
+    let mut sum = 0.0;
+    let offsets = [glam::Vec2::ZERO, side * 40.0, -side * 40.0, glam::Vec2::new(s.x, s.y).normalize_or_zero() * 40.0, -glam::Vec2::new(s.x, s.y).normalize_or_zero() * 40.0];
+    for off in offsets {
+        let mut od = 0.0;
+        for k in 0..steps {
+            let t = t0 + (k as f32 + 0.5) * ds;
+            let p = cam_rel + s * t;
+            let h = (p.z - BOTTOM) / (TOP - BOTTOM);
+            if !(0.0..1.0).contains(&h) {
+                continue;
+            }
+            let g = glam::Vec2::new(p.x, p.y) + origin + off + drift;
+            let m = sample(g.x / PERIOD, g.y / PERIOD);
+            let lo = m[1] - 1.0;
+            let n = h * h * (0.7 + m[2]) + (1.0 - h).powi(16);
+            let base = (m[0] - n - lo) / (1.0 - lo) * (lin(0.0, 0.1, h) - lin(0.6, 1.0, h));
+            let x = ((base + coverage - 1.0) / 0.12).clamp(0.0, 1.0);
+            let dens = x * x * (3.0 - 2.0 * x) * (h / 0.2).min(1.0);
+            od += dens * SIGMA * ds;
+        }
+        sum += (-od).exp();
+    }
+    sum / offsets.len() as f32
+}
+
 /// How the enhanced picture's weather fog thins out with height (1/m): a 300 m scale height
 /// over the fog's base (`layer_depth` in enhanced_common.wgsl).
 const FOG_FALLOFF: f32 = 1.0 / 300.0;
@@ -10480,7 +10824,13 @@ fn enhanced_sky_input(lighting: &Lighting) -> (atmosphere::SkyInput, f32) {
     let s = lighting.sun_dir.normalize_or_zero();
     // haze: the weather's visibility below a few kilometres thickens the aerosol
     let visibility = 2.3 / lighting.fog_density.max(1e-6);
-    let haze = (8000.0 / visibility).clamp(1.0, 6.0) + 2.0 * lighting.rain;
+    let mut day = day_air(lighting);
+    if let Some([haze, angstrom, height]) = lighting.air {
+        day.haze = haze;
+        day.angstrom = angstrom;
+        day.aerosol_height = height;
+    }
+    let haze = (8000.0 / visibility).clamp(1.0, 6.0) * day.haze + 2.0 * lighting.rain;
     // rain and snow fall from a closed deck: whatever the cloud type says, the sun is
     // gone and the sky is the grey dome (a low sun scattered orange in the snowfall)
     let wet_cover = (lighting.rain * 1.5).clamp(0.0, 1.0);
@@ -10500,8 +10850,85 @@ fn enhanced_sky_input(lighting: &Lighting) -> (atmosphere::SkyInput, f32) {
         rain: lighting.rain.clamp(0.0, 1.0),
         ground_albedo: 0.2 + 0.45 * lighting.snow.clamp(0.0, 1.0),
         tint: lighting.envir_tint,
+        // (rain and mist are water: as grey as the droplets are large)
+        angstrom: day.angstrom * (1.0 - 0.6 * lighting.rain.clamp(0.0, 1.0)) * (1.0 - 0.5 * ((haze - 3.0) / 3.0).clamp(0.0, 1.0)),
+        aerosol_height: day.aerosol_height,
+        strat_aod: day.strat_aod,
+        veil: lighting.veil.clamp(0.0, 3.0),
+        cumulus: if lighting.enhanced { (lighting.cloud_density.min(0.84)) * (1.0 - closed) } else { 0.0 },
+        moon_dir: lighting.moon_dir,
+        moon_illum: lighting.moon_illum,
+        city_glow: 1.0,
     };
-    (input, sun_visibility)
+    // (the disc in the sky: what the veil lets through of it as well)
+    let veil_t = (-input.veil / s.z.max(0.03)).exp();
+    (input, sun_visibility * veil_t)
+}
+
+/// The day's own air: what the sky of one calendar day is made of, as the weather of a
+/// real day leaves it (see `day_air`).
+struct DayAir {
+    /// aerosol amount relative to a clear day
+    haze: f32,
+    /// its Ångström exponent (fine dry particles 1.4-1.6, humid haze down to 0.5)
+    angstrom: f32,
+    /// the depth of the hazy boundary layer (m)
+    aerosol_height: f32,
+    /// the stratospheric aerosol's optical depth
+    strat_aod: f32,
+}
+
+/// The day's own air, drawn from the calendar day so that no two days look quite alike -
+/// and with it no two sunsets: winter's air is mostly clean and dry (a deep blue sky,
+/// crisp distances, a pale yellow low sun) under a shallow inversion, a summer's often
+/// hazy and humid (a milky sky, soft distances) and mixed high by the afternoon's heat,
+/// and the far north cleaner than the middle of the continent. The boundary layer follows
+/// the sun through the day as a real one does: low and dense in the morning (a pastel
+/// sunrise through a thin bright haze), growing with the sun's heat until early afternoon
+/// and left standing as the evening's residual layer (a low sun shining through all of
+/// it). Now and then the stratosphere holds more aerosol than usual, and that evening's
+/// twilight turns purple. `OMSI_DAY_AIR=haze,angstrom[,height,strat]` fixes it.
+fn day_air(lighting: &Lighting) -> DayAir {
+    static FIXED: std::sync::OnceLock<Option<Vec<f32>>> = std::sync::OnceLock::new();
+    let fixed = FIXED.get_or_init(|| {
+        let v = omsi_cfg::env::var("OMSI_DAY_AIR").ok()?;
+        Some(v.split(',').filter_map(|x| x.trim().parse::<f32>().ok()).collect())
+    });
+    let hash = |k: u32| {
+        let mut x = lighting.day_seed.wrapping_mul(0x9E37_79B9) ^ k.wrapping_mul(0x85EB_CA6B);
+        x ^= x >> 16;
+        x = x.wrapping_mul(0x7FEB_352D);
+        x ^= x >> 15;
+        x = x.wrapping_mul(0x846C_A68B);
+        x ^= x >> 16;
+        (x & 0xFF_FFFF) as f32 / 16_777_216.0
+    };
+    // 0 in midwinter, 1 in high summer (half a year later south of the equator)
+    let doy = lighting.day_of_year + if lighting.latitude < 0.0 { 182.0 } else { 0.0 };
+    let summer = 0.5 - 0.5 * (2.0 * std::f32::consts::PI * (doy - 20.0) / 365.0).cos();
+    let north = 1.0 - 0.3 * atmosphere::smoothstep(55.0, 70.0, lighting.latitude.abs());
+    let snow = lighting.snow.clamp(0.0, 1.0);
+    let base = (0.72 + 0.6 * summer) * north * (1.0 - 0.25 * snow);
+    let mut haze = (base * ((hash(1) - 0.5) * 1.1).exp()).clamp(0.35, 3.0);
+    let mut angstrom = (1.45 - 0.65 * summer * hash(2) - 0.15 * hash(3)).clamp(0.5, 1.6);
+    // the day's deepest mixing (m): a few hundred metres in winter, up to two kilometres
+    // on a hot summer afternoon
+    let deepest = (500.0 + 1500.0 * summer) * (0.7 + 0.6 * hash(4));
+    // how far the day has mixed it: by the sun's height in the morning (azimuth east of
+    // south), all of it from the afternoon on (the residual layer stays into the night)
+    let sun_alt = lighting.sun_dir.normalize_or_zero().z.max(0.0).asin().to_degrees();
+    let morning = lighting.sun_azimuth < std::f32::consts::PI;
+    let grown = if morning { 0.35 + 0.65 * atmosphere::smoothstep(0.0, 35.0, sun_alt) } else { 1.0 };
+    let mut aerosol_height = (deepest * grown).max(250.0);
+    // mostly a clean stratosphere; one day in a dozen or so a vivid one
+    let mut strat_aod = 0.002 + 0.004 * hash(5) + 0.03 * hash(6).powi(8);
+    if let Some(f) = fixed {
+        haze = f.first().copied().unwrap_or(haze);
+        angstrom = f.get(1).copied().unwrap_or(angstrom);
+        aerosol_height = f.get(2).copied().unwrap_or(aerosol_height);
+        strat_aod = f.get(3).copied().unwrap_or(strat_aod);
+    }
+    DayAir { haze, angstrom, aerosol_height, strat_aod }
 }
 
 /// Has the sky moved on far enough from `a` to be computed again? The sun by a tenth of a
@@ -10514,6 +10941,14 @@ fn sky_input_differs(a: &atmosphere::SkyInput, b: &atmosphere::SkyInput) -> bool
         || !near(a.haze, b.haze, 0.02)
         || !near(a.rain, b.rain, 0.01)
         || !near(a.ground_albedo, b.ground_albedo, 0.01)
+        || !near(a.angstrom, b.angstrom, 0.02)
+        || !near(a.aerosol_height, b.aerosol_height, 40.0)
+        || !near(a.strat_aod, b.strat_aod, 0.0005)
+        || !near(a.veil, b.veil, 0.01)
+        || !near(a.cumulus, b.cumulus, 0.02)
+        || a.moon_dir.dot(b.moon_dir) < 0.9999
+        || !near(a.moon_illum, b.moon_illum, 0.01)
+        || !near(a.city_glow, b.city_glow, 0.01)
         || a.tint
             .iter()
             .zip(&b.tint)
@@ -10613,6 +11048,8 @@ fn scene_shader_text(gl: bool) -> String {
         include_str!("enhanced.wgsl"),
     ]
     .join("\n");
+    // Enhanced+: the enhanced pass writes the reflections' surfaces as well (`GBUF_FORMAT`)
+    let src = if rt_gbuf() { src.replace("//RT ", "") } else { src };
     if !gl {
         return src;
     }
@@ -10631,7 +11068,7 @@ fn scene_shader_text(gl: bool) -> String {
 
 /// The enhanced clouds' noise textures (clouds.rs), made once: the shape map (2-D RGBA8)
 /// and the detail volume (3-D R8), both with their mip chains, and a repeating sampler.
-fn cloud_noise_textures(device: &wgpu::Device, queue: &wgpu::Queue) -> (wgpu::TextureView, wgpu::TextureView, wgpu::Sampler) {
+fn cloud_noise_textures(device: &wgpu::Device, queue: &wgpu::Queue) -> (wgpu::TextureView, wgpu::TextureView, wgpu::Sampler, Vec<u8>) {
     let t0 = std::time::Instant::now();
     let (shape, detail) = std::thread::scope(|s| {
         let a = s.spawn(clouds::shape_map);
@@ -10675,7 +11112,9 @@ fn cloud_noise_textures(device: &wgpu::Device, queue: &wgpu::Queue) -> (wgpu::Te
         ..Default::default()
     });
     log::info!("cloud noise made in {:.2} s", t0.elapsed().as_secs_f32());
-    (shape_view, detail_view, sampler)
+    // (the shape map's second level kept for the clouds' shadow, `cloud_sun_transmittance`)
+    let cpu = shape.get(1).cloned().unwrap_or_default();
+    (shape_view, detail_view, sampler, cpu)
 }
 
 /// The sky dome (both paths) and the enhanced reflection probe.
@@ -11261,12 +11700,12 @@ fn record_bundles(
     format: wgpu::TextureFormat,
     samples: u32,
 ) -> Vec<wgpu::RenderBundle> {
-    let color_formats = [Some(format), Some(MASK_FORMAT)];
+    let color_formats = [Some(format), Some(MASK_FORMAT), Some(GBUF_FORMAT), Some(AUX_FORMAT)];
     let record = |chunk: &[Batch]| -> wgpu::RenderBundle {
         let mut bundle =
             device.create_render_bundle_encoder(&wgpu::RenderBundleEncoderDescriptor {
                 label: Some("main pass part"),
-                color_formats: &color_formats[..if format == HDR_FORMAT { 2 } else { 1 }],
+                color_formats: &color_formats[..if format != HDR_FORMAT { 1 } else if rt_gbuf() { 4 } else { 2 }],
                 depth_stencil: Some(wgpu::RenderBundleDepthStencil {
                     format: DEPTH_FORMAT,
                     depth_read_only: false,
@@ -12818,6 +13257,11 @@ mod tests {
             ("upscale", include_str!("upscale.wgsl").to_string()),
             ("mip", include_str!("mip.wgsl").to_string()),
             ("xr_ui", include_str!("xr_ui.wgsl").to_string()),
+            // Enhanced+: the scene's pass with its reflection targets, the ray tracing
+            ("scene (Enhanced+)", scene_shader_source(false).replace("//RT ", "")),
+            ("ray-traced lighting", rt::lighting_source()),
+            ("ray-traced reflections", rt::reflect_source()),
+            ("texture means", include_str!("rt_avg.wgsl").to_string()),
         ];
         let sizes: &[(&str, usize)] = &[
             ("Enhanced", std::mem::size_of::<EnhancedUniform>()),
@@ -12827,6 +13271,7 @@ mod tests {
             ("PointLight", std::mem::size_of::<GpuPointLight>()),
             ("Camera", std::mem::size_of::<CameraUniform>()),
             ("MaterialParams", std::mem::size_of::<MaterialUniform>()),
+            ("RtParams", rt::PARAMS_SIZE),
         ];
         let mut checked = std::collections::HashSet::new();
         for (name, src) in &modules {
