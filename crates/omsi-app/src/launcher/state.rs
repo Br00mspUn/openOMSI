@@ -867,11 +867,14 @@ impl State {
         if self.server_download.as_ref().is_some_and(|d| d.running()) {
             return;
         }
+        // (a player who turned "Download missing mods from host" off gets no update by
+        // itself either: the Download button still works)
+        let auto = self.choice.lan_download_mods;
         if let Some(c) = self.server_check.as_mut().filter(|c| c.address == address) {
             if let Some(l) = c.lacking() {
                 // (started by itself only when files installed from there changed: new content
                 // alone - another map, more buses - waits for the player's Download)
-                if c.had_before && !c.acted && l.outdated > 0 {
+                if auto && c.had_before && !c.acted && l.outdated > 0 {
                     c.acted = true;
                     self.server_updated.insert(address.clone());
                     log::info!("launcher: {address} has {} new and {} changed files: updating them", l.missing, l.outdated);
