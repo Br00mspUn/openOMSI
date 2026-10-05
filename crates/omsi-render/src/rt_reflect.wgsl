@@ -46,6 +46,13 @@ fn finite(c: vec3<f32>) -> vec3<f32> {
     return select(vec3<f32>(0.0), clamp(c, vec3<f32>(0.0), vec3<f32>(6.0e4)), all(e != vec3<u32>(0x7f800000u)));
 }
 
+// The roughness a reflection is spread by (0: a mirror). OMSI's materials say little about
+// it, and taken as they are a wet road at 0.12 mirrored like glass: rough surfaces are taken
+// rougher.
+fn glossy_rough(rough: f32) -> f32 {
+    return select(0.0, min(rough * 2.2, 0.8), rough > 0.05);
+}
+
 // A GGX microfacet normal around n (alpha = rough^2) for two uniform numbers.
 fn ggx_normal(n: vec3<f32>, rough: f32, u: vec2<f32>) -> vec3<f32> {
     let a = max(rough * rough, 1e-4);
@@ -145,6 +152,19 @@ fn cs_reflect(@builtin(global_invocation_id) gid: vec3<u32>) {
     let view = normalize(world_pos(uv, 0.001) - p.eye.xyz);
     let pt = p.eye.xyz + view * dist;
     var d = reflect(view, n);
+    // A glossy surface (a wet road, paint) is no mirror: its rays spread over the GGX lobe,
+    // one of 16 fixed directions a pixel in a pattern of 4 x 4 that the composite averages
+    // away (the same every frame: nothing to settle, nothing that crawls). Only what is
+    // really smooth - a puddle, a pane, still water - mirrors sharply.
+    let gloss = glossy_rough(rough);
+    if (gloss > 0.0) {
+        let cell = u32(hp.x & 3) + u32(hp.y & 3) * 4u;
+        let u = vec2<f32>((f32(cell) + 0.5) / 16.0, f32(reverseBits(cell)) * 2.3283064e-10);
+        let dd = reflect(view, ggx_normal(n, gloss, u));
+        if (dot(dd, n) > 0.02) {
+            d = dd;
+        }
+    }
     // (a reflection into the surface would show what is under it: bent up along it)
     let below = dot(d, n);
     if (below < 0.02) {
@@ -225,8 +245,9 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
     let hq = (vec2<f32>(px) + vec2<f32>(0.5)) / f32(REFL_DIV) - vec2<f32>(0.5);
     let base = vec2<i32>(floor(hq));
     let fr = hq - floor(hq);
-    let reach = i32(round(rough * 4.0));
-    let tol = (0.02 + rough * 0.06) * dist + 0.05;
+    let gloss = glossy_rough(rough);
+    let reach = select(0, clamp(i32(round(1.5 + gloss * 4.0)), 2, 4), gloss > 0.0);
+    let tol = (0.02 + gloss * 0.06) * dist + 0.05;
     var sum = vec3<f32>(0.0);
     var wsum = 0.0;
     for (var j = -reach; j <= reach + 1; j++) {

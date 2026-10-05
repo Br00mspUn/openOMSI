@@ -800,10 +800,18 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
             // (a blended layer reflects only where it is there: a painted ground's brush mask)
             w = w * clamp(alpha, 0.0, 1.0);
         }
+        // A wet road, a wet pavement is no mirror: a soft, dim sheen of what stands round it,
+        // a puddle a blurred picture of it (only panes, paint's envmap and still water keep
+        // their own smoothness)
+        var rough_t = rough;
+        if (!(reflective_env || glass || pbr_reflects || is_water)) {
+            w = w * mix(0.35, 0.6, puddle);
+            rough_t = max(rough, mix(0.35, 0.16, puddle));
+        }
         if (w > 0.002) {
             reflection = vec3<f32>(0.0);
             rt_gbuf = vec4<f32>(n * w, w);
-            rt_aux = vec4<f32>(dist * w, rough * w, 0.0, w);
+            rt_aux = vec4<f32>(dist * w, rough_t * w, 0.0, w);
         }
     }
     // --- the lamps, the cabin light and what glows by itself

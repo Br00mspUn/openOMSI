@@ -216,41 +216,10 @@ fn from_srgb(c: vec3<f32>) -> vec3<f32> {
     return select(hi, lo, c <= vec3<f32>(0.04045));
 }
 
-// Enhanced+'s grade, on the exposed scene-linear picture, and its tone curve: the look of
-// a modern racing game's photo mode - a touch warmer light, colour a little richer and the
-// mid-tones a little more contrasty (in log space, round 18 % grey), and a filmic curve
-// (the ACES fit) whose toe gives the shade depth and whose shoulder rolls the sky and the
-// highlights off softly, keeping their hue. Shadows lean cool and highlights warm.
-fn aces_fit(x: vec3<f32>) -> vec3<f32> {
-    let a = x * (x + vec3<f32>(0.0245786)) - vec3<f32>(0.000090537);
-    let b = x * (0.983729 * x + vec3<f32>(0.4329510)) + vec3<f32>(0.238081);
-    return a / b;
-}
-
-fn filmic_grade(c_in: vec3<f32>) -> vec3<f32> {
-    // ACES fit's input space (sRGB -> AP1-ish, the fit's own matrices)
-    let to_ap = mat3x3<f32>(
-        vec3<f32>(0.59719, 0.07600, 0.02840),
-        vec3<f32>(0.35458, 0.90834, 0.13383),
-        vec3<f32>(0.04823, 0.01566, 0.83777),
-    );
-    let from_ap = mat3x3<f32>(
-        vec3<f32>(1.60475, -0.10208, -0.00327),
-        vec3<f32>(-0.53108, 1.10813, -0.07276),
-        vec3<f32>(-0.07367, -0.00605, 1.07602),
-    );
-    var c = c_in * vec3<f32>(1.025, 1.0, 0.965);
-    let l = luma(c);
-    c = mix(vec3<f32>(l), c, 1.12);
-    c = max(c, vec3<f32>(0.0));
-    c = 0.18 * pow(c / 0.18 + vec3<f32>(1e-6), vec3<f32>(1.06));
-    // (the fit darkens the mid-tones: exposed up so that 18 % grey stays about where the
-    // neutral curve leaves it)
-    var t = from_ap * aces_fit(to_ap * (c * 1.55));
-    t = clamp(t, vec3<f32>(0.0), vec3<f32>(1.0));
-    let tl = luma(t);
-    let split = mix(vec3<f32>(0.985, 1.0, 1.025), vec3<f32>(1.02, 1.0, 0.975), smoothstep(0.15, 0.75, tl));
-    return clamp(t * split, vec3<f32>(0.0), vec3<f32>(1.0));
+// Enhanced+'s grade: Enhanced's neutral curve, the light a shade warmer, no more colour
+// or contrast than the scene has.
+fn filmic_grade(c: vec3<f32>) -> vec3<f32> {
+    return pbr_neutral(c * vec3<f32>(1.015, 1.0, 0.985));
 }
 
 // The tone-mapped picture, encoded for the display (gamma), dithered.
