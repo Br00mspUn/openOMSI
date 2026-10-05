@@ -198,6 +198,9 @@ pub fn vehicle_lights(
                     };
                     if let Some(face) = face.filter(|f| *f > apex.y) {
                         apex.y = face + 0.05;
+                    } else if let Some(n) = nose.filter(|n| *n + 0.05 < apex.y) {
+                        // (a spot ahead of the lamps, the Grand Paris-Moulon Citaro's 55 cm: back onto them)
+                        apex.y = n + 0.05;
                     }
                 } else if dl.y < -0.3 {
                     let face = match (tail.filter(|t| *t < apex.y), bb) {
@@ -208,6 +211,8 @@ pub fn vehicle_lights(
                     };
                     if let Some(face) = face.filter(|f| *f < apex.y) {
                         apex.y = face - 0.05;
+                    } else if let Some(t) = tail.filter(|t| *t - 0.05 > apex.y) {
+                        apex.y = t - 0.05;
                     }
                 }
                 // One spot on the vehicle's axis threw one narrow beam: it is split into one
