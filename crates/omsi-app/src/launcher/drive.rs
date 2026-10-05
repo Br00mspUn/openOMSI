@@ -1101,7 +1101,8 @@ fn step_time(l: &mut Launcher, r: Rect) {
         .map(custom_weather_summary)
         .unwrap_or_else(|| "Set visibility, wind, clouds, rain, temperature and road state".into());
     let mut items: Vec<(String, String, String, String, bool)> = vec![
-        (String::new(), "Map default".into(), "Whatever the map starts with".into(), "wb_sunny".into(), false),
+        // (no weather chosen: the physical model, weather_model.rs)
+        (String::new(), "Natural weather".into(), "Develops by itself through the day and the season".into(), "wb_sunny".into(), false),
         (custom_file, "Custom weather".into(), custom_meta, "tune".into(), false),
     ];
     // OMSI 2's current weather: an airport's METAR report, fetched when the game starts
