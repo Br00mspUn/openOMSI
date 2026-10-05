@@ -3480,6 +3480,10 @@ impl Traffic {
         feet: &[Footprint],
     ) {
         let car = &self.cars[i];
+        // Rail vehicles must never use the road-vehicle passing manoeuvre.
+        if car.is_rail() {
+            return;
+        }
         let st = &car.state;
         // a parked car is known from afar: the driver pulls out while still rolling up to
         // it; anything else is waited behind for a moment first
