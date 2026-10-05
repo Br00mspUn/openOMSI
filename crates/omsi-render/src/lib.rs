@@ -3562,9 +3562,10 @@ impl Renderer {
             make_prepass(2, false),
             make_prepass(2, true),
         ];
-        // (not on Apple's GPUs: their tile renderer drops hidden opaque fragments by itself,
-        // and the extra pass only cost what it saved)
-        let prepass_msaa_pipelines = (msaa > 1 && !cfg!(target_vendor = "apple")).then(|| {
+        // Apple views with cutout/blended draws also need these pipelines: their
+        // visibility depends on shading, unlike opaque hidden-surface removal.
+        // Purely opaque Apple views still skip this pass below to avoid its cost.
+        let prepass_msaa_pipelines = (msaa > 1).then(|| {
             [(0, false), (0, true), (1, false), (1, true), (2, false), (2, true)]
                 .map(|(kind, cull)| make_prepass_samples(kind, cull, msaa))
         });
@@ -9622,11 +9623,22 @@ impl Renderer {
         // the multisampled buffer first. Without it every wall, tree and car hidden behind
         // the one in front ran the whole enhanced shading (11 ms of a 1080p frame in
         // central Spandau with 4x MSAA).
+        // Apple's hidden-surface removal already handles ordinary opaque draws.
+        // Preserve that fast path. In the measured mixed views, prefilling MSAA
+        // depth before cutouts/blends saved more hidden shading than the pass cost.
+        let needs_msaa_prepass = !cfg!(target_vendor = "apple")
+            || main_batches.iter().chain(&cab_batches).any(|batch| {
+                matches!(
+                    batch.pipe / 4,
+                    PIPE_ALPHA_TEST | PIPE_BLEND | PIPE_BLEND_NO_WRITE
+                )
+            });
         let msaa_prepass = enhanced
             && !has_presurface
             && (with_overlays || xr_view)
             && !single
             && prepass_on
+            && needs_msaa_prepass
             && omsi_cfg::env::var_os("OMSI_NO_MSAA_PREPASS").is_none();
         let parts = if !cfg!(any(target_os = "macos", target_os = "ios")) && main_bundles.len() >= 2 && omsi_cfg::env::var_os("OMSI_NO_MAIN_SPLIT").is_none() {
             main_bundles.len().min(2)
@@ -12428,6 +12440,149 @@ mod tests {
             b[0] > b[1] + 30 && b[0] > b[2] + 30,
             "foliage cutout must reveal red: {b:?}"
         );
+    }
+
+    #[test]
+    #[ignore = "requires a graphics adapter; run with --ignored on a GPU host"]
+    fn msaa_depth_prepass_preserves_layered_surfaces() {
+        fn quad(renderer: &Renderer, scene: &mut Scene, z: f32, mat: MaterialId) -> usize {
+            let mesh = renderer.add_mesh(
+                scene,
+                &MeshData {
+                    positions: vec![
+                        Vec3::new(-4.0, -4.0, z),
+                        Vec3::new(4.0, -4.0, z),
+                        Vec3::new(4.0, 4.0, z),
+                        Vec3::new(-4.0, 4.0, z),
+                    ],
+                    normals: vec![Vec3::Z; 4],
+                    uvs: vec![
+                        glam::Vec2::ZERO,
+                        glam::Vec2::X,
+                        glam::Vec2::ONE,
+                        glam::Vec2::Y,
+                    ],
+                    indices: vec![0, 1, 2, 0, 2, 3],
+                    ranges: vec![(0, 6, 0)],
+                    one_sided: false,
+                },
+            );
+            renderer.add_surface_instance(scene, mesh, DVec3::ZERO, Mat4::IDENTITY, vec![mat])
+        }
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let mut renderer = pollster::block_on(Renderer::new_with(
+            &instance,
+            None,
+            Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            RenderOptions {
+                msaa: 4,
+                ssao: true,
+                fxaa: false,
+                render_scale: 1.0,
+                ..Default::default()
+            },
+        ))
+        .expect("test renderer");
+        if renderer.options.msaa <= 1 {
+            return; // This adapter cannot exercise a multisampled depth buffer.
+        }
+        assert!(renderer.prepass_msaa_pipelines.is_some());
+        let mut scene = renderer.new_scene();
+        let mask = renderer.add_texture(
+            &mut scene,
+            &omsi_texture::Image {
+                width: 7,
+                height: 1,
+                rgba: [0, 0, 112, 128, 160, 255, 255]
+                    .into_iter()
+                    .flat_map(|a| [255, 255, 255, a])
+                    .collect(),
+                has_alpha: true,
+            },
+            false,
+        );
+        let base = renderer.add_terrain_material(&mut scene, None, None, None, 1.0, None, 1.0);
+        let ground = quad(&renderer, &mut scene, 0.0, base);
+        scene.instances[ground].render_phase = RenderPhase::Terrain;
+        let paint =
+            renderer.add_terrain_layer_material(&mut scene, None, mask, None, 1.0, None, 1.0);
+        let layer = quad(&renderer, &mut scene, 0.0, paint);
+        scene.instances[layer].ground_layer = true;
+        scene.instances[layer].render_phase = RenderPhase::Terrain;
+        let road_mat = renderer.add_material(
+            &mut scene,
+            None,
+            AlphaMode::Opaque,
+            [0.0, 0.0, 1.0, 1.0],
+            true,
+        );
+        let road = quad(&renderer, &mut scene, 0.02, road_mat);
+        scene.instances[road].render_phase = RenderPhase::Spline;
+        let cutout = renderer.add_material(
+            &mut scene,
+            Some(mask),
+            AlphaMode::Test,
+            [0.0, 1.0, 0.0, 1.0],
+            false,
+        );
+        let fence = quad(&renderer, &mut scene, 0.3, cutout);
+        scene.instances[fence].render_phase = RenderPhase::Normal;
+        let blend = renderer.add_material(
+            &mut scene,
+            None,
+            AlphaMode::Blend,
+            [1.0, 0.0, 0.0, 0.25],
+            false,
+        );
+        let pane = quad(&renderer, &mut scene, 0.5, blend);
+        scene.instances[pane].render_phase = RenderPhase::Normal;
+        let camera = Camera {
+            position: DVec3::new(0.0, -0.105, 6.0),
+            yaw: 0.0,
+            pitch: -89.0,
+            roll: 0.0,
+            fov_deg: 90.0,
+            near: 0.1,
+            far: 100.0,
+        };
+        for wetness in [0.0, 1.0] {
+            let lighting = Lighting {
+                enhanced: true,
+                shadows: false,
+                fog_density: 0.0,
+                wetness,
+                ..Default::default()
+            };
+            let enabled = renderer
+                .render_to_image(&mut scene, 64, 64, &camera, &lighting)
+                .unwrap();
+            let pipelines = renderer.prepass_msaa_pipelines.take().unwrap();
+            let disabled = renderer
+                .render_to_image(&mut scene, 64, 64, &camera, &lighting)
+                .unwrap();
+            renderer.prepass_msaa_pipelines = Some(pipelines);
+            let delta = enabled
+                .iter()
+                .zip(&disabled)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            assert!(
+                delta <= 2,
+                "MSAA prepass changed layered surfaces by {delta}: wetness {wetness}"
+            );
+            let pixel = |x: usize| &enabled[(32 * 64 + x) * 4..(32 * 64 + x) * 4 + 3];
+            assert!(
+                pixel(12)[2] > pixel(12)[1] + 30,
+                "cutout hid the road: {:?}",
+                pixel(12)
+            );
+            assert!(
+                pixel(52)[1] > pixel(52)[2] + 30,
+                "opaque cutout disappeared: {:?}",
+                pixel(52)
+            );
+        }
     }
 
     #[test]
