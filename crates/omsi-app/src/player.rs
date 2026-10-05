@@ -67,13 +67,6 @@ mod driver_head_look_tests {
     }
 }
 
-fn is_manual_gate_action(name: &str) -> bool {
-    let Some(gate) = name.get(..5).filter(|p| p.eq_ignore_ascii_case("kw_s_")).and_then(|_| name.get(5..)) else {
-        return false;
-    };
-    let gate = gate.strip_suffix("_fest").unwrap_or(gate);
-    gate.eq_ignore_ascii_case("r") || gate.eq_ignore_ascii_case("n") || gate.parse::<u32>().is_ok()
-}
 
 /// The vehicle actions of the keys held whose `Inputs/keyboard.cfg` entry has the "held"
 /// flag ([`omsi_content::input::KEY_HOLD`], the key list's " *"), by scan code: Omsi.exe
@@ -753,10 +746,10 @@ impl Player {
             return true;
         }
         let suffix = if pressed { "" } else { "_off" };
-        let release_gear = !pressed
-            && self.momentary_gears
-            && self.vehicle.ty.program.manual_gearbox()
-            && is_manual_gate_action(name);
+        if let Some(gate) = crate::hpattern::resolve(&self.vehicle.ty.program, name) {
+            if pressed { self.clutch_for_gate(&gate); }
+            if let Some(done) = crate::hpattern::action(&mut self.vehicle, &gate, pressed, self.momentary_gears) { return done; }
+        }
         // the ticket key of Inputs/keyboard.cfg (T): sell the ticket the passenger at the
         // desk asked for, on buses whose script has no ticket printer
         if let Some(n) = door_action(name) {
@@ -792,9 +785,6 @@ impl Player {
         let headlights = pressed && name.eq_ignore_ascii_case("kw_scheinwerfer_toggle");
         let lamps_before = if headlights { self.outside_lamps_lit() } else { 0 };
         if self.vehicle.trigger(&format!("{name}{suffix}")) {
-            if release_gear {
-                self.select_neutral();
-            }
             self.repair_roller_blind(&format!("{name}{suffix}"));
             if headlights {
                 self.headlights_with_side_lights(lamps_before);
@@ -804,9 +794,6 @@ impl Player {
         // a key whose press reached the script's own trigger releases as Omsi.exe does, with
         // `<name>_off` only: an alias's `_off` (parking_brake_mouse_off) would undo it (#420)
         if !pressed && self.vehicle.ty.program.trigger(name).is_some() {
-            if release_gear {
-                self.select_neutral();
-            }
             return true;
         }
         let Some((_, aliases)) = ACTION_ALIASES
@@ -817,29 +804,12 @@ impl Player {
         };
         for alias in *aliases {
             if self.vehicle.trigger(&format!("{alias}{suffix}")) {
-                if release_gear {
-                    self.select_neutral();
-                }
                 self.repair_roller_blind(&format!("{alias}{suffix}"));
                 return true;
             }
         }
         let done = self.toggle_as_steps(name, pressed);
-        if release_gear {
-            self.select_neutral();
-        }
         done
-    }
-
-    /// A held gate is released into OMSI's neutral trigger; the usual action release still
-    /// runs first so buses with an explicit gate-off script retain their own behavior.
-    fn select_neutral(&mut self) {
-        for name in ["kw_s_N", "kw_s_N_fest"] {
-            if self.vehicle.ty.program.trigger(name).is_some() && self.vehicle.trigger(name) {
-                self.vehicle.trigger(&format!("{name}_off"));
-                break;
-            }
-        }
     }
 
     /// OMSI's automatic clutch for a gear lever whose scripts only take a gear with the

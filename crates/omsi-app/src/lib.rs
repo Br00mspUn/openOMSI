@@ -74,6 +74,7 @@ mod app_events;
 mod bus_service;
 mod camera_util;
 mod controllers;
+mod hpattern;
 mod ffb_calibration;
 #[cfg(windows)]
 mod dinput;

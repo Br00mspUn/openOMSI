@@ -23538,3 +23538,13 @@ _version: 2
   pl: "Rozwija się sama w ciągu dnia i pory roku"
   fr: "Évolue d'elle-même au fil de la journée et de la saison"
   zh-tw: "隨一天與季節自行演變"
+
+"H-pattern shifter: return to neutral when the gear is released":
+  pt: "Câmbio em H: voltar ao neutro ao soltar a marcha"
+  pt-pt: "Caixa em H: voltar ao ponto morto ao soltar a mudança"
+"For a manual shifter without a neutral button; releasing a gear selects neutral immediately":
+  pt: "Para câmbios manuais sem botão de neutro; soltar a marcha seleciona o neutro imediatamente"
+  pt-pt: "Para caixas manuais sem botão de ponto morto; soltar a mudança seleciona o ponto morto imediatamente"
+"H-pattern gears are assigned. Enable return to neutral under Settings → Driving → Game controllers if your shifter has no neutral button.":
+  pt: "Há marchas de câmbio em H configuradas. Ative o retorno ao neutro em Configurações → Direção → Controles de jogo se o seu câmbio não tiver botão de neutro."
+  pt-pt: "Há mudanças de caixa em H configuradas. Ative o retorno ao ponto morto em Definições → Condução → Comandos de jogo se a sua caixa não tiver botão de ponto morto."
