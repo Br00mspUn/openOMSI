@@ -709,8 +709,11 @@ fn place_on(att: &SplineAttachment, spline: &MapSpline, origin: DVec2, index: Op
             // spline's pitch/bank to the object's Euler angles instead tilts a
             // sideways railing across the road, and a reversed object downhill.
             // The half turn of a backwards chain belongs to that same local frame.
+            // The row's own matrix uses bank, then pitch, then heading (Omsi.exe
+            // 0x79dd20..0x79de02), unlike a plain map object's pitch-first matrix.
+            // Two quarter turns otherwise laid retaining blocks across the street.
             let rot = omsi_geometry::object_rotation([curve.heading_at(u), pitch, bank])
-                * omsi_geometry::object_rotation(own);
+                * omsi_geometry::object_rotation_ypr(own);
             out.push(RowObject { index: j, pose: Pose { pos, rot } });
         }
         if interval <= 0.0 {
@@ -1544,6 +1547,21 @@ mod tests {
     }
 
     #[test]
+    fn compound_row_rotation_keeps_retaining_posts_out_of_the_street() {
+        // A mod uses a 5 m fence post laid on its side as a retaining block.
+        // Its two quarter turns must send the post's long axis to the right of
+        // the spline, rather than along the road as the reversed order did.
+        let s = MapSpline { heading: 26.0, ..spline(1, 0, 0, 10.0) };
+        let att = SplineAttachment { rot: [0.0, 90.0, -90.0], ..row(0.0, 0.0, 2.0, None) };
+        let pose = row_objects(&att, &s, DVec2::ZERO, None)[0].pose;
+        let right = SplineCurve::dir(s.heading + 90.0).as_vec2().extend(0.0);
+        let tip = pose.rot.transform_vector3(Vec3::Z * 5.0);
+        assert!((tip - right * 5.0).length() < 1e-5,
+            "a horizontal retaining post must extend into the bank, not the carriageway: {tip:?}");
+        assert!(tip.z.abs() < 1e-5);
+    }
+
+    #[test]
     fn tangential_row_keeps_its_frame_when_the_spline_runs_backwards() {
         let s = MapSpline { heading: 31.0, grad_start: 12.0, grad_end: 12.0,
             cant_start: 5.0, cant_end: 5.0, ..spline(1, 0, 0, 80.0) };
@@ -1568,7 +1586,7 @@ mod tests {
             cant_start: 20.0, cant_end: 20.0, ..spline(1, 0, 0, 80.0) };
         let att = SplineAttachment { rot: [90.0, 3.0, -2.0], ..row(0.0, 0.0, 20.0, None) };
         let upright = row_objects(&att, &s, DVec2::ZERO, None)[0].pose;
-        let expected = omsi_geometry::object_rotation([155.0, -3.0, 2.0]);
+        let expected = omsi_geometry::object_rotation_ypr([155.0, -3.0, 2.0]);
         for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
             assert!((upright.rot.transform_vector3(axis) - expected.transform_vector3(axis)).length() < 1e-6);
         }
