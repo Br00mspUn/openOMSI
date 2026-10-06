@@ -9007,7 +9007,9 @@ const OMSI_TILE_DIST: i32 = 1;
 /// on it (#650). A stand-in is told apart by its size: more than twice as wide as all the
 /// tiles OMSI has loaded with it (Chicago's are 3.6 to 8 km, its largest real objects -
 /// Navy Pier, the Merchandise Mart, the road grids of whole tiles - at most 1.25 km), so
-/// the far view keeps every ordinary object.
+/// the far view keeps every ordinary object. A large model whose entire geometry is far
+/// from its origin is also a stand-in: TH_Wald's forest cards sit over a kilometre from
+/// their placement, crossing local roads when their distant owner tile is loaded here.
 fn stand_in_area(ot: &ObjectType, xf: &Mat4, pos: DVec3, tile: (i32, i32)) -> Option<[f64; 4]> {
     let ts = tile_size();
     let loaded = (2 * OMSI_TILE_DIST + 1) as f64 * ts;
@@ -9018,7 +9020,8 @@ fn stand_in_area(ot: &ObjectType, xf: &Mat4, pos: DVec3, tile: (i32, i32)) -> Op
         .filter(|(m, _, _)| !m.positions.is_empty())
         .map(|(m, _, _)| mesh_bounds(m, xf, pos))
         .reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]);
-    let wide = bounds.is_some_and(|b| (b[2] - b[0]).max(b[3] - b[1]) > 2.0 * loaded);
+    let wide = bounds.is_some_and(|b| (b[2] - b[0]).max(b[3] - b[1]) > 2.0 * loaded)
+        || ot.meshes.iter().any(|(m, _, _)| stand_in_mesh(m, xf, pos, loaded));
     if !wide {
         return None;
     }
@@ -9029,6 +9032,27 @@ fn stand_in_area(ot: &ObjectType, xf: &Mat4, pos: DVec3, tile: (i32, i32)) -> Op
         (tile.0 + OMSI_TILE_DIST + 1) as f64 * ts,
         (tile.1 + OMSI_TILE_DIST + 1) as f64 * ts,
     ])
+}
+
+fn stand_in_mesh(m: &MeshData, xf: &Mat4, pos: DVec3, loaded: f64) -> bool {
+    let b = mesh_bounds(m, xf, pos);
+    let width = (b[2] - b[0]).max(b[3] - b[1]);
+    if width > 2.0 * loaded {
+        return true;
+    }
+    if width <= loaded || m.positions.is_empty() {
+        return false;
+    }
+    // Measure the offset in the model's own frame, before heading rotates its bounds:
+    // the world AABB of a diagonal card can include its origin although the card is
+    // wholly far away. Small offset parts and ordinary long models keep the far view.
+    let local = mesh_bounds(m, &Mat4::IDENTITY, DVec3::ZERO);
+    let nearest = glam::Vec3::new(
+        0.0f64.clamp(local[0], local[2]) as f32,
+        0.0f64.clamp(local[1], local[3]) as f32,
+        0.0,
+    );
+    xf.transform_vector3(nearest).length() as f64 > loaded
 }
 
 /// World bounds (min x, min y, max x, max y) of a mesh placed with `xf` at `origin`.
@@ -13127,6 +13151,34 @@ pub(crate) fn resolve_scenery_freetex_name<'a>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn far_offset_forest_backdrops_keep_their_owner_tiles_visibility() {
+        use super::*;
+        let rectangle = |x: f32, half_width: f32| MeshData {
+            positions: vec![
+                glam::Vec3::new(x, -half_width, -80.0),
+                glam::Vec3::new(x, half_width, -80.0),
+                glam::Vec3::new(x, half_width, 127.0),
+                glam::Vec3::new(x, -half_width, 127.0),
+            ],
+            ..Default::default()
+        };
+        let loaded = 900.0;
+        let forest = rectangle(-1109.0, 693.0);
+        for heading in [0.0, 45.0, 225.0] {
+            let xf = object_rotation([heading, 0.0, 0.0]);
+            assert!(stand_in_mesh(&forest, &xf, DVec3::new(6242.0, 3348.0, 70.0), loaded),
+                "the distant forest at heading {heading} must not cover a road outside its owner tiles");
+        }
+        // Ordinary large geometry beside its origin still uses the full view distance.
+        assert!(!stand_in_mesh(&rectangle(0.0, 693.0), &Mat4::IDENTITY, DVec3::ZERO, loaded));
+        // A small offset part is not enough to classify an object as a far backdrop.
+        assert!(!stand_in_mesh(&rectangle(-1109.0, 5.0), &Mat4::IDENTITY, DVec3::ZERO, loaded));
+        assert!(!stand_in_mesh(&forest, &Mat4::from_scale(glam::Vec3::splat(0.2)), DVec3::ZERO, loaded));
+        // Keep the existing whole-city stand-in rule, even for a centred model.
+        assert!(stand_in_mesh(&rectangle(0.0, 2000.0), &Mat4::IDENTITY, DVec3::ZERO, loaded));
+    }
+
     use super::*;
 
     #[test]
