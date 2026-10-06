@@ -1388,8 +1388,9 @@ struct PassPipelines {
     corona_pipeline: wgpu::RenderPipeline,
     /// Smoke particles (`[smoke]`): the corona sprite alpha-blended with the smoke texture.
     smoke_pipeline: wgpu::RenderPipeline,
-    /// The snowfall (snow.wgsl), opaque over the scene (premultiplied).
-    snow_pipeline: wgpu::RenderPipeline,
+    /// The snowfall (snow.wgsl), opaque over the scene (premultiplied); none with
+    /// `basic_pipelines`.
+    snow_pipeline: Option<wgpu::RenderPipeline>,
     sky_pipeline: wgpu::RenderPipeline,
 }
 
@@ -2028,8 +2029,9 @@ pub struct Renderer {
     shadow_view_far: wgpu::TextureView,
     shadow_sampler: wgpu::Sampler,
     shadow_layout: wgpu::BindGroupLayout,
-    /// [near opaque, near alpha-tested, far opaque, far alpha-tested]
-    shadow_pipelines: [wgpu::RenderPipeline; 14],
+    /// [near opaque, near alpha-tested, far opaque, far alpha-tested, close opaque, close
+    /// alpha-tested], then the street lamps' (6 + 2 k + kind; not with `basic_pipelines`)
+    shadow_pipelines: Vec<wgpu::RenderPipeline>,
     /// The settings this renderer was built with.
     pub options: RenderOptions,
     /// Enhanced path: the HDR targets per size, the post pipelines and their resources.
@@ -2300,6 +2302,16 @@ const GBUF_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const AUX_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
 /// The renderer is built for Enhanced+: its HDR pipelines and targets have the two above.
 static RT_GBUF: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// The renderer is built without the pipelines that are not needed to draw a picture (the
+/// snowfall, the lamps in the fog, the street lamps' shadow maps): a driver whose shader
+/// compiler fails on one of them (it answers "out of memory" or an unknown error - phones'
+/// drivers do) takes the whole device with it, and every frame after that came out black
+/// (see `Renderer::new_on`). Once set, it stays for the rest of the run. OMSI_BASIC_PIPELINES=1
+/// asks for it.
+static BASIC_PIPELINES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+fn basic_pipelines() -> bool {
+    BASIC_PIPELINES.load(std::sync::atomic::Ordering::Relaxed) || omsi_cfg::env::var_os("OMSI_BASIC_PIPELINES").is_some()
+}
 fn rt_gbuf() -> bool {
     RT_GBUF.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -2397,6 +2409,7 @@ impl Renderer {
         options: RenderOptions,
     ) -> Result<Renderer> {
         let info = adapter.get_info();
+        let (asked_format, asked_options) = (format, options);
         // test hooks for an adapter that cannot be opened: an error, or wgpu going down
         match omsi_cfg::env::var("OMSI_FAKE_GPU_ERROR").as_deref() {
             Ok("open") => return Err(anyhow!("test: {} refused (OMSI_FAKE_GPU_ERROR=open)", info.name)),
@@ -2666,7 +2679,7 @@ impl Renderer {
             options,
         );
         let mesh_pages = adapter.get_downlevel_capabilities().flags.contains(wgpu::DownlevelFlags::BASE_VERTEX);
-        match scope.pop().await {
+        let made = match scope.pop().await {
             None => Ok(Renderer { mesh_pages, ..renderer }),
             Some(e) if options.msaa > 1 => {
                 log::error!(
@@ -2685,7 +2698,29 @@ impl Renderer {
                 ) })
             }
             Some(e) => Err(anyhow!("renderer pipelines: {}", gpu_error_text(&e))),
+        };
+        // A driver whose shader compiler fails on a pipeline answers "out of memory" or an
+        // unknown error, and wgpu takes that as the device lost: on phones (Adreno, Mali)
+        // one of 0.2's new pipelines did so, the renderer was made all the same and every
+        // frame came out black. The device is opened again and the pipelines made without
+        // the ones a picture can do without (`basic_pipelines`); lost even so, the next
+        // graphics interface is tried.
+        // (test hook: OMSI_FAKE_GPU_ERROR=lost-build loses the first device so)
+        if let (Ok(r), Ok("lost-build")) = (made.as_ref(), omsi_cfg::env::var("OMSI_FAKE_GPU_ERROR").as_deref()) {
+            if !basic_pipelines() {
+                *r.device_lost.lock().unwrap_or_else(|e| e.into_inner()) = Some("test (OMSI_FAKE_GPU_ERROR=lost-build)".into());
+            }
         }
+        if let Some(why) = made.as_ref().ok().and_then(|r| r.device_lost()) {
+            drop(made);
+            if basic_pipelines() {
+                return Err(anyhow!("the graphics device was lost while the pipelines were made: {why}"));
+            }
+            log::warn!("{}: the graphics device was lost while the pipelines were made ({why}); opening it again without the snowfall, the lamps in the fog and the street lamps' shadows", info.name);
+            BASIC_PIPELINES.store(true, std::sync::atomic::Ordering::Relaxed);
+            return Box::pin(Self::new_on(adapter, surface, asked_format, asked_options)).await;
+        }
+        made
     }
 
     /// The pipelines, samplers and fixed textures of a renderer whose options are settled.
@@ -3078,23 +3113,22 @@ impl Renderer {
                 cache: None,
             })
         };
-        let shadow_pipelines = [
+        let mut shadow_pipelines = vec![
             make_shadow(PIPE_OPAQUE, 0),
             make_shadow(PIPE_ALPHA_TEST, 0),
             make_shadow(PIPE_OPAQUE, 1),
             make_shadow(PIPE_ALPHA_TEST, 1),
             make_shadow(PIPE_OPAQUE, 2),
             make_shadow(PIPE_ALPHA_TEST, 2),
-            // (the street lamps' tiles, 6 + 2 k + kind)
-            make_shadow(PIPE_OPAQUE, 3),
-            make_shadow(PIPE_ALPHA_TEST, 3),
-            make_shadow(PIPE_OPAQUE, 4),
-            make_shadow(PIPE_ALPHA_TEST, 4),
-            make_shadow(PIPE_OPAQUE, 5),
-            make_shadow(PIPE_ALPHA_TEST, 5),
-            make_shadow(PIPE_OPAQUE, 6),
-            make_shadow(PIPE_ALPHA_TEST, 6),
         ];
+        if !basic_pipelines() {
+            // (the street lamps' tiles, 6 + 2 k + kind)
+            log::info!("renderer: compiling the street lamps' shadow shaders");
+            for cascade in 3..=6 {
+                shadow_pipelines.push(make_shadow(PIPE_OPAQUE, cascade));
+                shadow_pipelines.push(make_shadow(PIPE_ALPHA_TEST, cascade));
+            }
+        }
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::Repeat,
@@ -3279,6 +3313,7 @@ impl Renderer {
             alpha: wgpu::BlendComponent::REPLACE,
         };
         let snow_pipeline_for = |f: wgpu::TextureFormat, fs: &str| {
+            log::info!("renderer: compiling the snowfall shader ({fs})");
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("snow"),
                 layout: Some(&snow_pl),
@@ -3484,7 +3519,7 @@ impl Renderer {
             rain_pipelines: scene_pipelines(format, "fs_main", 1),
             corona_pipeline: corona_pipeline_for(format, "fs_main", screen),
             smoke_pipeline: corona_pipeline_for(format, "fs_smoke", alpha_blend),
-            snow_pipeline: snow_pipeline_for(format, "fs_snow"),
+            snow_pipeline: (!basic_pipelines()).then(|| snow_pipeline_for(format, "fs_snow")),
             sky_pipeline: sky_pipeline_for(format, "fs_main"),
         };
         // the enhanced path: its own lighting in all three
@@ -3499,7 +3534,7 @@ impl Renderer {
             rain_pipelines: scene_pipelines(hdr_format, "fs_enhanced", 1),
             corona_pipeline: corona_pipeline_for(hdr_format, "fs_enhanced", additive),
             smoke_pipeline: corona_pipeline_for(hdr_format, "fs_smoke_enhanced", alpha_blend),
-            snow_pipeline: snow_pipeline_for(hdr_format, "fs_snow_enhanced"),
+            snow_pipeline: (!basic_pipelines()).then(|| snow_pipeline_for(hdr_format, "fs_snow_enhanced")),
             sky_pipeline: sky_pipeline_for(hdr_format, "fs_enhanced"),
         });
         let reflection_pass = (!leave_out_enhanced && !GL_BACKEND.load(std::sync::atomic::Ordering::Relaxed)).then(|| PassPipelines {
@@ -3507,7 +3542,7 @@ impl Renderer {
             rain_pipelines: scene_pipelines(hdr_format, "fs_vanilla_reflections", 1),
             corona_pipeline: corona_pipeline_for(hdr_format, "fs_main", screen),
             smoke_pipeline: corona_pipeline_for(hdr_format, "fs_smoke", alpha_blend),
-            snow_pipeline: snow_pipeline_for(hdr_format, "fs_snow"),
+            snow_pipeline: (!basic_pipelines()).then(|| snow_pipeline_for(hdr_format, "fs_snow")),
             sky_pipeline: sky_pipeline_for(hdr_format, "fs_main"),
         });
         let sky_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -3763,7 +3798,8 @@ impl Renderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let fog_lamps_pipeline = (!gl && array_path() != ArrayPath::NoStorage).then(|| {
+        let fog_lamps_pipeline = (!gl && array_path() != ArrayPath::NoStorage && !basic_pipelines()).then(|| {
+            log::info!("renderer: compiling the lamps in the fog shaders");
             let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("fog lamps"),
                 source: wgpu::ShaderSource::Wgsl(fog_lamps_shader_source().into()),
@@ -8614,7 +8650,7 @@ impl Renderer {
             && omsi_cfg::env::var_os("OMSI_NO_PUDDLE_REFLECTIONS").is_none();
         let reflection_frame = !enhanced && puddles_wanted && self.reflection_pass.is_some();
         let masked_frame = enhanced || reflection_frame;
-        let (grid, lamp_shadows) = self.prepare_lights(scene, cam_rel, enhanced_frame, lighting.lamp_shadows && with_overlays && projection.is_none());
+        let (grid, lamp_shadows) = self.prepare_lights(scene, cam_rel, enhanced_frame, lighting.lamp_shadows && with_overlays && projection.is_none() && self.shadow_pipelines.len() > 6);
         self.prepare_coronas(scene, lighting.night, lighting.inside.as_ref().filter(|v| point_in_vehicle_box(camera.position, v)));
         self.prepare_smoke(scene, camera.position);
         // ambient occlusion only for the real picture, not for the mirrors
@@ -10376,14 +10412,14 @@ impl Renderer {
             }
             // the snowfall, every flake worked out on the GPU (snow.wgsl), over the world and
             // under the cab of the vehicle the camera is in
-            if lighting.snowfall > 0.01 && omsi_cfg::env::var_os("OMSI_NO_SNOWFALL").is_none() {
+            if let Some(snow) = pp.snow_pipeline.as_ref().filter(|_| lighting.snowfall > 0.01 && omsi_cfg::env::var_os("OMSI_NO_SNOWFALL").is_none()) {
                 let (counts, mean) = snowfall_flakes(lighting.snowfall);
                 let u = SnowUniform {
                     wind: lighting.wind.extend(self.started.elapsed().as_secs_f32() % 20000.0).to_array(),
                     fall: [lighting.snowfall, mean, counts[0] as f32, counts[1] as f32],
                 };
                 self.queue.write_buffer(&self.snow_buf, 0, bytemuck::bytes_of(&u));
-                pass.set_pipeline(&pp.snow_pipeline);
+                pass.set_pipeline(snow);
                 pass.set_bind_group(0, scene.camera_bind_group.as_ref().unwrap(), &[]);
                 pass.set_bind_group(1, &self.snow_bind_group, &[]);
                 pass.draw(0..6, 0..counts.iter().sum::<u32>());

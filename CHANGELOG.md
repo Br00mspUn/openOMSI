@@ -4,6 +4,11 @@ Every push to `main` is released as `MAJOR.MINOR.COMMIT` (see
 [docs/VERSIONING.md](docs/VERSIONING.md)); the downloads are on the
 [Releases](https://github.com/openOMSI-Project/openOMSI/releases) page.
 
+## 0.2.1 - 2026-10-06
+
+### Bug Fixes & Improvements
+- Android: a black screen instead of the game since 0.2.0 (#1633, #1597) on phones whose graphics driver cannot compile one of 0.2's new shaders (the snowfall, the lamps in the fog, the street lamps' shadow maps): the driver's error lost the whole graphics device. The game now notices this while it starts, opens the device again without those three and draws as before (snow then falls without flakes). The log names the shaders it was compiling when the device was lost.
+
 ## 0.2.0 - 2026-10-06
 
 A release about light and weather: the Enhanced and Enhanced+ pictures worked out from the physics of the eye, the air and the lamps, and a new snowfall for every graphics mode.
