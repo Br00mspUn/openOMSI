@@ -20,6 +20,8 @@ mod headtrack;
 mod openxr;
 #[cfg(target_os = "macos")]
 mod mac_hid;
+#[cfg(target_os = "macos")]
+mod mac_game_controller;
 #[cfg(target_os = "android")]
 mod android;
 mod platform;
@@ -545,6 +547,8 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         last_ctl_steer: None,
         mouse_pedals: (0.0, 0.0),
         mouse_kmh: 0.0,
+        pad_kmh: 0.0,
+        pad_steer_target: 0.0,
         tutorial: None,
         ego: false,
         on_foot: None,

@@ -211,6 +211,10 @@ pub(crate) struct App {
     pub(crate) mouse_pedals: (f32, f32),
     /// The speed mouse steering divides by, smoothed.
     pub(crate) mouse_kmh: f32,
+    /// The speed a gamepad stick's steering divides by, smoothed (as `mouse_kmh`).
+    pub(crate) pad_kmh: f32,
+    /// Where a gamepad stick turns the wheel to, smoothed (`pad_steer_smooth`).
+    pub(crate) pad_steer_target: f32,
     /// The tutorial being run (`--tutorial`), loaded on the first frame.
     pub(crate) tutorial: Option<crate::tutorial::Tutorial>,
     /// OMSI's pedestrian ("ego") view: the free camera walking at eye height on whatever

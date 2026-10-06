@@ -753,14 +753,21 @@ impl ApplicationHandler for App {
                     self.look_by(analog.look[0] * k, analog.look[1] * k);
                 }
                 // a gamepad's stick: a target the wheel turns towards at a hand's pace (the
-                // whole lock in 1.2 s), not the wheel's place itself (#200)
-                if analog.stick {
-                    if let (Some(x), Some(p)) = (analog.steering, self.player.as_ref()) {
-                        let target = crate::controllers::gamepad_steering(x, p.vehicle.physics.velocity_kmh() as f32);
-                        let now = p.vehicle.physics.controls.steering;
-                        let step = dt / 1.2;
-                        analog.steering = Some(now + (target - now).clamp(-step, step));
-                    }
+                // whole lock in 1.2 s), not the wheel's place itself (#200). The target is
+                // smoothed first (`pad_steer_smooth`)
+                let stick = analog.stick.then_some(analog.steering).flatten().zip(self.player.as_ref());
+                if let Some((x, p)) = stick {
+                    let now = p.vehicle.physics.controls.steering;
+                    let kmh = p.vehicle.physics.velocity_kmh() as f32;
+                    self.pad_kmh = crate::controllers::smooth_toward(self.pad_kmh, kmh, dt, 0.4);
+                    let target = crate::controllers::gamepad_steering(x, self.pad_kmh);
+                    self.pad_steer_target = crate::controllers::smooth_toward(self.pad_steer_target, target, dt, self.settings.pad_steer_smooth / 1000.0);
+                    let step = dt / 1.2;
+                    analog.steering = Some(now + (self.pad_steer_target - now).clamp(-step, step));
+                } else if let Some(p) = self.player.as_ref() {
+                    // (the stick picks up from where the wheel is, at the bus's speed)
+                    self.pad_steer_target = p.vehicle.physics.controls.steering;
+                    self.pad_kmh = p.vehicle.physics.velocity_kmh() as f32;
                 }
                 // (in every view of the bus - driver, outside, passenger and the map camera -
                 // as in OMSI, where switching the camera leaves the mouse steering on: its

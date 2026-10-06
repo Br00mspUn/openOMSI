@@ -1056,6 +1056,7 @@ fn steps_of(verb: &str) -> Option<Vec<f32>> {
         "mouse_sens" => (10..=300).map(|v| v as f32 / 100.0).collect(),
         "look_sens" => (2..=40).map(|v| v as f32 * 0.05).collect(),
         "look_smoothing_ms" => (0..=20).map(|v| v as f32 * 10.0).collect(),
+        "pad_steer_smooth" => (0..=30).map(|v| v as f32 * 10.0).collect(),
         "seat" => (-50..=50).map(|v| v as f32 / 100.0).collect(),
         "seat_pitch" => (-45..=45).map(|v| v as f32).collect(),
         "hour" => (0..24).map(|v| v as f32).collect(),
@@ -1183,6 +1184,7 @@ fn option_now(app: &App, verb: &str, arg: &str) -> Option<f32> {
         "mouse_sens" => s.mouse_sens,
         "look_sens" => s.look_sens,
         "look_smoothing_ms" => s.look_smoothing_ms,
+        "pad_steer_smooth" => s.pad_steer_smooth,
         "ui_scale" => s.ui_scale,
         "chat_size" => s.chat_size,
         "ui_opacity" => s.ui_opacity,
@@ -1275,6 +1277,10 @@ fn option_set(app: &mut App, verb: &str, arg: &str, v: f32) -> Option<(&'static 
         "look_sens" => {
             app.settings.look_sens = (v * 100.0).round() / 100.0;
             Some(("look_sens", app.settings.look_sens.to_string()))
+        }
+        "pad_steer_smooth" => {
+            app.settings.pad_steer_smooth = v.clamp(0.0, 300.0).round();
+            Some(("pad_steer_smooth", app.settings.pad_steer_smooth.to_string()))
         }
         "look_smoothing_ms" => {
             app.settings.look_smoothing_ms = v.round();

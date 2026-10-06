@@ -138,6 +138,7 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Rows {
                 out.push(("Steering".into(), HEADING.into()));
                 out.extend([
                     crate::game_lists::slider_row(app, "ctrl_deadzone", "Dead zone", "Ignore movement around the centre or at pedal rest", &|v| format!("{:.0} %", v * 100.0)),
+                    crate::game_lists::slider_row(app, "pad_steer_smooth", "Stick steering smoothing", "Evens out a gamepad stick's small shakes (off: the stick as it reads)", &|v| if v <= 0.0 { "Off".to_string() } else { format!("{v:.0} ms") }),
                     crate::game_lists::slider_row(app, "wheel_range", "Wheel rotation", "Your wheel's rotation from lock to lock", &|v| format!("{v:.0}°")),
                     crate::game_lists::slider_row(app, "wheel_lock", "Full lock at", "Rotation for the bus's full lock", &|v| if v < 45.0 { "OMSI".into() } else { format!("{v:.0}°") }),
                 ].into_iter().flatten());
@@ -157,7 +158,7 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Rows {
         },
         ListKind::Controller(name, tab) => {
             let d = index(&devices, name).map(|i| devices[i].clone()).unwrap_or_else(|| DeviceCfg { name: name.clone(), second: "0".into(), ..Default::default() });
-            let live = connected.iter().find(|c| crate::controllers::names_match(&c.name, name));
+            let live = crate::controllers::find_connected(&connected, name);
             match (*tab).min(DEVICE_TABS.len() - 1) {
                 0 => {
                     out.push((crate::game_lists::row("Connection", 'i', if live.is_some() { "Connected" } else { "Disconnected" }, "Successful changes are saved and applied immediately", None), "noop".into()));
@@ -180,7 +181,7 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Rows {
         }
         ListKind::ControllerAxis(name, a) if *a < AXES.len() => {
             let d = index(&devices, name).map(|i| devices[i].clone()).unwrap_or_default();
-            let live = connected.iter().find(|c| crate::controllers::names_match(&c.name, name))
+            let live = crate::controllers::find_connected(&connected, name)
                 .and_then(|c| c.axes.iter().find(|(k, _)| k == a)).map(|(_, v)| format!("{v:+.2}")).unwrap_or_else(|| "Disconnected".into());
             out.push((crate::game_lists::row("Live reading", 'i', &live, "Move the wheel, pedal or stick to identify this axis", None), "noop".into()));
             let function = (Func::code(d.axes[*a].map(|x| x.0)) + 1) as usize;
@@ -193,7 +194,7 @@ pub(crate) fn items(app: &App, kind: &ListKind) -> Rows {
         }
         ListKind::ControllerButtons(name) => {
             let d = index(&devices, name).map(|i| devices[i].clone()).unwrap_or_default();
-            let live = connected.iter().find(|c| crate::controllers::names_match(&c.name, name));
+            let live = crate::controllers::find_connected(&connected, name);
             let count = d.buttons.len().max(live.map(|c| c.buttons).unwrap_or(0))
                 .max(d.latching.iter().max().map(|b| b + 1).unwrap_or(0)).max(32).min(crate::controllers::HAT_BUTTONS + 16);
             let names = crate::describe::names(&app.args.root, &app.settings.language);

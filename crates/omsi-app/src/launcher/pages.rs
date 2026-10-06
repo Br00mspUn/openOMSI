@@ -659,6 +659,12 @@ fn driving_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
         s["wheel_lock"] = json!(if lock < 45.0 { 0.0 } else { lock.round() });
         *dirty = 0.3;
     }
+    // a gamepad stick's steering, eased onto where the stick points (0: as it reads)
+    let mut pad_smooth = get(s, "pad_steer_smooth").as_f64().unwrap_or(120.0) as f32;
+    if ui.slider("s-pad-steer-smooth", c.row(), &mut pad_smooth, 0.0, 300.0, 10.0, "Stick steering smoothing", &|v| if v <= 0.0 { "Off".to_string() } else { format!("{v:.0} ms") }) {
+        s["pad_steer_smooth"] = json!(pad_smooth.round());
+        *dirty = 0.3;
+    }
     // the pedals' response: softer (below 1) or stronger (above 1) than the pedal reads
     for (key, label, id) in [("pedal_throttle", "Throttle pedal strength", "s-pedt"), ("pedal_brake", "Brake pedal strength", "s-pedb")] {
         let mut v = get(s, key).as_f64().unwrap_or(1.0) as f32;
@@ -1573,7 +1579,7 @@ fn game_controllers(l: &mut Launcher, body: Rect) {
     l.ui.panel(right);
     let Some(d) = devices.get_mut(pv.selected) else { return };
     let inner = l.ui.heading(Rect::new(right.x + 18.0, right.y + 14.0, right.w - 36.0, right.h - 28.0), &d.name.clone(), Some("tune"));
-    let live_dev = connected.iter().find(|c| crate::controllers::names_match(&d.name, &c.name));
+    let live_dev = crate::controllers::find_connected(&connected, &d.name);
     let live: Vec<(usize, f32)> = live_dev.map(|c| c.axes.clone()).unwrap_or_default();
     // every button the device has gets its line (DirectInput says how many)
     if let Some(n) = live_dev.map(|c| c.buttons).filter(|n| *n > d.buttons.len()) {
@@ -2652,7 +2658,7 @@ mod settings_tests {
         }
         let driving = vec![
             "s-keys", "set-steering_linear", "set-old_steering", "set-red_steer_spd", "s-mouse", "set-mouse_smooth", "set-mouse_right_off", "set-blinker_cancel", "set-brake_hold", "set-auto_clutch", "set-momentary_gears", "s-go-keys",
-            "s-wrange", "s-wlock", "s-pedt", "s-pedb", "set-ff_enabled", "set-ff_invert", "s-ffroad", "s-ffeng", "s-fffade", "s-wreset", "s-go-pads",
+            "s-wrange", "s-wlock", "s-pad-steer-smooth", "s-pedt", "s-pedb", "set-ff_enabled", "set-ff_invert", "s-ffroad", "s-ffeng", "s-fffade", "s-wreset", "s-go-pads",
         ];
         let mut camera = vec![
             "s-seaty",
