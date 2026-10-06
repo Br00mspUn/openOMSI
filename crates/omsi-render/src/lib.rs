@@ -2690,38 +2690,52 @@ impl Renderer {
             bc && options.compress_textures && omsi_cfg::env::var_os("OMSI_NO_TEXCOMPRESS").is_none();
         omsi_texture::set_gpu_options(omsi_texture::GpuOptions { bc, compress });
         log::info!("renderer: {} ({:?}), {:?}, {}x MSAA{}, anisotropy {}, shadow map {}, SSAO {}, render scale {}, textures {}", info.name, info.backend, format, options.msaa, if adapter_table { " (adapter format table)" } else { "" }, options.anisotropy, options.shadow_size, options.ssao, if options.render_scale > 0.0 { format!("{:.2}", options.render_scale.clamp(0.5, 1.0)) } else { "auto".to_string() }, match (bc, compress) { (false, _) => "RGBA (no BC on this device)", (true, false) => "DXT as blocks, others RGBA", (true, true) => "DXT as blocks, others compressed where close" });
-        // Anything that still fails to validate with multisampling (a driver whose table
-        // promises more than it takes) is caught here, and the renderer is built again
-        // without it instead of the default handler's abort.
-        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let renderer = Self::build(
-            device.clone(),
-            queue.clone(),
-            format!("{} ({:?})", info.name, info.backend),
-            format,
-            options,
-        );
+        // Every pipeline is built under an error scope of every kind and the renderer built
+        // again with less where one fails: without multisampling (a driver whose table
+        // promises more than it takes), then without the pipelines a picture can do without
+        // (`basic_pipelines`), then both. A phone driver whose shader compiler gives up on a
+        // pipeline reports it as an *internal* error, not a validation error: caught as
+        // validation errors only, it went by, the pipeline stayed invalid and the first frame
+        // stopped on "RenderPipeline with 'omsi' label is invalid" (#1663, #1664 - Adreno
+        // 740/830 since 0.2.0), and the retry without multisampling was not checked at all.
         let mesh_pages = adapter.get_downlevel_capabilities().flags.contains(wgpu::DownlevelFlags::BASE_VERTEX);
-        let made = match scope.pop().await {
-            None => Ok(Renderer { mesh_pages, ..renderer }),
-            Some(e) if options.msaa > 1 => {
-                log::error!(
-                    "{}x MSAA failed on {}: {}; drawing without multisampling",
-                    options.msaa,
-                    info.name,
-                    gpu_error_text(&e)
-                );
-                drop(renderer);
-                Ok(Renderer { mesh_pages, ..Self::build(
-                    device,
-                    queue,
-                    format!("{} ({:?})", info.name, info.backend),
-                    format,
-                    RenderOptions { msaa: 1, ..options },
-                ) })
+        let name = format!("{} ({:?})", info.name, info.backend);
+        let mut attempts: Vec<(u32, bool)> = vec![(options.msaa, false), (1, false), (options.msaa, true), (1, true)];
+        attempts.dedup();
+        let mut made: Result<Renderer> = Err(anyhow!("renderer pipelines: not built"));
+        let mut tried: Vec<String> = Vec::new();
+        for (msaa, basic) in attempts {
+            if tried.iter().any(|t| t == &format!("{msaa}{basic}")) || (!basic && basic_pipelines()) {
+                continue;
             }
-            Some(e) => Err(anyhow!("renderer pipelines: {}", gpu_error_text(&e))),
-        };
+            tried.push(format!("{msaa}{basic}"));
+            if basic {
+                BASIC_PIPELINES.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
+            let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+            let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+            let renderer = Self::build(device.clone(), queue.clone(), name.clone(), format, RenderOptions { msaa, ..options });
+            // (test hook: OMSI_FAKE_GPU_ERROR=pipeline fails a pipeline until the basic ones)
+            if !basic && omsi_cfg::env::var("OMSI_FAKE_GPU_ERROR").as_deref() == Ok("pipeline") {
+                let _ = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("test"), source: wgpu::ShaderSource::Wgsl("fn broken( {".into()) });
+            }
+            let errors = [validation.pop().await, memory.pop().await, internal.pop().await];
+            match errors.iter().flatten().next() {
+                None => {
+                    if msaa != options.msaa || basic {
+                        log::warn!("{}: drawing with {}x MSAA{}", info.name, msaa, if basic { ", without the snowfall, the lamps in the fog and the street lamps' shadows" } else { "" });
+                    }
+                    made = Ok(Renderer { mesh_pages, ..renderer });
+                    break;
+                }
+                Some(e) => {
+                    log::error!("{}: the renderer's pipelines failed ({}x MSAA{}): {}", info.name, msaa, if basic { ", basic pipelines" } else { "" }, gpu_error_text(e));
+                    made = Err(anyhow!("renderer pipelines: {}", gpu_error_text(e)));
+                    drop(renderer);
+                }
+            }
+        }
         // A driver whose shader compiler fails on a pipeline answers "out of memory" or an
         // unknown error, and wgpu takes that as the device lost: on phones (Adreno, Mali)
         // one of 0.2's new pipelines did so, the renderer was made all the same and every

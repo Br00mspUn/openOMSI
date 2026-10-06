@@ -10831,7 +10831,7 @@ fn alpha_mask(path: &Path) -> Option<Arc<Vec<u8>>> {
 }
 
 /// Whether the triangles of material `slot` lie on a see-through part of their texture
-/// (`mask`, see [`alpha_mask`]): nine in ten of them with an alpha under 0.9 at their
+/// (`mask`, see [`alpha_mask`]): two in three of them with an alpha under 0.9 at their
 /// middle. A pane does - the SOR NB12's glass is 62 of 255 on its body texture; a door or
 /// a body panel blended by `[matl_alpha] 2` has its paint at 255 and does not.
 fn slot_is_see_through(mesh: &MeshData, slot: usize, mask: &[u8]) -> bool {
@@ -10852,7 +10852,10 @@ fn slot_is_see_through(mesh: &MeshData, slot: usize, mask: &[u8]) -> bool {
             }
         }
     }
-    all > 0 && clear * 10 >= all * 9
+    // (two thirds: a layer over the windows that painters draw on - the glass's own unwrap
+    // in the paint scheme, its adverts and tint - is covered where the picture is, and is
+    // a pane all the same)
+    all > 0 && clear * 3 >= all * 2
 }
 
 /// Return whether the triangles of one material occupy a volumetric part of the vehicle.
@@ -12333,7 +12336,12 @@ impl World {
                 .iter()
                 .filter_map(|(_, _, slot)| inst.materials.get(*slot as usize))
                 .filter_map(|&m| scene.materials.get(m))
-                .map(|m| (m.alpha, (!m.no_z_write || m.writes_depth) && !m.no_z_check))
+                // (a pane - a window, or a layer over the glass painted on its own unwrap -
+                // writes its depth as Omsi.exe writes it, but it is no blended bodywork:
+                // taken as one, a bus whose glass the model lists before its saloon was
+                // drawn in model order and its saloon was gone behind every window, the
+                // panes on both sides over the street behind them coming out black)
+                .map(|m| (m.alpha, !m.no_z_write && !m.no_z_check))
                 .collect()
         };
         let mut blended_first = false;
