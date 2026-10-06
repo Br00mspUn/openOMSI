@@ -873,6 +873,32 @@ pub fn list_vehicles() -> Result<Vec<VehicleInfo>> {
     list_vehicles_progress(|_, _, _| {})
 }
 
+/// The depot files (by `[name]`) beside bus `bus` (relative to `root`) whose IBIS trips carry
+/// line `line`, the fullest first, read once per bus and line.
+pub fn depot_names_with_line(root: &Path, bus: &str, line: &str) -> Vec<String> {
+    type Cache = std::collections::HashMap<(PathBuf, String, String), Vec<String>>;
+    static CACHE: std::sync::LazyLock<std::sync::Mutex<Cache>> = std::sync::LazyLock::new(Default::default);
+    let key = (root.to_path_buf(), bus.to_string(), line.to_string());
+    if let Some(v) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return v.clone();
+    }
+    let file = omsi_cfg::resolve_path(root, bus);
+    let found: Vec<String> = file
+        .parent()
+        .map(|dir| {
+            let mut hofs: Vec<omsi_vehicle::Hof> = omsi_vehicle::hof::depot_files(dir)
+                .into_iter()
+                .filter_map(|p| omsi_vehicle::Hof::load(&p).ok())
+                .filter(|h| h.has_line(line))
+                .collect();
+            hofs.sort_by_key(|h| std::cmp::Reverse(h.info_trips.len()));
+            hofs.into_iter().map(|h| h.name.trim().to_string()).collect()
+        })
+        .unwrap_or_default();
+    CACHE.lock().unwrap_or_else(|e| e.into_inner()).insert(key, found.clone());
+    found
+}
+
 /// The buses, as `list_vehicles`, with `progress` told after every few folders what they
 /// held, how many folders are done and how many there are: a big installation's first
 /// reading (thousands of vehicle folders, nothing in the cache yet) takes minutes, and the

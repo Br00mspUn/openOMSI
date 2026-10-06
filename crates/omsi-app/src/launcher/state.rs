@@ -636,7 +636,7 @@ impl State {
             paint: Some(c.paint.clone()).filter(|p| !p.is_empty()),
             plate: Some(c.plate.clone()).filter(|p| !p.trim().is_empty()),
             number: Some(c.number.clone()).filter(|n| !n.trim().is_empty()),
-            hof: Some(c.hof.clone()).filter(|p| !p.is_empty()),
+            hof: Some(if c.hof_manual { c.hof.clone() } else { self.default_hof() }).filter(|p| !p.is_empty()),
             entry: Some(c.entry),
             line: if c.free { None } else { c.line.clone() },
             tour: if c.free { None } else { c.tour.clone() },
@@ -1117,6 +1117,17 @@ impl State {
         let like = |hints: &[&str]| omsi_vehicle::hof::closest_name(&names, hints).map(|i| v.hofs[i].clone());
         let map_hints: Vec<String> = self.map().map(|m| vec![m.name.clone(), m.friendly.clone(), m.file.trim_end_matches("/global.cfg").rsplit('/').next().unwrap_or("").to_string()]).unwrap_or_default();
         let map_hints: Vec<&str> = map_hints.iter().map(|h| h.as_str()).collect();
+        // a depot file carrying the line driven: the day's, one named like the map, else the fullest
+        let with_line = match (&self.choice.line, self.choice.free) {
+            (Some(line), false) => core::depot_names_with_line(std::path::Path::new(&self.config.root), &v.file, line),
+            _ => Vec::new(),
+        };
+        if !with_line.is_empty() && !with_line.iter().any(|h| h.eq_ignore_ascii_case(&want)) {
+            let names: Vec<&str> = with_line.iter().map(|h| h.as_str()).collect();
+            let hints: Vec<&str> = std::iter::once(want.as_str()).chain(map_hints.iter().copied()).collect();
+            let pick = omsi_vehicle::hof::closest_name(&names, &hints).unwrap_or(0);
+            return with_line[pick].clone();
+        }
         v.hofs
             .iter()
             .find(|h| h.eq_ignore_ascii_case(&want))
