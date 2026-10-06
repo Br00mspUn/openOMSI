@@ -12153,7 +12153,7 @@ impl World {
                     let m = renderer.add_material_extra(
                         scene,
                         Some(*tex),
-                        AlphaMode::Blend,
+                        if d.alpha == AlphaMode::Test { AlphaMode::Test } else { AlphaMode::Blend },
                         [1.0; 4],
                         false,
                         None,
