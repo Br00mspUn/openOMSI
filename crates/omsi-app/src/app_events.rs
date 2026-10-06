@@ -1245,22 +1245,6 @@ impl ApplicationHandler for App {
                     }
                     *self.profile.entry("player.hover").or_default() +=
                         __th.elapsed().as_secs_f64();
-                    if let Some(a) = self.audio.as_ref() {
-                        a.follow_device();
-                    }
-                    if let (Some(a), Some(cam)) = (self.audio.as_ref(), self.camera.as_ref()) {
-                        let (reverb_time, reverb_mix) = self.world.as_ref().map(|w| w.reverb_at(cam.position)).unwrap_or((0.0, 0.0));
-                        a.set_listener(omsi_audio::Listener {
-                            position: cam.position.as_vec3(),
-                            forward: cam.forward(),
-                            right: cam.right(),
-                            // (silent while paused: the engine's loops would go on)
-                            // (the settings' volume: it had been 0.6 whatever the slider said)
-                            master: if self.paused { 0.0 } else { self.settings.volume.clamp(0.0, 1.0) },
-                            reverb_time,
-                            reverb_mix,
-                        });
-                    }
                 }
                 // on foot (or the free camera) without a bus of one's own: the field of view
                 // setting and the wheel's zoom, as with one - only the player's frame applied
@@ -1270,6 +1254,22 @@ impl ApplicationHandler for App {
                         let base = if self.settings.fov >= 20.0 { self.settings.fov.min(120.0) } else { 60.0 };
                         cam.fov_deg = (base * self.view_zoom.get(&self.view).copied().unwrap_or(1.0)).clamp(8.0, 120.0);
                     }
+                }
+                if let Some(a) = self.audio.as_ref() {
+                    a.follow_device();
+                }
+                if let (Some(a), Some(cam)) = (self.audio.as_ref(), self.camera.as_ref()) {
+                    let (reverb_time, reverb_mix) = self.world.as_ref().map(|w| w.reverb_at(cam.position)).unwrap_or((0.0, 0.0));
+                    a.set_listener(omsi_audio::Listener {
+                        position: cam.position.as_vec3(),
+                        forward: cam.forward(),
+                        right: cam.right(),
+                        // (silent while paused: the engine's loops would go on)
+                        // (the settings' volume: it had been 0.6 whatever the slider said)
+                        master: if self.paused { 0.0 } else { self.settings.volume.clamp(0.0, 1.0) },
+                        reverb_time,
+                        reverb_mix,
+                    });
                 }
                 // on foot without a bus of one's own: the vehicles one placed still stand, run
                 // their scripts and are drawn where they are (the player's frame did it)
