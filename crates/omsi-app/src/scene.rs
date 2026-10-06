@@ -647,6 +647,72 @@ fn paint_at_foot(sco: &SceneryObject, meshes: &[(MeshData, Vec<omsi_o3d::Materia
     lo >= -0.05 && hi <= 0.25 && hi - lo <= 0.05
 }
 
+fn spline_paint_slots(def: &omsi_scenery::sli::Spline) -> Vec<usize> {
+    // Painted profiles compose after the roads commit depth, like plain-object
+    // paint. A stripe can share a spline with asphalt: classifying the whole
+    // cross-section left those edge lines in the camera-dependent blend sort.
+    if !def.paths.is_empty() || !def.rail_enh.is_empty() || !def.third_rail.is_empty()
+    {
+        return Vec::new();
+    }
+    let painted = |p: &omsi_scenery::sli::SplineProfile| {
+        if p.points.len() < 2 || def.textures.get(p.texture).is_none_or(|t| t.alpha != 2)
+            || p.points.iter().any(|q| !q.x.is_finite() || !q.z.is_finite())
+        {
+            return false;
+        }
+        let (x0, x1, z0, z1) = p.points.iter().fold(
+            (f32::MAX, f32::MIN, f32::MAX, f32::MIN),
+            |(x0, x1, z0, z1), p| (x0.min(p.x), x1.max(p.x), z0.min(p.z), z1.max(p.z)),
+        );
+        x1 > x0 && x1 - x0 <= 0.5 && z0 >= -0.05 && z1 <= 0.25 && z1 - z0 <= 0.05
+    };
+    let mut slots = Vec::new();
+    for p in &def.profiles {
+        // Never move asphalt that happens to use the stripe's material too.
+        if !slots.contains(&p.texture)
+            && def.profiles.iter().filter(|q| q.texture == p.texture).all(&painted)
+        {
+            slots.push(p.texture);
+        }
+    }
+    slots
+}
+
+fn spline_render_phase(def: &omsi_scenery::sli::Spline) -> RenderPhase {
+    let slots = spline_paint_slots(def);
+    if !def.profiles.is_empty() && def.profiles.iter().all(|p| slots.contains(&p.texture)) {
+        RenderPhase::BeforeNormal
+    } else {
+        RenderPhase::Spline
+    }
+}
+
+fn split_spline_paint(src: &MeshData, def: &omsi_scenery::sli::Spline) -> (MeshData, MeshData) {
+    let slots = spline_paint_slots(def);
+    if slots.is_empty() { return (src.clone(), MeshData::default()); }
+    let part = |paint| {
+        let mut out = MeshData { one_sided: src.one_sided, ..Default::default() };
+        let mut vertices = HashMap::new();
+        for &(start, count, slot) in &src.ranges {
+            if slots.contains(&(slot as usize)) != paint { continue; }
+            let first = out.indices.len() as u32;
+            for &k in &src.indices[start as usize..(start + count) as usize] {
+                let v = *vertices.entry(k).or_insert_with(|| {
+                    out.positions.push(src.positions[k as usize]);
+                    out.normals.push(src.normals.get(k as usize).copied().unwrap_or(glam::Vec3::Z));
+                    out.uvs.push(src.uvs.get(k as usize).copied().unwrap_or(glam::Vec2::ZERO));
+                    out.positions.len() as u32 - 1
+                });
+                out.indices.push(v);
+            }
+            if count > 0 { out.ranges.push((first, count, slot)); }
+        }
+        out
+    };
+    (part(false), part(true))
+}
+
 fn scenery_render_phase(kind: omsi_scenery::sco::RenderType) -> RenderPhase {
     use omsi_scenery::sco::RenderType as ScoPhase;
     match kind {
@@ -7082,9 +7148,7 @@ impl World {
                     } else {
                         sg.terrain.iter().copied().filter(|t| mesh.ranges.iter().any(|r| r.2 as usize == *t)).collect()
                     };
-                    let id = if terrain.is_empty() {
-                        gpu.add_mesh(renderer, scene, mesh)
-                    } else {
+                    if !terrain.is_empty() {
                         let ground = terrain_ground(mesh, &terrain, p.origin, Mat4::IDENTITY, p.origin);
                         let gid = gpu.add_mesh(renderer, scene, &ground);
                         scene.meshes[gid].source = Some(st.def.path.display().to_string());
@@ -7098,34 +7162,33 @@ impl World {
                                 vec![mat],
                             ));
                             if let Some(inst) = scene.instances.get_mut(terrain_instance) {
-                                inst.render_phase = RenderPhase::Spline;
+                                inst.render_phase = spline_render_phase(&st.def);
                                 inst.blend_sort_origin = Some(*sort_origin);
                             }
                         }
-                        gpu.add_mesh(renderer, scene, &terrain_rest(mesh, &terrain))
-                    };
-                    tg.meshes.push(id);
-                    scene.meshes[id].source = Some(st.def.path.display().to_string());
+                    }
+                    let rest = (!terrain.is_empty()).then(|| terrain_rest(mesh, &terrain));
+                    let src = rest.as_ref().unwrap_or(mesh);
+                    let (road, paint) = split_spline_paint(src, &st.def);
                     // Drawn where the map puts it and drawn over the ground by the surfaces'
                     // depth bias, as a road wins over flush ground in Omsi.exe. Lifted 8 cm
                     // instead, it stood over the ground the editor had aligned to it (the
                     // footways of Spandau's Hansastr. lie at the ground's height), and under
                     // every kerb and footway edge one saw into the hole cut beneath it (#823).
-                    let si = instance!(renderer.add_surface_instance(
-                        scene,
-                        id,
-                        p.origin,
-                        Mat4::IDENTITY,
-                        mats
-                    ));
-                    if let Some(inst) = scene.instances.get_mut(si) {
-                        inst.render_phase = RenderPhase::Spline;
-                        inst.blend_sort_origin = Some(*sort_origin);
-                    }
-                    // a bridge deck or an elevated railway casts a sun shadow (see
-                    // `SPLINE_SHADOW_CLEARANCE`)
-                    if *casts_shadow {
-                        renderer.set_casts_shadow(scene, si, true);
+                    for (data, phase) in [(road, RenderPhase::Spline), (paint, RenderPhase::BeforeNormal)] {
+                        if data.is_empty() { continue; }
+                        let id = gpu.add_mesh(renderer, scene, &data);
+                        tg.meshes.push(id);
+                        scene.meshes[id].source = Some(st.def.path.display().to_string());
+                        let si = instance!(renderer.add_surface_instance(
+                            scene, id, p.origin, Mat4::IDENTITY, mats.clone()
+                        ));
+                        if let Some(inst) = scene.instances.get_mut(si) {
+                            inst.render_phase = phase;
+                            inst.blend_sort_origin = Some(*sort_origin);
+                        }
+                        // Preserve the deck's shadow geometry after splitting its slots.
+                        if *casts_shadow { renderer.set_casts_shadow(scene, si, true); }
                     }
                     pl.splines += 1;
                     done_some = true;
@@ -13570,6 +13633,134 @@ mod tests {
         // the typed ones are drawn over the roads as surfaces already
         assert!(!paint_at_foot(&sco("[rendertype]\non_surface\n[mesh]\narrow.o3d\n"), &[mesh(&[0.11, 0.11, 0.11])]));
         assert!(!paint_at_foot(&sco("[surface]\n[mesh]\nplate.o3d\n"), &[mesh(&[0.0, 0.0, 0.0])]));
+    }
+
+    #[test]
+    #[ignore = "requires a graphics adapter; checks road marking composition"]
+    fn painted_spline_stays_above_roads_and_below_raised_surfaces() {
+        let def = omsi_scenery::sli::Spline::parse(&omsi_cfg::CfgFile::from_str(
+            "synthetic.sli",
+            "[texture]\nasphalt.dds\n[matl_alpha]\n2\n[texture]\nline.dds\n[matl_alpha]\n2\n\
+             [profile]\n0\n[profilepnt]\n-4.3\n0.1\n0\n1\n[profilepnt]\n4.3\n0.1\n1\n1\n\
+             [profile]\n1\n[profilepnt]\n-0.11\n0.105\n0\n1\n[profilepnt]\n0.11\n0.105\n1\n1\n",
+        ));
+        for msaa in [1, 4] {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+            let mut renderer = pollster::block_on(Renderer::new_with(&instance, None,
+                Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+                omsi_render::RenderOptions { msaa, ssao: false, shadow_size: 1024,
+                    fxaa: false, render_scale: 1.0, ..Default::default() },
+            )).expect("test renderer");
+            let mut scene = renderer.new_scene();
+            let plane = |half_width: f32| MeshData {
+                positions: vec![glam::Vec3::new(-half_width, -1000.0, 0.0), glam::Vec3::new(half_width, -1000.0, 0.0),
+                    glam::Vec3::new(half_width, 1000.0, 0.0), glam::Vec3::new(-half_width, 1000.0, 0.0)],
+                normals: vec![glam::Vec3::Z; 4], uvs: vec![glam::Vec2::ZERO; 4],
+                ranges: vec![(0, 6, 0)], indices: vec![0, 1, 2, 0, 2, 3], one_sided: false,
+            };
+            let mut combined = plane(1000.0);
+            let stripe = plane(0.11);
+            combined.positions.extend(stripe.positions.iter().map(|p| *p + glam::Vec3::Z * 0.005));
+            combined.normals.extend(stripe.normals);
+            combined.uvs.extend(stripe.uvs);
+            combined.indices.extend(stripe.indices.iter().map(|i| i + 4));
+            combined.ranges.push((6, 6, 1));
+            let (road_data, line_data) = split_spline_paint(&combined, &def);
+            let road_mesh = renderer.add_mesh(&mut scene, &road_data);
+            let line_mesh = renderer.add_mesh(&mut scene, &line_data);
+            let blue = renderer.add_material_extra(&mut scene, None, AlphaMode::Blend,
+                [0.0, 0.0, 1.0, 1.0], true, None, None, None, None, [0.0; 3],
+                MaterialExtra { no_z_write: true, ..Default::default() });
+            let red = renderer.add_material_extra(&mut scene, None, AlphaMode::Blend,
+                [1.0, 0.0, 0.0, 1.0], true, None, None, None, None, [0.0; 3],
+                MaterialExtra { no_z_write: true, ..Default::default() });
+            let green = renderer.add_material(&mut scene, None, AlphaMode::Opaque, [0.0, 1.0, 0.0, 1.0], true);
+            let road = renderer.add_surface_instance(&mut scene, road_mesh, DVec3::ZERO, Mat4::IDENTITY, vec![blue]);
+            scene.instances[road].render_phase = RenderPhase::Spline;
+            scene.instances[road].blend_sort_origin = Some(DVec3::ZERO);
+            let line = renderer.add_surface_instance(&mut scene, line_mesh, DVec3::ZERO, Mat4::IDENTITY, vec![blue, red]);
+            scene.instances[line].render_phase = RenderPhase::BeforeNormal;
+            scene.instances[line].blend_sort_origin = Some(DVec3::new(0.0, 0.01, 0.0));
+            let bridge = renderer.add_surface_instance(&mut scene, road_mesh, DVec3::new(0.0, 0.0, 0.03), Mat4::IDENTITY, vec![green]);
+            scene.instances[bridge].render_phase = RenderPhase::Surface;
+            let lighting = omsi_render::Lighting { shadows: false, fog_density: 0.0, ..Default::default() };
+            for y in [-20.0, 20.0] {
+                let camera = omsi_render::Camera { position: DVec3::new(0.0, y, 2.0),
+                    yaw: if y < 0.0 { 0.0 } else { 180.0 }, pitch: -(2.0f32 / 20.0).atan().to_degrees(),
+                    roll: 0.0, fov_deg: 60.0, near: 0.1, far: 2000.0 };
+                for raised in [false, true] {
+                    renderer.set_params(&mut scene, bridge, &[], raised, &[]);
+                    let rgba = renderer.render_to_image(&mut scene, 129, 129, &camera, &lighting).unwrap();
+                    let pixel = &rgba[(64 * 129 + 64) * 4..][..3];
+                    let wanted = if raised { 1 } else { 0 };
+                    assert!(pixel[wanted] > 200 && pixel[2] < 20 && pixel[1 - wanted] < 20,
+                        "msaa {msaa}, camera y {y}, raised {raised}: {pixel:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn only_flat_blended_ground_strips_draw_after_the_roads() {
+        use omsi_scenery::sli::{Spline, SplineProfile, SplineProfilePoint, SplineTexture};
+        let line = Spline {
+            textures: vec![SplineTexture { alpha: 2, ..Default::default() }],
+            profiles: vec![SplineProfile { texture: 0, points: vec![
+                SplineProfilePoint { x: -0.11, z: 0.1, ..Default::default() },
+                SplineProfilePoint { x: 0.11, z: 0.1, ..Default::default() },
+            ] }], ..Default::default()
+        };
+        assert_eq!(spline_render_phase(&line), RenderPhase::BeforeNormal);
+        let mut road = line.clone();
+        road.profiles[0].points[0].x = -4.3;
+        road.profiles[0].points[1].x = 4.3;
+        assert_eq!(spline_render_phase(&road), RenderPhase::Spline);
+        let mut solid = line.clone();
+        solid.textures[0].alpha = 0;
+        assert_eq!(spline_render_phase(&solid), RenderPhase::Spline);
+        let mut fence = line.clone();
+        fence.profiles[0].points[1].z = 1.0;
+        assert_eq!(spline_render_phase(&fence), RenderPhase::Spline);
+        let mut wire = line.clone();
+        for p in &mut wire.profiles[0].points { p.z = 5.0; }
+        assert_eq!(spline_render_phase(&wire), RenderPhase::Spline);
+        let mut mixed = line.clone();
+        mixed.profiles.push(road.profiles[0].clone());
+        assert_eq!(spline_render_phase(&mixed), RenderPhase::Spline);
+        let mut traffic = line.clone();
+        traffic.paths.push(Default::default());
+        assert_eq!(spline_render_phase(&traffic), RenderPhase::Spline);
+        let mut rail = line.clone();
+        rail.rail_enh.push(Default::default());
+        assert_eq!(spline_render_phase(&rail), RenderPhase::Spline);
+        let mut unused = line;
+        unused.textures.push(SplineTexture::default());
+        assert_eq!(spline_render_phase(&unused), RenderPhase::BeforeNormal,
+            "an unused opaque texture does not change a painted strip");
+        assert_eq!(spline_render_phase(&Spline::default()), RenderPhase::Spline);
+    }
+
+    #[test]
+    fn mixed_spline_keeps_asphalt_and_painted_ranges_apart() {
+        let def = omsi_scenery::sli::Spline::parse(&omsi_cfg::CfgFile::from_str("mixed.sli",
+            "[texture]\nasphalt.dds\n[matl_alpha]\n2\n[texture]\nline.dds\n[matl_alpha]\n2\n\
+             [profile]\n0\n[profilepnt]\n-2.15\n0.1\n0\n1\n[profilepnt]\n2.15\n0.1\n1\n1\n\
+             [profile]\n1\n[profilepnt]\n1.23\n0.105\n0\n1\n[profilepnt]\n1.45\n0.105\n1\n1\n"));
+        let src = MeshData {
+            positions: vec![glam::Vec3::ZERO, glam::Vec3::X, glam::Vec3::Y,
+                glam::Vec3::Z, glam::Vec3::ONE, glam::Vec3::new(1.0, 1.0, 0.0)],
+            normals: vec![glam::Vec3::Z; 6], uvs: vec![glam::Vec2::ZERO; 6],
+            indices: vec![0, 1, 2, 3, 4, 5], ranges: vec![(0, 3, 0), (3, 3, 1)], one_sided: true,
+        };
+        let (road, paint) = split_spline_paint(&src, &def);
+        assert_eq!(road.ranges.iter().map(|r| r.2).collect::<Vec<_>>(), vec![0]);
+        assert_eq!(paint.ranges.iter().map(|r| r.2).collect::<Vec<_>>(), vec![1]);
+        assert_eq!(road.indices.len(), 3);
+        assert_eq!(paint.indices.len(), 3);
+        assert_eq!(paint.positions, src.positions[3..]);
+        assert_eq!(paint.normals, src.normals[3..]);
+        assert_eq!(paint.uvs, src.uvs[3..]);
+        assert!(road.one_sided && paint.one_sided);
     }
 
     /// A `[variable_terrainlightmap]` tile's light map is baked as Omsi.exe bakes it: over the
