@@ -632,6 +632,14 @@ pub(crate) fn spawn_player(
         scene,
         matches!(args.view.as_str(), "driver" | "pax"),
     );
+    // The sounds the scripts asked for while the bus was being set up ({init}, the state it
+    // is put in - cold, ready, the situation's) are not played: the first frame played them
+    // all, an engine stopping as every session began (#1198). Omsi.exe puts a bus down silent.
+    if !p.vehicle.host.fired_triggers.is_empty() {
+        log::info!("spawn: sound triggers of the set-up left silent: {:?}", p.vehicle.host.fired_triggers);
+    }
+    p.vehicle.host.fired_triggers.clear();
+    p.vehicle.host.fired_trigger_vars.clear();
     Ok(Some(p))
 }
 

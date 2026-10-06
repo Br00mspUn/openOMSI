@@ -2335,6 +2335,54 @@ static BASIC_PIPELINES: std::sync::atomic::AtomicBool = std::sync::atomic::Atomi
 fn basic_pipelines() -> bool {
     BASIC_PIPELINES.load(std::sync::atomic::Ordering::Relaxed) || omsi_cfg::env::var_os("OMSI_BASIC_PIPELINES").is_some()
 }
+/// The file that remembers, per graphics adapter, the reduced renderer that worked there
+/// (`~/.openomsi/gpu-fallback.cfg`, lines `adapter|msaa|basic`).
+fn fallback_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(std::path::PathBuf::from(home).join(".openomsi").join("gpu-fallback.cfg"))
+}
+
+fn parse_fallbacks(text: &str) -> Vec<(String, u32, bool)> {
+    text.lines()
+        .filter_map(|l| {
+            let mut f = l.rsplitn(3, '|');
+            let basic = f.next()?.trim() == "1";
+            let msaa = f.next()?.trim().parse().ok()?;
+            Some((f.next()?.to_string(), msaa, basic))
+        })
+        .collect()
+}
+
+/// The reduced renderer (MSAA, basic pipelines) that worked on adapter `name` before.
+fn fallback_load(name: &str) -> Option<(u32, bool)> {
+    let text = std::fs::read_to_string(fallback_path()?).ok()?;
+    parse_fallbacks(&text).into_iter().find(|e| e.0 == name).map(|e| (e.1, e.2))
+}
+
+/// Remember (`Some`) or forget (`None`) the reduced renderer for adapter `name`.
+fn fallback_store(name: &str, what: Option<(u32, bool)>) {
+    let Some(path) = fallback_path() else { return };
+    let mut all = std::fs::read_to_string(&path).map(|t| parse_fallbacks(&t)).unwrap_or_default();
+    all.retain(|e| e.0 != name);
+    if let Some((m, b)) = what {
+        all.push((name.to_string(), m, b));
+    }
+    let text: String = all.iter().map(|(n, m, b)| format!("{n}|{m}|{}\n", *b as u8)).collect();
+    if let Some(d) = path.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let _ = std::fs::write(path, text);
+}
+
+#[cfg(test)]
+mod fallback_tests {
+    #[test]
+    fn a_remembered_fallback_is_read_back() {
+        let e = super::parse_fallbacks("Adreno (TM) 830 (Gl)|1|1\nNVIDIA | odd (Vulkan)|4|0\nbroken\n");
+        assert_eq!(e, vec![("Adreno (TM) 830 (Gl)".to_string(), 1, true), ("NVIDIA | odd (Vulkan)".to_string(), 4, false)]);
+    }
+}
+
 fn rt_gbuf() -> bool {
     RT_GBUF.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -2700,7 +2748,17 @@ impl Renderer {
         // 740/830 since 0.2.0), and the retry without multisampling was not checked at all.
         let mesh_pages = adapter.get_downlevel_capabilities().flags.contains(wgpu::DownlevelFlags::BASE_VERTEX);
         let name = format!("{} ({:?})", info.name, info.backend);
-        let mut attempts: Vec<(u32, bool)> = vec![(options.msaa, false), (1, false), (options.msaa, true), (1, true)];
+        // As few builds as can be: each one compiles every shader again, and four of them in
+        // a row - a phone whose driver failed the first went through them all - kept the
+        // launcher from opening for a minute until Android closed it (#1708, since 0.2.4).
+        // What worked on this adapter before is remembered (`fallback_store`) and tried first;
+        // after a failure the one most likely to work (no multisampling, basic pipelines).
+        let remembered = fallback_load(&name);
+        let mut attempts: Vec<(u32, bool)> = match remembered {
+            Some((m, b)) => vec![(m.min(options.msaa).max(1), b), (1, true)],
+            None if cfg!(any(target_os = "android", target_os = "ios")) => vec![(options.msaa, false), (1, true)],
+            None => vec![(options.msaa, false), (1, false), (1, true)],
+        };
         attempts.dedup();
         let mut made: Result<Renderer> = Err(anyhow!("renderer pipelines: not built"));
         let mut tried: Vec<String> = Vec::new();
@@ -2725,6 +2783,11 @@ impl Renderer {
                 None => {
                     if msaa != options.msaa || basic {
                         log::warn!("{}: drawing with {}x MSAA{}", info.name, msaa, if basic { ", without the snowfall, the lamps in the fog and the street lamps' shadows" } else { "" });
+                    }
+                    // (a fallback that worked is the first try next time; the full set
+                    // working again forgets it)
+                    if remembered != Some((msaa, basic)) && (msaa != options.msaa || basic || remembered.is_some()) {
+                        fallback_store(&name, (msaa != options.msaa || basic).then_some((msaa, basic)));
                     }
                     made = Ok(Renderer { mesh_pages, ..renderer });
                     break;
@@ -2755,6 +2818,8 @@ impl Renderer {
             }
             log::warn!("{}: the graphics device was lost while the pipelines were made ({why}); opening it again without the snowfall, the lamps in the fog and the street lamps' shadows", info.name);
             BASIC_PIPELINES.store(true, std::sync::atomic::Ordering::Relaxed);
+            // (and so from the start next time, see `fallback_load`)
+            fallback_store(&name, Some((1, true)));
             return Box::pin(Self::new_on(adapter, surface, asked_format, asked_options)).await;
         }
         made
@@ -9065,6 +9130,15 @@ impl Renderer {
             for inst in &scene.instances[span] {
                 if !inst.visible || !inst.casts_shadow || (self.options.omsi_shadow_casters && !inst.omsi_caster) {
                     continue;
+                }
+                // a stand-in for far tiles (`set_near_only`) left out of the picture casts no
+                // shadow either: London's bridge lamps, hidden as part of a backdrop, still
+                // threw their shadows on the deck (#1545)
+                if let Some([x0, y0, x1, y1]) = inst.near_only {
+                    let c = camera.position;
+                    if c.x < x0 || c.x > x1 || c.y < y0 || c.y > y1 {
+                        continue;
+                    }
                 }
                 let m = &scene.meshes[inst.mesh];
                 if m.ranges.is_empty() {

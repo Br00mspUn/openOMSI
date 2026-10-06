@@ -10991,6 +10991,15 @@ fn slot_is_see_through(mesh: &MeshData, slot: usize, mask: &[u8]) -> bool {
     all > 0 && clear * 3 >= all * 2
 }
 
+/// Whether a texture (`mask`, see [`alpha_mask`]) is clear all over: no texel above 8 of
+/// 255. A slot blended by `[matl_alpha] 2` with such a texture is drawn for its depth alone
+/// - an "invisible cover" bus makers put in front of a roller blind or a window to hide it
+/// (a 16x16 clear `.tga`, #1113, #576): Omsi.exe writes its depth in model order, and what
+/// the model lists after it behind it is gone.
+fn texture_is_clear(mask: &[u8]) -> bool {
+    !mask.is_empty() && mask.iter().all(|&a| a <= 8)
+}
+
 /// Return whether the triangles of one material occupy a volumetric part of the vehicle.
 /// Windows and rain films are normally very thin sheets; this lets unnamed/modded body
 /// meshes be repaired without maintaining a language-specific list of mesh names.
@@ -12722,9 +12731,19 @@ impl World {
                     // wheel arches, far wheels and interior drawn after it showed through the
                     // paint (#928, #932).
                     let coverage_tex = subst(coverage_texture(ov.iter().find_map(|o| o.transmap.as_deref()), &m.texture));
+                    let coverage = omsi_texture::find_texture(&coverage_tex, &dirs_ref).and_then(|p| alpha_mask(&p));
+                    // (an invisible cover: clear all over and writing its depth - no pane, it is
+                    // there to hide what comes after it, see `texture_is_clear`)
+                    let cover = declared_alpha == AlphaMode::Blend
+                        && !ov.iter().any(|o| o.no_z_write || o.no_z_check)
+                        && coverage.as_ref().is_some_and(|mask| texture_is_clear(mask));
+                    if cover {
+                        log::debug!("  {} slot {slot} '{}': an invisible cover (clear texture), writes depth in model order", def.file, m.texture);
+                    }
                     let see_through = !named_pane
+                        && !cover
                         && declared_alpha == AlphaMode::Blend
-                        && omsi_texture::find_texture(&coverage_tex, &dirs_ref).and_then(|p| alpha_mask(&p)).is_some_and(|mask| slot_is_see_through(&vm.data, slot, &mask));
+                        && coverage.as_ref().is_some_and(|mask| slot_is_see_through(&vm.data, slot, mask));
                     if see_through {
                         log::debug!("  {} slot {slot} '{}': see-through by its texture's alpha, writes no depth", def.file, m.texture);
                     }
@@ -12845,7 +12864,7 @@ impl World {
                     // film's as well: see `MaterialExtra::writes_depth`. Left out of the
                     // depth buffer, the stacked panes of a door blended over each other
                     // whichever lay in front, #211.)
-                    if (transparent_layer_hint || see_through) && alpha == AlphaMode::Blend {
+                    if (transparent_layer_hint || see_through) && !cover && alpha == AlphaMode::Blend {
                         extra.writes_depth = declared_alpha == AlphaMode::Blend && !ov.iter().any(|o| o.no_z_write) && !def.is_shadow;
                         extra.no_z_write = true;
                     }
@@ -13530,6 +13549,16 @@ mod tests {
 
     /// An LED panel's light map is one white pixel; a flipdot's is a picture with dark
     /// parts (the Krueger's `vmatrix_leer_LM.bmp`), and does not make an LED panel (#413).
+    #[test]
+    fn a_clear_texture_is_an_invisible_cover() {
+        assert!(texture_is_clear(&vec![0u8; 64]));
+        assert!(texture_is_clear(&vec![5u8; 64]));
+        let mut pane = vec![0u8; 64];
+        pane[10] = 62;
+        assert!(!texture_is_clear(&pane));
+        assert!(!texture_is_clear(&[]));
+    }
+
     #[test]
     fn a_transmapped_slot_is_see_through_by_its_transmap_not_its_reflection_mask() {
         // the stock Golf 2: diffuse alpha 0 (reflection mask), transmap opaque (#928, #932)

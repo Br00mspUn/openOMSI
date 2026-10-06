@@ -1984,7 +1984,11 @@ impl Humans {
                 let group = bn.cabin.group_at(pp.pt.or_else(|| bn.cabin.omsi_nearest(here, &all, false, false, None, None)));
                 let exits = bn.cabin.in_group(bn.cabin.exit_points(), group);
                 let open: Vec<bool> = (0..exits.len()).map(|k| bn.exit_open.get(k).copied().unwrap_or(false)).collect();
-                let target = bn.cabin.omsi_nearest(here, &exits, false, false, None, Some(&open));
+                // (with every exit still shut - the bus rolling in - the nearest exit, not the
+                // first of the list: the people of the whole saloon gathered at one door while
+                // the others stood empty, #1149)
+                let any_open = open.iter().zip(&exits).any(|(o, e)| *o && e.is_some());
+                let target = bn.cabin.omsi_nearest(here, &exits, false, false, None, any_open.then_some(open.as_slice()));
                 if pp.st == 5 {
                     // walking: on from the point walked to, towards the new door (Omsi.exe
                     // changes only the target and the door)
