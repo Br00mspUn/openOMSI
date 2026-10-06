@@ -2564,7 +2564,8 @@ pub(crate) fn run_offscreen(
             rn.tick(
                 1.0 / 30.0,
                 camera.position,
-                Vec3::ZERO,
+                // ([wind] direction (deg) and speed (m/s), as the window's frame takes it)
+                Vec3::new(weather.wind.0.to_radians().sin() * weather.wind.1, weather.wind.0.to_radians().cos() * weather.wind.1, 0.0),
                 &mut scene,
                 &player_ref.as_ref().or(player.as_ref()).map(|p| rain::vehicle_boxes(&p.vehicle)).unwrap_or_default(),
             );

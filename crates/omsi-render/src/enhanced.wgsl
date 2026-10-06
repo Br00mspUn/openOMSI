@@ -26,6 +26,13 @@ fn v_smith(nv: f32, nl: f32, a: f32) -> f32 {
     return 0.5 / max(gv + gl, 1e-5);
 }
 
+// A diffuse surface's albedo under a film of water (n = 1.33; Lekner and Dorf 1988): the
+// film lets in 1 - 0.066 of diffuse light, and of what the surface scatters back up only
+// 1 - 0.472 leaves through the film's top, the rest returns to the surface.
+fn wet_albedo(a: vec3<f32>) -> vec3<f32> {
+    return 0.934 * a * 0.528 / (vec3<f32>(1.0) - 0.472 * a);
+}
+
 fn f_schlick(f0: vec3<f32>, c: f32) -> vec3<f32> {
     let f = pow(1.0 - clamp(c, 0.0, 1.0), 5.0);
     return f0 + (vec3<f32>(1.0) - f0) * f;
@@ -160,35 +167,54 @@ struct Surface {
     rough: f32,
 };
 
-// A headlamp's intensity towards `t` (from the lamp) by the angles of a road lamp, not
-// around its axis: wide across, brightest just under the lamp's horizon where it reaches
-// far down the road, weak straight down, and with a low beam a sharp cut-off above it.
-fn headlamp(t: vec3<f32>, dir: vec3<f32>, low: bool) -> f32 {
-    let fwd = normalize(dir.xy + vec2<f32>(1e-6, 0.0));
-    let ahead = dot(t.xy, fwd);
-    if (ahead <= 0.0) {
-        return 0.0;
+// How much of street lamp `li` reaches the point (1 for a lamp without a shadow map): its
+// map is one of the tiles under the far shadow map (lib.rs `LampShadow`), looking down from
+// the lamp's head; a few taps of it soften the edge, as the lamp's glowing bowl does.
+fn lamp_shadow_at(li: u32, p: vec3<f32>, n: vec3<f32>, thin: bool) -> f32 {
+    var k = 4u;
+    for (var j = 0u; j < 4u; j = j + 1u) {
+        if (camera.lamp_shadow[j] >= 0.0 && u32(camera.lamp_shadow[j]) == li) {
+            k = j;
+        }
     }
-    let across = abs(t.x * fwd.y - t.y * fwd.x) / ahead;
-    let wide = 0.12 * smoothstep(1.0, 0.45, across) + 0.88 * exp(-across * across / 0.06);
-    let drop = -t.z / max(length(t.xy), 1e-3);
-    // full out to where the road is 0.06 under the lamp's horizon, then less as the cube of
-    // the drop and a little more: the road is lit evenly from the bumper on, a little
-    // brighter as far as the beam reaches, and not as one hot pool where its axis lands
-    var up = min(1.0, pow(0.06 / max(abs(drop), 1e-4), 3.4));
-    if (low) {
-        up = up * smoothstep(-0.012, 0.025, drop);
-        return wide * up;
+    if (k > 3u) {
+        return 1.0;
     }
-    // a full beam reaches far: a narrow, bright core along the lamp's horizon
-    let hot = exp(-across * across / 0.012 - drop * drop / 0.0004);
-    return wide * up + 6.0 * hot;
+    let d = distance(p, lights[li].pos.xyz);
+    // (off the surface by a texel or so of the map there; a leaf card towards the lamp)
+    let off = select(n * (0.03 + 0.012 * d), normalize(lights[li].pos.xyz - p) * 0.3, thin);
+    let q = camera.lamp_view_proj[k] * vec4<f32>(p + off, 1.0);
+    if (q.w <= 0.0) {
+        return 1.0;
+    }
+    let ndc = q.xyz / q.w;
+    if (abs(ndc.x) >= 1.0 || abs(ndc.y) >= 1.0 || ndc.z >= 1.0 || ndc.z <= 0.0) {
+        return 1.0;
+    }
+    let tuv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    let dims = vec2<f32>(textureDimensions(t_shadow_far));
+    let tile = dims.x * 0.25;
+    // (the tile's texels in the atlas's terms, kept a texel off its edges)
+    let tx = clamp(tuv * tile, vec2<f32>(1.5), vec2<f32>(tile - 1.5));
+    let base = vec2<f32>(f32(k) * tile, dims.x) + tx;
+    var sum = 0.0;
+    for (var y = -1; y <= 1; y = y + 1) {
+        for (var x = -1; x <= 1; x = x + 1) {
+            let a = (base + vec2<f32>(f32(x), f32(y)) * 1.25) / dims;
+            sum = sum + textureSampleCompareLevel(t_shadow_far, s_shadow, a, ndc.z - 0.00002);
+        }
+    }
+    return sum / 9.0;
 }
 
 // The point and spot lights of the pixel's grid cell: diffuse and specular.
 // `thin`: foliage, lit from whichever side the lamp is on (see the sun below).
-fn lamp_light(p: vec3<f32>, n: vec3<f32>, v: vec3<f32>, sf: Surface, thin: bool) -> vec3<f32> {
+fn lamp_light(p: vec3<f32>, n: vec3<f32>, v: vec3<f32>, sf: Surface, thin: bool, shadows: bool) -> vec3<f32> {
     var sum = vec3<f32>(0.0);
+    // the lamps' light on the ground round the point (a horizontal surface's, unshadowed:
+    // the ground the point looks down at is wider than its own shadow)
+    var ground_e = vec3<f32>(0.0);
+
     let cell = camera.light_grid.z;
     let side = u32(camera.light_grid.w);
     if (cell <= 0.0 || side == 0u) {
@@ -232,12 +258,25 @@ fn lamp_light(p: vec3<f32>, n: vec3<f32>, v: vec3<f32>, sf: Surface, thin: bool)
         } else if (l.dir.w > -1.5) {
             let cd = dot(-ld, l.dir.xyz);
             e = e * smoothstep(l.dir.w, l.extra.x, cd);
+        } else if (l.dir.z < -0.5) {
+            // a lamp in a housing (a street lamp's head, a platform's light): its reflector
+            // sends the light down and out, its housing keeps it from the sky - a few per
+            // cent above its horizon, what the bowl and the pole scatter (the upward light
+            // ratio of road lighting, EN 13201 / CIE 115). Shining evenly every way, every
+            // lamp lit the crowns of the trees and the upper floors over it as brightly
+            // as the street.
+            e = e * (0.05 + 0.95 * smoothstep(-0.1, 0.3, ld.z));
         }
         if (e <= 0.0) {
             continue;
         }
-        let irr = l.color.rgb * l.color.w * enh.lights.y * e;
+        var irr = l.color.rgb * l.color.w * enh.lights.y * e;
         let nl = dot(n, ld);
+        ground_e = ground_e + irr * max(ld.z, 0.0);
+        // the lamps' own shadow maps (the few lighting the view most, see `lamp_shadow_at`)
+        if (shadows) {
+            irr = irr * lamp_shadow_at(li, p, n, thin);
+        }
         if (thin) {
             // a headlamp skims the grass: it lights the tips, not a crown's every side
             let wrap = select(0.45 + 0.25 * nl, 0.15 + 0.6 * max(nl, 0.0), l.extra.z != 0.0);
@@ -251,6 +290,15 @@ fn lamp_light(p: vec3<f32>, n: vec3<f32>, v: vec3<f32>, sf: Surface, thin: bool)
         let spec = d_ggx(max(dot(n, h), 0.0), a) * v_smith(nv, nl, a) * f_schlick(sf.f0, dot(v, h));
         sum = sum + irr * nl * (sf.albedo / PI + spec);
     }
+    // What the lit ground throws back up: a diffuse reflector of the street's albedo (asphalt
+    // and paving about 0.18, under water darker, fresh snow 0.75), seen by a surface over the
+    // lower half of its view, (1 - n.z) / 2 of it - a wall half, the underside of a shelter's
+    // roof all, the ground itself nothing. Without it the lamps lit only what faces them, and
+    // a facade or a bus's flank beside a lit street stood black.
+    let snow = clamp(enh.weather.y, 0.0, 1.0);
+    let rho = mix(0.18, 0.75, snow) * mix(1.0, 0.6, clamp(enh.weather.x, 0.0, 1.0) * (1.0 - snow));
+    let seen = select((1.0 - clamp(n.z, -1.0, 1.0)) * 0.5, 0.5, thin);
+    sum = sum + ground_e * rho * seen * sf.albedo / PI;
     return sum;
 }
 
@@ -455,6 +503,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     let h_cam = camera.cam_pos.z - enh.fog.z;
     let h_pt = in.world.z - enh.fog.z;
     // (no fog inside the cab: only the part of the way outside the bus is misty)
+    // (the lamps' light in the fog is added over the whole picture afterwards: fog_lamps.wgsl)
     let aer = air(-v, fog_distance(in.world), h_cam, h_pt);
     if (in.params2.w > 1.5) {
         // A vehicle's shadow blob is no surface: it is the sky light the body keeps off the
@@ -664,8 +713,20 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
             f0 = mix(f0, vec3<f32>(enh.debug.y), puddle);
             n = normalize(mix(n, geo_n, puddle) + vec3<f32>(ripple.xy, 0.0));
         }
-    } else if (wet_any > 0.0 && !terrain) {
-        rough = mix(rough, rough * 0.6, wet_any);
+    } else if (wet_any > 0.0) {
+        if (!terrain) {
+            rough = mix(rough, rough * 0.6, wet_any);
+        }
+        // Soaked by the rain, a porous surface - soil, a paving stone, plaster, bark -
+        // turns darker and deeper in colour: the light that enters the water film and is
+        // scattered back by the surface under it is partly reflected down again at the
+        // film's top (total internal reflection), and meets the surface once more, which
+        // absorbs a share of it each time (Lekner and Dorf, "Why some things are darker
+        // when wet", Applied Optics 1988). Painted metal, glass and leaves shed the water.
+        let soak = camera.shadow.w * outside * dry_snow * select(0.75, 1.0, terrain)
+            * mix(0.45, 1.0, clamp(n.z, 0.0, 1.0)) * select(1.0, 0.0, reflective_env || glass || is_water || thin || metal > 0.5);
+        albedo = mix(albedo, wet_albedo(albedo), soak);
+        ambient_albedo = mix(ambient_albedo, wet_albedo(ambient_albedo), soak);
     }
     // snow lies on what faces up
     // (not on a shadow blob: whitened, it lit the snow under the bus instead of shading it)
@@ -738,6 +799,25 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
             let h = normalize(s + v);
             let spec = d_ggx(max(dot(n, h), 0.0), a) * v_smith(nv, nl, a) * f_schlick(f0, dot(v, h));
             direct = e_sun * nl * (sf.albedo / PI * (vec3<f32>(1.0) - f_schlick(f0, nl)) + spec);
+        }
+    }
+    // --- the moon: by night a directional light as the sun is, with its shadow when the
+    // maps are drawn along it
+    let em = enh.moon_light.rgb;
+    if (max(em.r, em.g) > 1e-9) {
+        let m = enh.moon.xyz;
+        let nlm = dot(n, m);
+        if (nlm > 0.0 || thin) {
+            var ms = 1.0;
+            if (enh.moon_light.w > 0.5) {
+                ms = sun_shadow_soft(in.world, n, thin);
+            }
+            let leaf = sf.albedo / PI;
+            if (thin) {
+                direct = direct + em * ms * leaf * (0.42 + 0.3 * max(nlm, 0.0));
+            } else {
+                direct = direct + em * ms * nlm * leaf;
+            }
         }
     }
     // --- sky and ground
@@ -883,7 +963,9 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     // --- the lamps, the cabin light and what glows by itself
     // ([nomaplighting] objects are not lit by the map's lamps; light-mapped roads are, with
     // the tile light map on top)
-    let lamps = lamp_light(in.world, n, v, sf, thin) * select(1.0, 0.0, material.params.y > 0.2 && material.params.y < 0.3);
+    // (no shadows inside the player's own vehicle, whose cab the depth hardly shows, nor in
+    // the probe's capture)
+    let lamps = lamp_light(in.world, n, v, sf, thin, !capture) * select(1.0, 0.0, material.params.y > 0.2 && material.params.y < 0.3);
     // [interiorlight]: OMSI adds its lamps' light to the lit meshes whatever the daylight,
     // so a switched-on saloon is brighter by day as well and only stands out more at night.
     // Taken as a lamp against the daylight exposure it vanished by day altogether.
@@ -912,7 +994,10 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         } else {
             // lit windows and signs; a switched lamp or display holds up against daylight
             // as the self-illuminated materials do
-            emit = emit + nm * select(enh.exposure.z, max(enh.exposure.z * 2.0, 0.8), switched);
+            // (a window lit from inside shows some 80 cd/m² - a room's 300 lux off its
+            // walls and through a curtain - an illuminated sign more: over the dark street
+            // round it, well over the screen's white, and the eye's glare blooms round it)
+            emit = emit + nm * select(enh.exposure.z * 3.6, max(enh.exposure.z * 2.0, 0.8), switched);
         }
     }
     if (material.params2.x > 0.5 && !terrain) {

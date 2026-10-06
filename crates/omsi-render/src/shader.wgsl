@@ -22,6 +22,10 @@ struct Camera {
     flags: vec4<f32>,        // x detail texturing, y enhanced graphics, z never set (see fs_main's end), w close cascade half range
     light_view_proj_close: mat4x4<f32>,
     wind: vec4<f32>,         // the player's vehicle's velocity (m/s, world): the airstream on its glass
+    // Enhanced: the street lamps' shadow maps (the tiles under the far map), and the
+    // lights they belong to (-1: none)
+    lamp_view_proj: array<mat4x4<f32>, 4>,
+    lamp_shadow: vec4<f32>,
 };
 
 // 1 when the point lies inside the player's vehicle (its [boundingbox], shrunk a little so
@@ -690,6 +694,48 @@ fn vs_shadow_far(in: VsIn) -> VsOut {
     return out;
 }
 
+// Enhanced: a street lamp's shadow map (one of the tiles under the far map), looking down
+// from its head.
+fn shadow_lamp(in: VsIn, k: u32) -> VsOut {
+    let e = draw_list[in.inst];
+    let m = model_matrix(e);
+    let wp = m * vec4<f32>(in.pos, 1.0);
+    var out: VsOut;
+    out.clip = camera.lamp_view_proj[k] * wp;
+    out.world = wp.xyz;
+    out.normal = in.normal;
+    out.spec_sun = vec3<f32>(0.0);
+    out.spec_sky = vec3<f32>(0.0);
+    let pr = inst_params[e * 2u];
+    out.uv = in.uv + pr.zw;
+    out.params = pr;
+    out.params2 = inst_params[e * 2u + 1u];
+    if (pr.y < 0.5) {
+        out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+    }
+    return out;
+}
+
+@vertex
+fn vs_shadow_lamp0(in: VsIn) -> VsOut {
+    return shadow_lamp(in, 0u);
+}
+
+@vertex
+fn vs_shadow_lamp1(in: VsIn) -> VsOut {
+    return shadow_lamp(in, 1u);
+}
+
+@vertex
+fn vs_shadow_lamp2(in: VsIn) -> VsOut {
+    return shadow_lamp(in, 2u);
+}
+
+@vertex
+fn vs_shadow_lamp3(in: VsIn) -> VsOut {
+    return shadow_lamp(in, 3u);
+}
+
 @fragment
 fn fs_shadow(in: FsIn) {
 }
@@ -886,13 +932,19 @@ fn shadow_close(world: vec3<f32>, n: vec3<f32>, ndl: f32, thin: bool) -> vec2<f3
     return vec2<f32>(shadow_pcf_close(uv, lp.z, slope, camera.shadow.y), w);
 }
 
+// The far map takes the top of its texture; the street lamps' tiles lie under it
+// (`FAR_MAP_ASPECT` in lib.rs).
+fn far_map_uv(uv: vec2<f32>) -> vec2<f32> {
+    return vec2<f32>(uv.x, uv.y * 0.8);
+}
+
 fn shadow_pcf_far(uv: vec2<f32>, z: f32, slope: vec2<f32>, texel: f32) -> f32 {
     let bias = SHADOW_BIAS_FAR / SHADOW_DEPTH_RANGE;
     // (corners first, as in `shadow_pcf_atlas`)
     var corners = 0.0;
     for (var k = 0; k < 5; k = k + 1) {
         let o = SHADOW_OFFSETS[SHADOW_CORNERS[k]] * texel * 2.2;
-        corners = corners + textureSampleCompareLevel(t_shadow_far, s_shadow, uv + o, z + dot(slope, o) - bias);
+        corners = corners + textureSampleCompareLevel(t_shadow_far, s_shadow, far_map_uv(uv + o), z + dot(slope, o) - bias);
     }
     if (corners <= 0.0 || corners >= 5.0) {
         return corners * 0.2;
@@ -900,7 +952,7 @@ fn shadow_pcf_far(uv: vec2<f32>, z: f32, slope: vec2<f32>, texel: f32) -> f32 {
     var sum = corners;
     for (var k = 0; k < 11; k = k + 1) {
         let o = SHADOW_OFFSETS[SHADOW_REST[k]] * texel * 2.2;
-        sum = sum + textureSampleCompareLevel(t_shadow_far, s_shadow, uv + o, z + dot(slope, o) - bias);
+        sum = sum + textureSampleCompareLevel(t_shadow_far, s_shadow, far_map_uv(uv + o), z + dot(slope, o) - bias);
     }
     return sum / 16.0;
 }

@@ -41,6 +41,9 @@ struct Enhanced {
     // rgb the sun's irradiance at 1400, 2100 and 2800 m (the cumulus layer) and 7000 m
     // (the high thin layer), through the atmosphere from up there
     cloud_sun: array<vec4<f32>, 4>,
+    // rgb the moonlight on a surface facing the moon (after the clouds), w 1 while the
+    // shadow maps are the moon's
+    moon_light: vec4<f32>,
 };
 @group(0) @binding(11) var<uniform> enh: Enhanced;
 @group(0) @binding(13) var s_lin: sampler;

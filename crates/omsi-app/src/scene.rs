@@ -5251,6 +5251,7 @@ impl World {
                         color: ml.color,
                         intensity: 1.0,
                         core: ml.radius.max(0.5),
+                        housed: true,
                         ..Default::default()
                     });
                 }
