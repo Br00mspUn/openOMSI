@@ -1096,6 +1096,7 @@ pub(crate) fn run_offscreen(
                 tour: duty.as_ref().map(|d| format!("{}/{}", d.line, d.tour)),
                 walker: None,
                 inside_of: None,
+                radio_keyed: false,
             };
             let updates = lan::tick(
                 l,

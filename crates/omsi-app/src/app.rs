@@ -167,6 +167,8 @@ pub(crate) struct App {
     pub(crate) clock_hold: f32,
     /// A controller button held for looking left, right, up, down (`view_look_*`).
     pub(crate) pad_look: [bool; 4],
+    /// A controller button held for the multiplayer bus radio (`voice_radio`).
+    pub(crate) pad_voice_radio: bool,
     /// The arrow keys turned the head (a glance that comes back when they are let go).
     pub(crate) arrow_glance: bool,
     /// The next click on the city map puts the bus there (Esc → Move the bus on the map).

@@ -1157,10 +1157,10 @@ fn mb(v: i64) -> String {
 // --- controls ---------------------------------------------------------------------------------
 
 /// The game's own actions a controller's button can be given, besides the bus's: the doors
-/// and gears of any bus, looking round while held, the cameras and the views - both of
-/// OMSI's view resets, the one view's (C) and every view's (Space), which a controller
-/// could not bring back to the first camera (#1167).
-const PAD_GAME_ACTIONS: [&str; 25] = ["doors_all", "door_4", "door_3", "door_2", "door_1", "gear_up", "gear_down", "view_look_left", "view_look_right", "view_look_up", "view_look_down", "view_reset_direction", "view_reset_all_directions", "view_interiorcam_plus", "view_interiorcam_minus", "view_toggle_viewpoint", "view_toggle_interior", "view_set_driver", "view_set_passenger", "view_set_outside", "sim_pause", "screenshot", "quicksave", "toggel_mouse_ctrl", "toggel_ctrler"];
+/// and gears of any bus, looking round while held, the bus radio while held, the cameras
+/// and the views - both of OMSI's view resets, the one view's (C) and every view's (Space),
+/// which a controller could not bring back to the first camera (#1167).
+const PAD_GAME_ACTIONS: [&str; 26] = ["doors_all", "door_4", "door_3", "door_2", "door_1", "gear_up", "gear_down", "view_look_left", "view_look_right", "view_look_up", "view_look_down", "view_reset_direction", "view_reset_all_directions", "view_interiorcam_plus", "view_interiorcam_minus", "view_toggle_viewpoint", "view_toggle_interior", "view_set_driver", "view_set_passenger", "view_set_outside", "sim_pause", "screenshot", "quicksave", "toggel_mouse_ctrl", "toggel_ctrler", "voice_radio"];
 
 fn action_text(names: &crate::describe::ControlNames, a: &str) -> String {
     known_action(a).unwrap_or_else(|| names.control(a))
@@ -1223,6 +1223,7 @@ fn known_action(a: &str) -> Option<String> {
         ("exit", "Quit"),
         ("chat_open", "Multiplayer: write in the chat"),
         ("chat_toggle", "Multiplayer: show / hide the chat"),
+        ("voice_radio", "Multiplayer: bus radio (hold)"),
         ("sim_pause", "Pause"),
         ("screenshot", "Screenshot"),
         ("quicksave", "Quicksave"),
@@ -2820,16 +2821,25 @@ mod settings_tests {
 #[cfg(test)]
 mod pad_action_tests {
     /// Every game action a button can be given is one the game carries out from a
-    /// controller (app_events: `view_look_*` and the gears by name, the rest through
-    /// `is_game_action`, the doors through `Player::action`) - Space's reset of every view
-    /// among them (#1167).
+    /// controller (app_events: `view_look_*` / `voice_radio` while held, the gears by name,
+    /// the rest through `is_game_action`, the doors through `Player::action`) - Space's
+    /// reset of every view among them (#1167).
     #[test]
     fn a_button_can_reset_every_view() {
         assert!(super::PAD_GAME_ACTIONS.contains(&"view_reset_all_directions"));
+        assert!(super::PAD_GAME_ACTIONS.contains(&"voice_radio"));
+        assert_eq!(super::known_action("voice_radio").as_deref(), Some("Multiplayer: bus radio (hold)"));
         for a in super::PAD_GAME_ACTIONS {
-            let handled = crate::input_script::is_game_action(a) || a.starts_with("gear_") || crate::player::door_action(a).is_some();
+            let held = a.starts_with("view_look_") || a == "voice_radio";
+            let handled = held
+                || crate::input_script::is_game_action(a)
+                || a.starts_with("gear_")
+                || crate::player::door_action(a).is_some();
             assert!(handled, "{a}");
         }
+        // held pad actions are game actions so they never reach the bus script
+        assert!(crate::input_script::is_game_action("voice_radio"));
+        assert!(crate::input_script::is_game_action("view_look_left"));
     }
 }
 

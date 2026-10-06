@@ -662,7 +662,6 @@ impl ApplicationHandler for App {
                 // the bus frame, and placing them on the pose of the frame before made everyone
                 // aboard tremble at speed (a quarter of a metre behind the seat, every frame).
                 let __t = Instant::now();
-                self.drag_frame();
                 // the tutorial's pages, once the world is there
                 if self.world.is_some() {
                     if let Some(n) = self.args.tutorial.take() {
@@ -850,7 +849,8 @@ impl ApplicationHandler for App {
                     }
                 }
                 // the controller's view buttons are the game's, not the bus's: looking around
-                // while held (`view_look_*`), and OMSI's view actions (other cameras, views)
+                // while held (`view_look_*`), the bus radio while held (`voice_radio`), and
+                // OMSI's view actions (other cameras, views)
                 let mut actions = actions;
                 {
                     let menu_open = self.game_menu.is_some() || self.chooser.is_some();
@@ -860,6 +860,11 @@ impl ApplicationHandler for App {
                         let n = name.to_ascii_lowercase();
                         if let Some(k) = ["view_look_left", "view_look_right", "view_look_up", "view_look_down"].iter().position(|x| *x == n) {
                             self.pad_look[k] = *down;
+                            return false;
+                        }
+                        // hold-to-talk: track press/release like `view_look_*`, do not fire once
+                        if n == "voice_radio" {
+                            self.pad_voice_radio = *down;
                             return false;
                         }
                         if n == "gear_up" || n == "gear_down" {
@@ -919,6 +924,14 @@ impl ApplicationHandler for App {
                             self.in_cab,
                             !matches!(self.view.as_str(), "free" | "foot"),
                         );
+                        // After scripts: zero-movement `_drag` for a held switch. Running this
+                        // *before* `tick` cleared Aachen ibox momentary flags (incl. digit 0 /
+                        // `ibox_taste_D11`) before the frame could act when the click path had
+                        // not already consumed them (#744).
+                        if self.dragging {
+                            let (dx, dy) = std::mem::take(&mut self.drag_delta);
+                            p.drag(dx, dy);
+                        }
                         // (not in the headset: the player's own head moves there, and a head
                         // thrown about by the bus on top of it made the whole cab sway and
                         // shift before the eyes)
@@ -943,6 +956,10 @@ impl ApplicationHandler for App {
                         if let Some(w) = self.world.as_ref() {
                             crate::rail_drive::frame(p, self.traffic.as_ref().map(|t| &t.net), w, dt);
                         }
+                    } else if self.dragging {
+                        // paused / no ground: still deliver held-switch `_drag` (was unconditional before)
+                        let (dx, dy) = std::mem::take(&mut self.drag_delta);
+                        p.drag(dx, dy);
                     }
                     // a script that set the time of day (`(S.S.Time)`) moves the game's clock
                     if let Some(t) = p.vehicle.host.time_written.take() {
@@ -2284,6 +2301,7 @@ impl ApplicationHandler for App {
                         let mut tags = if self.settings.name_tags {
                             let voice = self.voice.as_ref();
                             let speaks = |name: &str, id: u32| voice.is_some_and(|v| v.speaks(name, id));
+                            let on_radio = |name: &str, id: u32| voice.is_some_and(|v| v.on_radio(name, id));
                             let rig = (self.settings.triple.enabled
                                 && !self.settings.vr_requested())
                             .then(|| {
@@ -2303,6 +2321,7 @@ impl ApplicationHandler for App {
                                         h,
                                         rig.as_ref(),
                                         &speaks,
+                                        &on_radio,
                                     )
                                 })
                                 .unwrap_or_default()
