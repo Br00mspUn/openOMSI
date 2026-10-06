@@ -26,6 +26,9 @@ struct Camera {
     // lights they belong to (-1: none)
     lamp_view_proj: array<mat4x4<f32>, 4>,
     lamp_shadow: vec4<f32>,
+    // Windy trees: xy the weather's wind (m/s, world; 0 with the setting off), zw how far
+    // the air has carried the gusts since the start (m, modulo PATTERN_PERIOD)
+    tree_wind: vec4<f32>,
 };
 
 // 1 when the point lies inside the player's vehicle (its [boundingbox], shrunk a little so
@@ -344,6 +347,10 @@ struct MaterialParams {
     flags: vec4<f32>,
     // rgb: the D3D material's ambient colour, which takes the ambient light (C)
     ambient: vec4<f32>,
+    // Windy trees: x 1 for foliage that sways, y the height (mesh units) of its pivot - where
+    // the crown leaves the trunk, nothing below it moves - z the crown's top, w how much the
+    // tree gives to the wind (1 a broadleaf, less a conifer)
+    sway: vec4<f32>,
 };
 @group(1) @binding(2) var<uniform> material: MaterialParams;
 @group(1) @binding(3) var t_trans: texture_2d<f32>;
@@ -526,11 +533,90 @@ fn vertex_specular(wp: vec3<f32>, n: vec3<f32>) -> array<vec3<f32>, 2> {
     return out;
 }
 
+// Windy trees: how far the wind moves a vertex of a tree's foliage (world, m). `local` is
+// the vertex in the mesh, `m` its model matrix, whose origin is the tree's foot.
+//
+// The tree is bent, not shifted: nothing under its pivot (`material.sway.y`, where the crown
+// leaves the trunk) moves, and above it the crown bends over as a cantilever does, by the
+// square of the height above the pivot, sinking a little so that its branches keep their
+// length. The crown moves as one heavy body - a tree is a lightly damped oscillator, and
+// what it does is smooth: no part of the picture moves on its own (each corner of a card
+// wobbling in its own phase made the crown jelly).
+//
+// What bends it is the drag of the air: it grows with the wind speed to the power 1.5 rather
+// than 2, as a crown streamlines itself (Vogel's reconfiguration exponent), from a few
+// millimetres at 1 m/s to some 3.5 % of the tree's height at 20 m/s, a storm. The gusts are
+// a frozen pattern of faster and slower air carried along at the mean wind (Taylor): three
+// smooth waves 54 .. 149 m long, a turbulence intensity of 0.3 as over a town, so that
+// neighbouring trees bow together as a gust passes and the ones further on follow - and,
+// being smooth, the gusts never stop the tree dead as the corners of a value noise did.
+// Around that lean the tree swings at its own natural frequency (0.2 .. 1 Hz, lower the
+// taller it is), its amplitude and phase wandering slowly as a resonance driven by
+// turbulence does, and a little across the wind; the crown's top lags its middle a little.
+// With no wind nothing moves.
+fn tree_sway(local: vec3<f32>, m: mat4x4<f32>) -> vec3<f32> {
+    let sw = material.sway;
+    let wind = camera.tree_wind.xy;
+    let speed = length(wind);
+    if (sw.x < 0.5 || speed < 0.05) {
+        return vec3<f32>(0.0);
+    }
+    let h = clamp((local.z - sw.y) / max(sw.z - sw.y, 1e-4), 0.0, 1.0);
+    if (h <= 0.0) {
+        return vec3<f32>(0.0);
+    }
+    let scale = length(m[2].xyz);
+    let crown = max((sw.z - sw.y) * scale, 0.1);
+    let height = max(sw.z * scale, crown);
+    let foot = (m * vec4<f32>(0.0, 0.0, 0.0, 1.0)).xyz;
+    let foot_map = world_pattern_xy(foot);
+    let t = camera.post.y;
+    // each tree its own phase
+    let seed = hash_cell(floor(foot_map * 2.0), 2000.0);
+    let phase = seed * 6.2831853;
+    // the gusts at the tree: whole waves per PATTERN_PERIOD (the map position and the
+    // drift arrive modulo it), 149, 93 and 54 m long - a gust lasts some seconds; their sum has a standard deviation of
+    // 0.51 (0.6, 0.35, 0.2 over sqrt 2), scaled to the turbulence intensity 0.3
+    let gp = (foot_map - camera.tree_wind.zw) * (6.2831853 / PATTERN_PERIOD);
+    let waves = 0.6 * sin(dot(gp, vec2<f32>(6.0, 3.0)) + 1.3)
+        + 0.35 * sin(dot(gp, vec2<f32>(-4.0, 10.0)) + 4.1)
+        + 0.2 * sin(dot(gp, vec2<f32>(17.0, -7.0)) + 2.2);
+    let gust = max(1.0 + 0.59 * waves, 0.0);
+    let along = wind / speed;
+    let across = vec2<f32>(-along.y, along.x);
+    // the lean under the gusting wind, and the tree's swing about it
+    let give = 0.035 * height * sw.w;
+    let lean = give * pow(speed * gust / 20.0, 1.5);
+    // (in strong wind the swing is of the order of the mean lean itself)
+    let swing_size = 0.7 * give * pow(speed / 20.0, 1.5);
+    let f0 = clamp(1.6 / sqrt(height), 0.2, 1.0);
+    let w0 = 6.2831853 * f0 * t + phase + 0.8 * sin(0.17 * t + 9.0 * seed);
+    let envelope = 0.65 + 0.35 * sin(0.23 * t + 5.0 * seed);
+    let swing = swing_size * envelope;
+    // (the top lags the middle by a fraction of a cycle: the crown bends, not only leans)
+    let lag = 0.35 * h;
+    let move_xy = along * (lean + swing * sin(w0 - lag)) + across * (0.35 * swing * sin(0.93 * w0 + 1.7 - lag));
+    var d = vec3<f32>(move_xy * h * h, 0.0);
+    // the crown's big boughs: lobes about the crown's size swaying at about twice the tree's
+    // frequency, each with its own slowly wandering phase, harder in a gust - neighbouring
+    // parts of the picture move nearly together, so the crown stirs rather than wobbles
+    let lm = (m * vec4<f32>(local, 0.0)).xyz;
+    let bp = dot(lm, vec3<f32>(0.45, 0.35, 0.3) * (4.0 / crown)) + phase;
+    let fb = clamp(2.2 * f0, 0.8, 2.0);
+    let wb = 6.2831853 * fb * t + bp + 0.6 * sin(0.31 * t + bp);
+    let bough = 0.25 * give * pow(speed * gust / 20.0, 1.5) * h;
+    d = d + vec3<f32>(along * sin(wb) + across * 0.5 * sin(1.17 * wb + 2.0), 0.25 * sin(0.9 * wb + 1.0)) * bough;
+    // the bent crown keeps its length: it sinks as it leans
+    let above = max((local.z - sw.y) * scale, 0.3);
+    d.z = d.z - 0.5 * dot(d.xy, d.xy) / above;
+    return d;
+}
+
 @vertex
 fn vs_main(in: VsIn) -> VsOut {
     let e = draw_list[in.inst];
     let m = model_matrix(e);
-    let wp = m * vec4<f32>(in.pos, 1.0);
+    let wp = m * vec4<f32>(in.pos, 1.0) + vec4<f32>(tree_sway(in.pos, m), 0.0);
     var out: VsOut;
     // Road surfaces (splines, the objects lying on them, a shadow blob) are pulled towards
     // the eye along the line of sight - the picture does not move, only the depth - so that
@@ -635,7 +721,7 @@ fn shadow_caster_pos(e: u32, wp: vec4<f32>) -> vec4<f32> {
 fn vs_shadow(in: VsIn) -> VsOut {
     let e = draw_list[in.inst];
     let m = model_matrix(e);
-    let wp = shadow_caster_pos(e, m * vec4<f32>(in.pos, 1.0));
+    let wp = shadow_caster_pos(e, m * vec4<f32>(in.pos, 1.0) + vec4<f32>(tree_sway(in.pos, m), 0.0));
     var out: VsOut;
     out.clip = camera.light_view_proj * wp;
     out.world = wp.xyz;
@@ -656,7 +742,7 @@ fn vs_shadow(in: VsIn) -> VsOut {
 fn vs_shadow_close(in: VsIn) -> VsOut {
     let e = draw_list[in.inst];
     let m = model_matrix(e);
-    let wp = shadow_caster_pos(e, m * vec4<f32>(in.pos, 1.0));
+    let wp = shadow_caster_pos(e, m * vec4<f32>(in.pos, 1.0) + vec4<f32>(tree_sway(in.pos, m), 0.0));
     var out: VsOut;
     out.clip = camera.light_view_proj_close * wp;
     out.world = wp.xyz;
@@ -677,7 +763,7 @@ fn vs_shadow_close(in: VsIn) -> VsOut {
 fn vs_shadow_far(in: VsIn) -> VsOut {
     let e = draw_list[in.inst];
     let m = model_matrix(e);
-    let wp = shadow_caster_pos(e, m * vec4<f32>(in.pos, 1.0));
+    let wp = shadow_caster_pos(e, m * vec4<f32>(in.pos, 1.0) + vec4<f32>(tree_sway(in.pos, m), 0.0));
     var out: VsOut;
     out.clip = camera.light_view_proj_far * wp;
     out.world = wp.xyz;
@@ -699,7 +785,7 @@ fn vs_shadow_far(in: VsIn) -> VsOut {
 fn shadow_lamp(in: VsIn, k: u32) -> VsOut {
     let e = draw_list[in.inst];
     let m = model_matrix(e);
-    let wp = m * vec4<f32>(in.pos, 1.0);
+    let wp = m * vec4<f32>(in.pos, 1.0) + vec4<f32>(tree_sway(in.pos, m), 0.0);
     var out: VsOut;
     out.clip = camera.lamp_view_proj[k] * wp;
     out.world = wp.xyz;

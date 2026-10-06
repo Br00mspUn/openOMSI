@@ -1471,6 +1471,7 @@ fn toggle_now(app: &App, id: &str) -> Option<bool> {
         "detail_textures" => s.detail_textures,
         "reflections" => s.reflections,
         "clouds" => s.clouds,
+        "windy_trees" => s.windy_trees,
         "fullscreen" => s.fullscreen,
         "vsync" => s.vsync,
         "texture_compression" => s.texture_compression,
@@ -1666,6 +1667,10 @@ fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String
         "clouds" => {
             app.settings.clouds = on;
             Some(("clouds", bit))
+        }
+        "windy_trees" => {
+            app.settings.windy_trees = on;
+            Some(("windy_trees", bit))
         }
         "fullscreen" => {
             app.settings.fullscreen = on;
@@ -2190,6 +2195,7 @@ fn options_pages(app: &App) -> Vec<Page> {
         slider_row(app, "led_mips", "LED mask mipmaps", "Keep the mip chain of the LED masks (smoother from a distance).", &|v| format!("{v:.2}")),
         switch_row(app, "reflections", "Reflection maps (paint, chrome, glass)", later).filter(|_| !app.settings.ray_tracing()),
         switch_row(app, "clouds", "Clouds", later),
+        switch_row(app, "windy_trees", "Windy trees", "The trees' leaves bend and sway in the wind and its gusts; with no wind they stand still"),
     ]
         .into_iter()
         .flatten()

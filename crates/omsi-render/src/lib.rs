@@ -70,6 +70,9 @@ struct CameraUniform {
     /// and the light indices they belong to (-1: none).
     lamp_view_proj: [[[f32; 4]; 4]; 4],
     lamp_shadow: [f32; 4],
+    /// Windy trees: xy the weather's wind (m/s, world; 0 with the setting off), zw how far
+    /// the air has carried the gusts since the start (m, modulo the shaders' PATTERN_PERIOD).
+    tree_wind: [f32; 4],
 }
 
 /// The period the sky's cloud patterns repeat with (m): 5 x the cloud field (14 km), 8 x
@@ -117,6 +120,8 @@ struct EnhancedUniform {
     /// rgb the moonlight on a surface facing the moon (after the clouds), w 1 while the
     /// shadow maps are the moon's (`Lighting::casts_moon_shadows`)
     moon_light: [f32; 4],
+    /// `Lighting::condensation`
+    condensation: [f32; 4],
 }
 
 /// High-range colour targets of the enhanced path for one size: the multisampled one the
@@ -514,6 +519,9 @@ struct MaterialUniform {
     /// rgb: the D3D material's ambient colour, which takes the ambient light (C); w: 1 for
     /// a texture that is a season's snow picture (no snow laid over it), 2 the map's water
     ambient: [f32; 4],
+    /// `MaterialExtra::sway`: x 1 for foliage the wind moves, y its pivot's and z its top's
+    /// height (mesh units), w how much it gives to the wind
+    sway: [f32; 4],
 }
 
 /// The maps of a PBR set found beside a diffuse texture (`foo_n.png` and the rest, see
@@ -690,6 +698,10 @@ pub struct Lighting {
     pub snowfall: f32,
     /// The weather's wind (m/s, world): the snowfall drifts with it.
     pub wind: Vec3,
+    /// The condensation on the player's bus's panes as optical depths (the share of the
+    /// light they scatter is 1 - e^-depth): windscreen, side windows, rear window, and how
+    /// far the defroster has cleared the windscreen (0..1; enhanced path).
+    pub condensation: [f32; 4],
     pub fog_base: Option<f64>,
     pub envir_tint: [Vec3; 3],
     /// How bright an LED panel's dots burn (`MaterialExtra::led`; the settings' 16 levels
@@ -707,6 +719,9 @@ pub struct Lighting {
     /// The player's vehicle's velocity (m/s, world): at speed the airstream drives the drops
     /// on its glass up the windscreen and back along the side windows.
     pub glass_wind: Vec3,
+    /// Windy trees (the `windy_trees` setting): the foliage of trees bends and sways in
+    /// `wind` (see shader.wgsl `tree_sway`).
+    pub windy_trees: bool,
     /// Towards the moon (world space) and how much of its disc is lit (0 new .. 1 full):
     /// the enhanced night's moonlight and the moon in its sky.
     pub moon_dir: Vec3,
@@ -769,6 +784,7 @@ impl Default for Lighting {
             shadows: true,
             snowfall: 0.0,
             wind: Vec3::ZERO,
+            condensation: [0.0; 4],
             lamp_shadows: false,
             wetness: 0.0,
             snow: 0.0,
@@ -786,6 +802,7 @@ impl Default for Lighting {
             led_glow: 1.5,
             led_mips: 1.3,
             glass_wind: Vec3::ZERO,
+            windy_trees: false,
             moon_dir: Vec3::new(0.0, -0.5, -0.866),
             moon_illum: 0.0,
             day_of_year: 150.0,
@@ -874,7 +891,7 @@ impl GpuTexture {
 struct BindKey {
     textures: [(usize, u64); 7],
     address: TexAddressing,
-    uniform: [u32; 40],
+    uniform: [u32; 44],
 }
 
 /// Bytes of a texture of `format` with `levels` mip levels.
@@ -1025,6 +1042,10 @@ pub struct MaterialExtra {
     /// factor alone, as the vanilla one shows the sphere map on it - chrome read as a
     /// faint clear coat there. A body needs a mask of its own for that (a Golf's bonnet).
     pub metal_ok: bool,
+    /// Windy trees: foliage the wind moves - the height (mesh units) of the pivot where the
+    /// crown leaves the trunk (nothing below it moves), of the crown's top, and how much the
+    /// tree gives to the wind (1 a broadleaf). `None`: not foliage.
+    pub sway: Option<[f32; 3]>,
 }
 
 /// The textures a material's bind group samples.
@@ -2080,6 +2101,8 @@ pub struct Renderer {
     overlay_pipeline_1x: wgpu::RenderPipeline,
     xr_ui_pipeline: wgpu::RenderPipeline,
     started: std::time::Instant,
+    /// Windy trees: how far the wind has carried its gusts (m, modulo 1000) and when.
+    tree_gust_drift: std::cell::Cell<(glam::DVec2, f64)>,
     /// `[matl_texadress_clamp]` (and border, mirror-once) and `[matl_texadress_mirror]`.
     clamp_sampler: wgpu::Sampler,
     mirror_sampler: wgpu::Sampler,
@@ -4007,6 +4030,9 @@ impl Renderer {
                 },
                 float_tex(3),
                 float_tex(4),
+                // (the screen mask for the tone mapping: the condensation on the bus's
+                // panes, see post.wgsl `misted`)
+                float_tex(5),
             ],
         });
         let post_buf = device.create_buffer(&wgpu::BufferDescriptor {
@@ -4115,6 +4141,10 @@ impl Renderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
+                        resource: wgpu::BindingResource::TextureView(&white_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
                         resource: wgpu::BindingResource::TextureView(&white_texture.view),
                     },
                 ],
@@ -4659,7 +4689,12 @@ impl Renderer {
             instant_exposure: false,
             overlay_pipeline_1x,
             xr_ui_pipeline,
-            started: std::time::Instant::now(),
+            // (OMSI_RENDER_CLOCK=<s>: the animations' clock starts that far on - offscreen
+            // stills of moving things, the windy trees, at different moments)
+            started: std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_secs_f64(omsi_cfg::env::var("OMSI_RENDER_CLOCK").ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|s| s.is_finite() && *s >= 0.0).unwrap_or(0.0)))
+                .unwrap_or_else(std::time::Instant::now),
+            tree_gust_drift: std::cell::Cell::new((glam::DVec2::ZERO, 0.0)),
             ao: None,
             ao_sampler,
             ao_layout,
@@ -5890,6 +5925,7 @@ impl Renderer {
                 let a = extra.ambient.unwrap_or([color[0], color[1], color[2]]);
                 [a[0], a[1], a[2], if extra.water { 2.0 } else { snow_texture_flag(scene, texture) }]
             },
+            sway: extra.sway.map_or([0.0; 4], |s| [1.0, s[0], s[1], s[2]]),
         };
         let slot = |t: Option<TextureId>| {
             t.and_then(|t| scene.textures.get(t).map(|g| (t, g.gen)))
@@ -7002,7 +7038,7 @@ impl Renderer {
             .map(|k| target("glow up", w >> k, h >> k, fmt, 1))
             .collect();
         let ldr = target("tone mapped", w, h, wgpu::TextureFormat::Rgba8Unorm, 1);
-        let bg = |src: &wgpu::TextureView, base: &wgpu::TextureView, adapt: &wgpu::TextureView| {
+        let bg_with = |src: &wgpu::TextureView, base: &wgpu::TextureView, adapt: &wgpu::TextureView, screen_mask: &wgpu::TextureView| {
             self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("post"),
                 layout: &self.post_layout,
@@ -7027,9 +7063,14 @@ impl Renderer {
                         binding: 4,
                         resource: wgpu::BindingResource::TextureView(adapt),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(screen_mask),
+                    },
                 ],
             })
         };
+        let bg = |src: &wgpu::TextureView, base: &wgpu::TextureView, adapt: &wgpu::TextureView| bg_with(src, base, adapt, &self.black_texture.view);
         let none = &self.white_texture.view;
         // (the first level of the glow reads the screen mask as its `t_base`: no light from
         // the screens)
@@ -7051,8 +7092,8 @@ impl Renderer {
             .collect();
         let meter_bg = bg(&down[levels - 1], none, none);
         let tonemap_bg = [
-            bg(&view, &up[0], &self.adapt_views[0]),
-            bg(&view, &up[0], &self.adapt_views[1]),
+            bg_with(&view, &up[0], &self.adapt_views[0], &mask),
+            bg_with(&view, &up[0], &self.adapt_views[1], &mask),
         ];
         // (FXAA reads the screen mask as its `t_base` and leaves the screens as they are)
         let fxaa_bg = bg(&ldr, &mask, none);
@@ -7315,6 +7356,7 @@ impl Renderer {
                 c[1][3] = 1.0 - (-st.input.veil / st.input.sun_dir.z.max(0.03)).exp();
                 c
             },
+            condensation: lighting.condensation,
             moon_light: st.moon_light.extend(if lighting.casts_moon_shadows() { 1.0 } else { 0.0 }).to_array(),
             moon_disc: st.moon_disc.extend((1.0 - 0.18 * (st.input.haze - 1.0).max(0.0)).clamp(0.2, 1.0) * 0.55).to_array(),
         };
@@ -8917,6 +8959,16 @@ impl Renderer {
             wind: [lighting.glass_wind.x, lighting.glass_wind.y, lighting.glass_wind.z, 1.0],
             lamp_view_proj: std::array::from_fn(|k| lamp_shadows.get(k).map_or(Mat4::IDENTITY, |l| l.view_proj()).to_cols_array_2d()),
             lamp_shadow: std::array::from_fn(|k| lamp_shadows.get(k).map_or(-1.0, |l| l.index as f32)),
+            tree_wind: {
+                // the gusts drift with the wind: summed over the frames (the wind changes
+                // with the weather), in f64 and modulo the shaders' pattern period
+                let now = self.started.elapsed().as_secs_f64();
+                let (drift, last) = self.tree_gust_drift.get();
+                let drift = (drift + lighting.wind.truncate().as_dvec2() * (now - last).clamp(0.0, 1.0)).rem_euclid(glam::DVec2::splat(1000.0));
+                self.tree_gust_drift.set((drift, now));
+                let wind = if lighting.windy_trees { lighting.wind.truncate() } else { glam::Vec2::ZERO };
+                [wind.x, wind.y, drift.x as f32, drift.y as f32]
+            },
         };
         self.queue
             .write_buffer(&self.camera_buf, 0, bytemuck::bytes_of(&cu));
@@ -8928,7 +8980,8 @@ impl Renderer {
         // (a mirror takes the window's light - its own call would move the exposure on -
         // unless it comes before the window's first frame)
         if enhanced && lead_view {
-            self.view_lamps = Some(view_lamp_light(scene, cam_rel, camera.forward()));
+            let ground = lighting.fog_base.or(lighting.inside.map(|v| v.0.z)).map(|z| (z - scene.render_origin.z) as f32);
+            self.view_lamps = Some(view_lamp_light(&scene.lights, scene.render_origin, cam_rel, camera, aspect, ground));
             if omsi_cfg::env::var_os("OMSI_DEBUG_VIEW_LAMPS").is_some() {
                 log::info!("view lamps: {:.6}", self.view_lamps.unwrap_or(0.0));
             }
@@ -11636,23 +11689,53 @@ fn lamp_sky_glow(scene: &Scene, cam_rel: Vec3) -> f32 {
 }
 
 /// The light of the lamps and the headlights on the ground the camera looks at (irradiance,
-/// 1 = 10 000 lux): the mean over a dozen points from 5 to 30 m ahead and to either side,
-/// each lit as the enhanced pass lights it (a street lamp down and out, a headlamp ahead
-/// and under its cut-off). What the eye adapts to by night, rather than a fixed guess.
-fn view_lamp_light(scene: &Scene, cam_rel: Vec3, forward: Vec3) -> f32 {
-    let ro = scene.render_origin;
-    let f = Vec3::new(forward.x, forward.y, 0.0).normalize_or(Vec3::Y);
-    let ground = cam_rel.z - 1.6;
-    let mut points = Vec::with_capacity(12);
-    for d in [5.0f32, 10.0, 18.0, 30.0] {
-        for a in [-0.5f32, 0.0, 0.5] {
-            let (s, c) = a.sin_cos();
-            let dir = Vec3::new(f.x * c - f.y * s, f.x * s + f.y * c, 0.0);
-            points.push(Vec3::new(cam_rel.x, cam_rel.y, ground) + dir * d);
+/// 1 = 10 000 lux): the log-average over the points where a grid of rays through the
+/// picture meets the ground (`ground`: the street's height relative to the render origin,
+/// the player's vehicle's), each lit as the enhanced pass lights it (a street lamp down
+/// and out, a headlamp ahead and under its cut-off). What the eye adapts to by night,
+/// rather than a fixed guess.
+///
+/// The rays are the picture's own: a dozen points 5 to 30 m ahead on a ground taken 1.6 m
+/// under the camera missed the street the eye actually sees from any camera higher than a
+/// driver's (it lay in the air there, out of every lamp's reach) and the lamp-lit pools to
+/// the sides of a narrow view - the meter read a moonless night while the picture was full
+/// of lit streets, and the eye's adaptation to that dark lifted every lamp's light to
+/// white (the modded maps' lamps, spaced and placed differently from the stock ones, most).
+fn view_lamp_light(lights: &[PointLight], ro: DVec3, cam_rel: Vec3, camera: &Camera, aspect: f32, ground: Option<f32>) -> f32 {
+    let ground = ground.filter(|g| g.is_finite() && *g < cam_rel.z - 0.3).unwrap_or(cam_rel.z - 1.6);
+    let (f, r, u) = (camera.forward(), camera.right(), camera.up());
+    let ty = (camera.fov_deg.to_radians() * 0.5).tan();
+    let tx = ty * aspect.max(0.1);
+    let mut points = Vec::with_capacity(35);
+    for j in 0..5 {
+        for i in 0..7 {
+            let x = -0.9 + 1.8 * i as f32 / 6.0;
+            let y = -0.95 + 1.9 * j as f32 / 4.0;
+            let dir = (f + r * (x * tx) + u * (y * ty)).normalize();
+            if dir.z >= -0.01 {
+                continue;
+            }
+            // (as far as a lamp's light still shapes what the eye takes to: a pool 300 m
+            // off is a point of light, not the scene)
+            let t = (ground - cam_rel.z) / dir.z;
+            if t > 0.0 && t < 300.0 {
+                points.push(cam_rel + dir * t);
+            }
+        }
+    }
+    if points.is_empty() {
+        // (looking up: the ground round the camera, which the eye has just seen)
+        let f = Vec3::new(f.x, f.y, 0.0).normalize_or(Vec3::Y);
+        for d in [5.0f32, 10.0, 18.0, 30.0] {
+            for a in [-0.5f32, 0.0, 0.5] {
+                let (s, c) = a.sin_cos();
+                let dir = Vec3::new(f.x * c - f.y * s, f.x * s + f.y * c, 0.0);
+                points.push(Vec3::new(cam_rel.x, cam_rel.y, ground) + dir * d);
+            }
         }
     }
     let mut per_point = vec![0.0f32; points.len()];
-    for l in &scene.lights {
+    for l in lights {
         if l.intensity <= 0.0 || l.mode == LightMode::Vanilla {
             continue;
         }
@@ -11692,7 +11775,55 @@ fn view_lamp_light(scene: &Scene, cam_rel: Vec3, forward: Vec3) -> f32 {
     // floor is a moonless night's light, which every point has.
     let floor = 2e-6f32;
     let log_sum: f32 = per_point.iter().map(|v| (v + floor).ln()).sum();
-    (log_sum / per_point.len() as f32).exp() - floor
+    (log_sum / per_point.len() as f32).exp() - floor + glare_veil(lights, ro, cam_rel, camera.forward())
+}
+
+/// The lamps' and headlights' glare in view as the illuminance whose mid grey has the same
+/// luminance (1 = 10 000 lux): the light of every lamp the eye sees, scattered in the eye
+/// over the field of view, is a veil the eye adapts to as to any other light - the
+/// Stiles-Holladay disability glare, L = 10 x the illuminance at the eye (lux) / the angle
+/// off the line of sight squared (degrees), summed over the sources (CIE 146). Metered on
+/// the ground between the lamps alone, a village full of street lamps in view read as a
+/// moonless night, and the eye's adaptation to that dark lifted every lamp's light to white.
+fn glare_veil(lights: &[PointLight], ro: DVec3, cam_rel: Vec3, forward: Vec3) -> f32 {
+    let f = forward.normalize_or(Vec3::Y);
+    let mut veil = 0.0f32; // cd/m²
+    for l in lights {
+        if l.intensity <= 0.0 || l.mode == LightMode::Vanilla {
+            continue;
+        }
+        let to_lamp = (l.position - ro).as_vec3() - cam_rel;
+        let d2 = to_lamp.length_squared();
+        // (a lamp out past a few hundred metres is a point among the stars to the eye; one
+        // within a metre is the bus's own)
+        if !(1.0..300.0 * 300.0).contains(&d2) {
+            continue;
+        }
+        let dist = d2.sqrt();
+        let theta = f.dot(to_lamp / dist).clamp(-1.0, 1.0).acos().to_degrees();
+        if theta >= 90.0 {
+            continue;
+        }
+        let lum = 0.2126 * l.color[0] + 0.7152 * l.color[1] + 0.0722 * l.color[2];
+        let core = if l.core > 0.0 { l.core } else { l.radius * 0.125 };
+        // towards the eye: from the lamp
+        let t = -to_lamp / dist;
+        let k = if l.beam != 0.0 {
+            headlamp_profile(t, l.direction, l.beam > 0.0) / (core * core).max(1e-3)
+        } else if l.direction.length_squared() > 1e-6 {
+            atmosphere::smoothstep(l.cone[1], l.cone[0], t.dot(l.direction.normalize()))
+        } else if l.housed {
+            0.05 + 0.95 * atmosphere::smoothstep(-0.1, 0.3, -t.z)
+        } else {
+            1.0
+        };
+        // the lamp's illuminance at the eye (lux): its core's level, falling off with the
+        // square of the distance as on the street
+        let e_eye = LAMP_E * 1e4 * l.intensity * lum * k * core * core / d2;
+        veil += 10.0 * e_eye / theta.max(1.5).powi(2);
+    }
+    // (the luminance of a mid-grey surface, 18 %, under this illuminance)
+    veil * std::f32::consts::PI / 0.18 / 1e4
 }
 
 /// A headlamp's intensity towards `t` (unit, from the lamp): lamp_air.wgsl `headlamp`.
@@ -13211,6 +13342,40 @@ fn snap_rect(r: [f32; 4]) -> [f32; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The night meter takes the street the picture shows: from 30 m over a lot lit by a
+    /// grid of street lamps, looking down at it, the eye adapts to the lit lot - not, as
+    /// when it sampled a "ground" 1.6 m under the camera (in the air, out of every lamp's
+    /// reach), to a moonless night that lifted the lot's light to white.
+    #[test]
+    fn the_night_meter_sees_a_lamp_lit_lot_from_above() {
+        let mut lights = Vec::new();
+        for i in 0..4 {
+            for j in 0..4 {
+                lights.push(PointLight {
+                    position: DVec3::new(i as f64 * 12.0 - 18.0, j as f64 * 12.0 - 18.0, 8.0),
+                    radius: 24.0,
+                    color: [1.0, 0.8, 0.5],
+                    intensity: 1.0,
+                    core: 3.0,
+                    housed: true,
+                    mode: LightMode::Both,
+                    ..Default::default()
+                });
+            }
+        }
+        let cam = Camera { position: DVec3::new(0.0, -35.0, 30.0), yaw: 0.0, pitch: -40.0, roll: 0.0, fov_deg: 60.0, near: 0.1, far: 1000.0 };
+        let cam_rel = cam.position.as_vec3();
+        let seen = view_lamp_light(&lights, DVec3::ZERO, cam_rel, &cam, 16.0 / 9.0, Some(0.0));
+        let in_air = view_lamp_light(&lights, DVec3::ZERO, cam_rel, &cam, 16.0 / 9.0, None);
+        // (the lot's ground: some 10-30 lux under the lamps, 1e-3 .. 3e-3, less between and
+        // round them - a log-average of some 10 lux; a moonless night is 2e-6)
+        assert!(seen > 5e-5, "{seen}");
+        assert!(in_air < seen * 0.2, "{in_air} vs {seen}");
+        // and the lamps seen from beside the lot, at eye height, veil the eye as well
+        let eye = Camera { position: DVec3::new(0.0, -40.0, 1.7), pitch: 0.0, ..cam };
+        assert!(glare_veil(&lights, DVec3::ZERO, eye.position.as_vec3(), eye.forward()) > 1e-5);
+    }
 
     /// A textured material can have black diffuse but white ambient (depot interiors).
     /// Enhanced must not turn it into a black surface or silently replace its diffuse.

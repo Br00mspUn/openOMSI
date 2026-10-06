@@ -58,6 +58,7 @@ mod radio;
 
 mod puddles;
 mod quit;
+mod condensation;
 mod rain;
 mod scene;
 mod schedule;
@@ -472,6 +473,7 @@ pub(crate) fn make_app(mut args: Args, server_cfg: Option<server::ServerCfg>) ->
         ui: ui::Ui::new(),
         fps: 0.0,
         rain: rain::Rain::new(),
+        cabin_air: crate::condensation::CabinAir::new(),
         spray: puddles::Spray::new(),
         lamps_on: None,
         menu: None,

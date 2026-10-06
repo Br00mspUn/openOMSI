@@ -32,6 +32,7 @@ struct Camera {
     // lights they belong to (-1: none)
     lamp_view_proj: array<mat4x4<f32>, 4>,
     lamp_shadow: vec4<f32>,
+    tree_wind: vec4<f32>,
 };
 
 // A hash of a lattice point, from its integer bits.

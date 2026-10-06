@@ -1973,6 +1973,12 @@ impl ApplicationHandler for App {
                         }
                         let __tr = Instant::now();
                         self.rain.tick(if self.paused { 0.0 } else { dt }, cam.position, wind, scene, &buses);
+                        // the player's bus's cabin air and the condensation on its glass
+                        if let Some(p) = self.player.as_ref() {
+                            let (riders, doors) = self.humans.as_ref().map(|h| (h.riding(), crate::condensation::open_doors(&h.cabin_doors(crate::humans::BusId::Player)))).unwrap_or((0, 0));
+                            let ci = crate::condensation::inputs_for(&p.vehicle, wt, riders, doors);
+                            self.cabin_air.step(if self.paused { 0.0 } else { dt }, &ci);
+                        }
                         *self.profile.entry("lights.rain").or_default() += __tr.elapsed().as_secs_f64();
                         // what every vehicle's tyres throw up from the water on the road: the
                         // puddles and the wet asphalt the renderer draws (the same wetness:
@@ -2444,7 +2450,9 @@ impl ApplicationHandler for App {
                 lighting.puddle_parts = puddle_vehicle.into_iter().flat_map(|v| &v.trailers)
                     .filter_map(|t| t.ty.def.bounding_box.map(|bb| (t.position, t.heading, bb))).take(3).collect();
                 lighting.detail = self.settings.detail_textures;
+                lighting.windy_trees = self.settings.windy_trees();
                 lighting.glass_wind = self.player.as_ref().map(|p| crate::lights::vehicle_velocity(&p.vehicle)).unwrap_or_default();
+                lighting.condensation = self.cabin_air.appearance();
                 // an LED panel's dots burn this much above their own colour (16 levels,
                 // see `Settings::led_glow`); the panel's picture and its mask are held at
                 // this mip level at most (`Settings::led_mips`)

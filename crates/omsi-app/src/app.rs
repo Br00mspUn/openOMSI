@@ -52,6 +52,8 @@ pub(crate) struct App {
     pub(crate) ui: Option<ui::Ui>,
     pub(crate) fps: f32,
     pub(crate) rain: rain::Rain,
+    /// The player's bus's cabin air and the condensation on its glass.
+    pub(crate) cabin_air: crate::condensation::CabinAir,
     /// What the tyres throw up from the water on the roads (see `puddles`).
     pub(crate) spray: puddles::Spray,
     pub(crate) lamps_on: Option<bool>,
