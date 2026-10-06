@@ -669,7 +669,10 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     // --- the material in physical terms
     var refl = 0.0;
     if (reflective_env) {
-        refl = clamp(min(material.params2.y, 1.0) * reflection_mask(duv, diffuse_a), 0.0, 1.0);
+        // (with a mask of its own or a [matl_transmap] the share is the mask's alone, as
+        // Omsi.exe's stage takes it - the factor counts only where there is none)
+        let by_mask = material.params.z > 0.5 || (u32(material.params2.w + 0.5) & 1u) != 0u;
+        refl = clamp(select(min(material.params2.y, 1.0), 1.0, by_mask) * reflection_mask(duv, diffuse_a), 0.0, 1.0);
     }
     var metal = 0.0;
     var f0 = vec3<f32>(0.04);
@@ -686,7 +689,16 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         // transparency, never a mask): from glass's own 4 % up to 12 % for a factor of 1
         // (0.4 on the Scania's panes). Up to 26 % as before, every window of every bus
         // was a mirror - far more than the original's panes reflect (issue #176).
-        f0 = vec3<f32>(clamp(0.04 + 0.08 * min(material.params2.y, 1.0), 0.04, 0.12));
+        // ... measured against the vanilla picture: Omsi.exe lays the sphere map over the
+        // pane by its factor and the pane shows that as faintly as it shows itself - the
+        // share it mirrors is the pane's alpha times the factor (0.25 .. 0.5 on the stock
+        // windows), at every angle, with no Fresnel term. Taken as the reflectance
+        // averaged over the angles (Schlick's mean, f0 + (1 - f0) / 21, as for the paint),
+        // the pane mirrors as much as there and rises towards grazing as glass does; 4 to
+        // 12 % at the normal, and three quarters of that, left the windows showing the
+        // saloon where the vanilla picture shows the street.
+        let share = clamp(alpha * min(material.params2.y, 1.0), 0.0, 1.0);
+        f0 = vec3<f32>(clamp((share - 1.0 / 21.0) * 21.0 / 20.0, 0.04, 0.9));
     } else if (reflective_env) {
         // Paint reflects its few per cent through a smooth clear coat; much more than a few
         // per cent is polished metal - but only where the model says so with a mask of its
@@ -709,7 +721,18 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         // (where the mask says nothing reflects - a tyre or a seal on the body's texture -
         // it is no coat but the rough rubber or plastic of an unpolished surface)
         let coat_rough = mix(0.8, 0.05, smoothstep(0.0, 0.5, refl));
-        f0 = mix(vec3<f32>(0.04), mix(albedo, vec3<f32>(1.0), 0.4) * refl, metal);
+        // Where the model says how much it mirrors - a [matl_envmap_mask], or the texture's
+        // alpha under a [matl_transmap] (most mod bodies) - Omsi.exe lays the sphere map
+        // over the paint by that share at every angle (shader.wgsl's environment stage):
+        // OMSI has no Fresnel term, so the share is the reflectance averaged over the angles
+        // the surface is seen at. A Fresnel reflectance with that average (Schlick's, whose
+        // hemispherical mean is f0 + (1 - f0) / 21) mirrors as much as the vanilla picture
+        // and rises towards grazing as a real coat does. (A plain 4 % coat left those
+        // bodies far fainter than in the vanilla picture.) A body with neither keeps the
+        // lacquer's 4 %: there Omsi.exe's lerp by the factor alone made every Golf a mirror.
+        let authored = masked || material.params.z > 0.5;
+        let coat = select(0.04, clamp((refl - 1.0 / 21.0) * 21.0 / 20.0, 0.04, 0.95), authored);
+        f0 = mix(vec3<f32>(coat), mix(albedo, vec3<f32>(1.0), 0.4) * refl, metal);
         rough = mix(coat_rough, 0.14, metal);
     } else if (!thin && material.specular.w > 0.0 && dot(material.specular.rgb, vec3<f32>(1.0)) > 0.05) {
         // the o3d material's Blinn-Phong power as GGX roughness
@@ -983,7 +1006,10 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         let photo_avg = textureSampleLevel(t_env, s_diffuse, vec2<f32>(0.5, 0.5), 12.0).rgb;
         let lum_avg = max(dot(photo_avg, vec3<f32>(0.2126, 0.7152, 0.0722)), 0.02);
         // (a tint, not a picture: an unbounded ratio drew the photo's trees as bands)
-        let ratio = clamp(photo / lum_avg, vec3<f32>(0.35), vec3<f32>(2.0));
+        // (the photo's own contrast, as the vanilla picture shows it, held only off black
+        // and off a blinding white; clamped to 0.35 .. 2 and laid on at two thirds, the
+        // windows mirrored a flat grey where the vanilla ones mirror trees and sky)
+        let ratio = clamp(photo / lum_avg, vec3<f32>(0.12), vec3<f32>(3.5));
         let band = 1.0 - smoothstep(0.25, 0.7, abs(r.z));
         // Only a smooth surface mirrors the photo; a satin one a quarter of its contrast.
         // (A car's bonnet is a handful of triangles: the photo's mip level by its footprint
@@ -997,7 +1023,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
         // trees stood as flat grey silhouettes on every pane in fog, in front of the real
         // (fogged) trees behind the glass - outlines of trees that are not there
         let clear_air = exp(-enh.fog.x * 150.0);
-        env = env * mix(vec3<f32>(1.0), ratio, band * 0.65 * mix(0.25, 1.0, sharpness) * outside_env * clear_air * enh.debug.z);
+        env = env * mix(vec3<f32>(1.0), ratio, band * mix(0.25, 1.0, sharpness) * outside_env * clear_air * enh.debug.z);
     }
     // what the SSAO darkens, it also keeps reflections out of
     let spec_occ = clamp(pow(nv + ao, exp2(-16.0 * rough - 1.0)) - 1.0 + ao, 0.0, 1.0);
@@ -1014,7 +1040,7 @@ fn shade_enhanced(in: FsIn, puddle_weight: ptr<function, vec2<f32>>, capture: bo
     if (glass) {
         // Transparent bus panes need a readable outside reflection from the driver's
         // viewpoint; opaque paint must never receive this boost.
-        refl_f = refl_f * 0.75 * (1.0 - 0.85 * own_pane);
+        refl_f = refl_f * (1.0 - 0.85 * own_pane);
     }
     var reflection = select(vec3<f32>(0.0), env * refl_f, reflects);
     // Enhanced+: traced instead (rough surfaces keep the probe, which is as good as a

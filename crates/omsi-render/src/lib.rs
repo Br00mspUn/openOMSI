@@ -7235,8 +7235,16 @@ impl Renderer {
         // (by night the eye adapts to the lamps' and headlights' light it sees, measured,
         // instead of a lit city's average: on a dark country road under a full moon it
         // takes to the moonlight, and the moon's shadows show)
+        // ... but never below the lit streets of the district the camera is in: the eye's
+        // adaptation to the dark takes minutes (the rods' some twenty), and among lamp-lit
+        // streets it stays with them while the view passes over a dark yard or a field -
+        // taken to the frame's darkness at once, every lamp's light in a lit village went
+        // white. The district's level is a lit street's (`ARTIFICIAL`) by how lit the
+        // place round the camera is (`city_glow`, its lamps within a few hundred metres);
+        // a country road with no lamps round it has none, and the moonlight still decides.
+        let district = atmosphere::ARTIFICIAL * st.input.city_glow.clamp(0.0, 1.0);
         let e_rest = match self.view_lamps {
-            Some(v) => (st.e_rest - st.e_artificial + v).max(1e-6),
+            Some(v) => (st.e_rest - st.e_artificial + v.max(district)).max(1e-6),
             None => st.e_rest,
         };
         let full = atmosphere::exposure_for(st.e_sun + e_rest).max(1e-6).ln();
