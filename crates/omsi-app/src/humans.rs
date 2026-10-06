@@ -251,7 +251,7 @@ struct Cabin {
     /// Where the money goes (+0x38) and where the change is taken from (+0x58), with the
     /// money point's spread.
     money_point: Option<Vec3>,
-    money_var: Option<(Vec3, [f32; 2])>,
+    money_var: Option<(Vec3, [f32; 2], Option<String>)>,
     change_point: Option<Vec3>,
 }
 
@@ -616,7 +616,7 @@ impl Cabin {
         let point_of = |i: i32| usize::try_from(i).ok().filter(|i| *i < graph.points.len());
         let sale = data.ticket_sales.last().map(|st| (point_of(st.path_point), Vec3::from(st.pos)));
         let money_point = data.money_points.last().map(|m| Vec3::from(m.pos));
-        let money_var = data.money_points.last().map(|m| (Vec3::from(m.pos), m.var));
+        let money_var = data.money_points.last().map(|m| (Vec3::from(m.pos), m.var, m.parent.clone()));
         let change_point = data.change_points.last().map(|m| Vec3::from(m.pos));
         Some(Cabin {
             data,
@@ -3079,10 +3079,14 @@ impl Humans {
                 (None, _) => self.duty.as_ref().map(|(trip, _, _)| trip.terminus.clone()),
                 _ => None,
             };
-            // On a duty the people its trip takes where they are going get on; in free drive nobody.
+            // On a duty the people its trip takes where they are going get on. In free drive
+            // the bus takes whom its destination display takes, as Omsi.exe's buses do
+            // (sub_61c33c): those whose line record lists the terminus shown, and those
+            // without one. (Nobody got on in free drive since 0.2.0, #1627: the bus stood at
+            // Grundorf's and Spandau's stops with its line set and its doors open.)
             let takes = match &self.duty {
                 Some((trip, next, done)) => Takes::Duty { trip: trip.clone(), next: *next, done: *done },
-                None => Takes::Nobody,
+                None => Takes::Terminus,
             };
             out.push(BusNow {
                 terminus,
@@ -3386,8 +3390,8 @@ impl Humans {
         self.remote_now = out;
     }
 
-    /// The player's duty this frame; None in free drive, where the people waiting leave the
-    /// player's bus alone. (Set after `stop_names`: the trip's stops are named by it.)
+    /// The player's duty this frame; None in free drive, where the bus takes whom its terminus
+    /// shown takes, as a timetable bus. (Set after `stop_names`: the trip's stops are named by it.)
     pub fn set_duty(&mut self, duty: Option<&crate::schedule::PlayerDuty>) {
         let Some(d) = duty else {
             self.duty = None;
@@ -4668,6 +4672,7 @@ impl Humans {
                 Vec3::from(pt.pos),
                 pt.var,
                 true,
+                pt.parent.as_deref(),
             );
         }
     }

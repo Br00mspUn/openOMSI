@@ -187,8 +187,11 @@ pub(crate) struct Player {
     pub(crate) take_change: bool,
     /// Keys whose `_toggle` this bus does as `_up`/`_down` (see `action`): turned up last.
     pub(crate) toggled_up: hashbrown::HashSet<String>,
-    /// H-pattern actions act as momentary gear buttons when this is enabled.
+    /// H-pattern actions act as momentary gear buttons when this is enabled - those of a
+    /// controller (an H shifter) only: a key stays in its gear as in OMSI (#1440).
     pub(crate) momentary_gears: bool,
+    /// The actions now firing come from the keyboard (`key`).
+    pub(crate) from_keyboard: bool,
     /// The settings' automated manual (#713): a gear lever's gates are worked by the
     /// engine speed (see [`Player::tick_auto_shift`]).
     pub(crate) auto_shift: bool,
@@ -747,7 +750,7 @@ impl Player {
         let suffix = if pressed { "" } else { "_off" };
         if let Some(gate) = crate::hpattern::resolve(&self.vehicle.ty.program, name) {
             if pressed { self.clutch_for_gate(&gate); }
-            if let Some(done) = crate::hpattern::action(&mut self.vehicle, &gate, pressed, self.momentary_gears) { return done; }
+            if let Some(done) = crate::hpattern::action(&mut self.vehicle, &gate, pressed, self.momentary_gears && !self.from_keyboard) { return done; }
         }
         // the ticket key of Inputs/keyboard.cfg (T): sell the ticket the passenger at the
         // desk asked for, on buses whose script has no ticket printer
@@ -1032,6 +1035,7 @@ impl Player {
                     .collect(),
             }
         };
+        self.from_keyboard = true;
         for name in names {
             if let Some(a) = omsi_sim::engine_action(&name) {
                 self.axes.set(a, pressed);
@@ -1039,6 +1043,7 @@ impl Player {
                 self.action(&name, pressed);
             }
         }
+        self.from_keyboard = false;
     }
 
     /// Start the whole bus by itself (Shift+U): everything a driver does to put it into

@@ -1485,6 +1485,7 @@ fn toggle_now(app: &App, id: &str) -> Option<bool> {
         "vr_desktop_mirror" => s.vr_desktop_mirror,
         "doppler" => s.doppler,
         "steering_linear" => s.steering_linear,
+        "pad_steer_linear" => s.pad_steer_linear,
         "old_steering" => s.old_steering,
         "red_steer_spd" => s.red_steer_spd,
         "momentary_gears" => s.momentary_gears,
@@ -1728,6 +1729,10 @@ fn toggle_set(app: &mut App, id: &str, on: bool) -> Option<(&'static str, String
         "steering_linear" => {
             app.settings.steering_linear = on;
             Some(("steering_linear", bit))
+        }
+        "pad_steer_linear" => {
+            app.settings.pad_steer_linear = on;
+            Some(("pad_steer_linear", bit))
         }
         "old_steering" => {
             app.settings.old_steering = on;

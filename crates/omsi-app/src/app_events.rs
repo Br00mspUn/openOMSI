@@ -755,7 +755,12 @@ impl ApplicationHandler for App {
                 // whole lock in 1.2 s), not the wheel's place itself (#200). The target is
                 // smoothed first (`pad_steer_smooth`)
                 let stick = analog.stick.then_some(analog.steering).flatten().zip(self.player.as_ref());
-                if let Some((x, p)) = stick {
+                if let (Some((x, _)), true) = (stick, self.settings.pad_steer_linear) {
+                    // (a wheel the system takes for a gamepad: its axis as it reads, as a
+                    // wheel's - the stick's curve and its less lock at speed made its first
+                    // degrees do nothing and the rest too much, #1653)
+                    analog.steering = Some(x);
+                } else if let Some((x, p)) = stick {
                     let now = p.vehicle.physics.controls.steering;
                     let kmh = p.vehicle.physics.velocity_kmh() as f32;
                     self.pad_kmh = crate::controllers::smooth_toward(self.pad_kmh, kmh, dt, 0.4);
@@ -1327,7 +1332,7 @@ impl ApplicationHandler for App {
                             log::info!("people: {} bus stops with timetable targets", t.len());
                         }
                     }
-                    // (whom the player's bus takes on: nobody waiting in free drive)
+                    // (whom the player's bus takes on: by the duty, or in free drive by its terminus)
                     h.set_duty(self.duty.as_ref());
                     // (the riders leave a bus the driver has walked away from)
                     h.driver_away = self.on_foot.as_ref().is_some_and(|f| {
@@ -1765,6 +1770,10 @@ impl ApplicationHandler for App {
                                 self.shift_clock(dir * rate as f64 * dt as f64);
                             }
                         } else {
+                            if self.clock_hold > 0.0 {
+                                self.clock_hold = 0.0;
+                                self.timetable_after_clock_jump();
+                            }
                             self.clock_hold = 0.0;
                         }
                     }

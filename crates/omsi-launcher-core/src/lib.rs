@@ -1866,6 +1866,7 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
     v["look_sens"] = json!(1.0);
     v["look_smoothing_ms"] = json!(0.0);
     v["pad_steer_smooth"] = json!(120.0);
+    v["pad_steer_linear"] = json!(false);
     v["steer_look_response"] = json!(0.25);
     v["head_idle"] = json!(0.0);
     v["head_idle_pace"] = json!(1.0);
@@ -1924,7 +1925,7 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
             "wheel_range" => v[&k] = json!(val.parse::<f64>().unwrap_or(900.0).clamp(90.0, 2880.0)),
             "wheel_lock" => v[&k] = json!(val.parse::<f64>().map(|x| if x < 45.0 { 0.0 } else { x.min(2880.0) }).unwrap_or(0.0)),
             "fov" => v[&k] = json!(val.parse::<f64>().map(|x| if x < 20.0 { 0.0 } else { x.min(120.0) }).unwrap_or(0.0)),
-            "camera_collision" | "right_stick_look" | "steer_look" | "head_tracking" | "discord_status" | "voice_chat" | "launcher_rest" => v[&k] = json!(b(val)),
+            "camera_collision" | "right_stick_look" | "pad_steer_linear" | "steer_look" | "head_tracking" | "discord_status" | "voice_chat" | "launcher_rest" => v[&k] = json!(b(val)),
             // (how much of the mip chain an LED panel is held at, 0..4; a file from before
             // it was a number says 1 or 0)
             "led_mips" => v[&k] = json!(val.trim().parse::<f64>().ok().filter(|x| x.is_finite()).map(|x| x.clamp(0.0, 4.0)).unwrap_or(1.3)),
@@ -2271,6 +2272,7 @@ pub fn settings_to_text(v: &Value, old: Option<&str>) -> String {
     // was in the file; other spellings of the keys just written go
     let mut text = text;
     text.push_str(&format!("right_stick_look={}\n", b("right_stick_look", true)));
+    text.push_str(&format!("pad_steer_linear={}\n", b("pad_steer_linear", false)));
     text.push_str(&format!("resolution={}\n", resolution_text(v.get("resolution").and_then(|x| x.as_str()).unwrap_or("auto"))));
     text.push_str(&format!("mirror_refresh={}\n", mirror_refresh(v.get("mirror_refresh").and_then(|x| x.as_str()).unwrap_or("full"))));
     text.push_str(&format!("look_sens={}\nlook_smoothing_ms={}\nsteer_look_angle={}\nsteer_look_response={}\nhead_idle={}\nhead_idle_pace={}\ntime_sync={}\nmetar_sync={}\nmetar_station={}\n", f("look_sens", 1.0).clamp(0.1, 2.0), f("look_smoothing_ms", 0.0).clamp(0.0, 200.0), f("steer_look_angle", 30.0).clamp(0.0, 60.0), f("steer_look_response", 0.25).clamp(0.05, 1.0), f("head_idle", 0.0).clamp(0.0, 1.0), f("head_idle_pace", 1.0).clamp(0.5, 2.0), b("time_sync", false), b("metar_sync", false), v.get("metar_station").and_then(|x| x.as_str()).unwrap_or("").chars().filter(|c| c.is_ascii_alphabetic()).take(4).collect::<String>().to_ascii_uppercase()));
@@ -2401,8 +2403,18 @@ pub struct SavedSituation {
 /// writes into `Saves` of the map's folder in the content folder, the newest first.
 pub fn saved_situations(map: &str) -> Vec<SavedSituation> {
     let mut out: Vec<SavedSituation> = last_situation(map).map(|f| SavedSituation { saved: modified_secs(&f), file: f, name: "Last situation".into() }).into_iter().collect();
-    if let (Some(dir), Some(c)) = (Path::new(&map.replace('\\', "/")).parent(), content_dir()) {
-        out.extend(save_slots(&c.join(dir).join("Saves")));
+    if let Some(dir) = Path::new(&map.replace('\\', "/")).parent() {
+        let c = content_dir();
+        if let Some(c) = &c {
+            out.extend(save_slots(&c.join(dir).join("Saves")));
+        }
+        // (and where the game saves when the content folder takes no file, #1673)
+        let fallback = data_dir().join("content");
+        if c.as_deref() != Some(fallback.as_path()) {
+            out.extend(save_slots(&fallback.join(dir).join("Saves")));
+            let last = usize::from(out.first().is_some_and(|f| f.name == "Last situation"));
+            out[last..].sort_by(|a, b| b.saved.cmp(&a.saved));
+        }
     }
     out
 }

@@ -232,6 +232,15 @@ fn hide_from_gallery(content: &Path) {
     }
 }
 
+/// `hide_from_gallery` for the content folder and the OMSI installation known now: right
+/// after the launcher's Setup saved a new one (it waited for the next start of the app, and
+/// the media scanner had put the installation's textures into the gallery by then, #1632).
+pub(crate) fn hide_content_from_gallery() {
+    if let Some(content) = crate::startup::content_dir() {
+        hide_from_gallery(&content);
+    }
+}
+
 fn is_writable(dir: &Path) -> bool {
     let probe = dir.join(".openomsi-write-test");
     let ok = std::fs::write(&probe, b"x").is_ok();

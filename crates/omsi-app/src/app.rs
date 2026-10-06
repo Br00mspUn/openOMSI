@@ -167,6 +167,9 @@ pub(crate) struct App {
     pub(crate) plugin_events: Vec<omsi_plugin::GameEvent>,
     /// Seconds Ctrl+Shift+Page Up/Down has been held (the clock runs faster the longer).
     pub(crate) clock_hold: f32,
+    /// How far the clock was set since the timetable was last put out again (s; see
+    /// `shift_clock`).
+    pub(crate) clock_jump: f64,
     /// A controller button held for looking left, right, up, down (`view_look_*`).
     pub(crate) pad_look: [bool; 4],
     /// A controller button held for the multiplayer bus radio (`voice_radio`).

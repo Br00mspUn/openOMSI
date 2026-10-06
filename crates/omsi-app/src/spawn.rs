@@ -446,6 +446,7 @@ pub(crate) fn spawn_player(
         take_change: false,
         toggled_up: Default::default(),
         momentary_gears: crate::settings::Settings::load().momentary_gears,
+        from_keyboard: false,
         auto_shift: crate::settings::Settings::load().auto_shift,
         auto_shift_wait: 0.0,
         auto_shift_idle: 0.0,

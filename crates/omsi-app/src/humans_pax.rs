@@ -476,8 +476,8 @@ pub(super) enum Takes {
     /// however the bus's depot file spells the terminus. `next` is the stop of the trip the
     /// duty is due at, `done` that the trip has reached its last stop.
     Duty { trip: Arc<DutyTrip>, next: usize, done: bool },
-    /// Nobody waiting: the player's bus in free drive (its riders get off as ever), another
-    /// player's bus (their game boards it), a bus the player left standing.
+    /// Nobody waiting: another player's bus (their game boards it), a bus the player left
+    /// standing (its riders get off as ever).
     Nobody,
 }
 
@@ -2261,13 +2261,13 @@ impl Humans {
                 return;
             }
             // the money on the desk (sub_7e8254)
-            let point = bn.cabin.money_var;
+            let point = bn.cabin.money_var.clone();
             let mut paid = value;
             if let Some(m) = self.money.as_mut() {
                 let coins = if self.exact_fare || auto { m.exact_coins_for(value) } else { m.omsi_coins_for(value) };
                 paid = m.value_of(&coins);
-                if let Some((pos, var)) = point {
-                    m.place(world, renderer, scene, &coins, pos, var, false);
+                if let Some((pos, var, parent)) = point {
+                    m.place(world, renderer, scene, &coins, pos, var, false, parent.as_deref());
                 }
             }
             self.paid = Some((paid, value));

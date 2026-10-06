@@ -7576,7 +7576,8 @@ impl World {
                                         .cloned()
                                         .unwrap_or_default();
                                     let alpha = text_alpha(o3d_mats, slot, overrides);
-                                    let key = scenery_text_key(tt, &text, alpha);
+                                    let slot_ov: Vec<&MaterialDef> = overrides.iter().filter(|o| !o.item && omsi_sim::vehicle::override_slot(o3d_mats, o) == Some(slot)).collect();
+                                    let key = text_material_key(scenery_text_key(tt, &text, alpha), &slot_ov);
                                     if let Some(e) = gpu.text_textures.get_mut(&key) {
                                         e.2 += 1;
                                         let mat = e.1;
@@ -7597,15 +7598,7 @@ impl World {
                                     let helper = if ot.sco.is_help_arrow { helper_text_image(tt, atlas.as_deref(), &text) } else { None };
                                     let image = helper.unwrap_or_else(|| scenery_text_image(tt, atlas, &text));
                                     let tex = gpu.add_image(renderer, scene, &image, true);
-                                    // (lit like the rest of the object: Omsi.exe only swaps
-                                    // the slot's texture, a sign does not shine at night)
-                                    let mat = renderer.add_material(
-                                        scene,
-                                        Some(tex),
-                                        alpha,
-                                        [1.0; 4],
-                                        false,
-                                    );
+                                    let mat = text_material(renderer, scene, tex, alpha, &slot_ov);
                                     let mat = gpu.material(renderer, scene, mat);
                                     gpu.text_textures.insert(key.clone(), (tex, mat, 1));
                                     tg.texts.push(key);
@@ -8264,7 +8257,8 @@ impl World {
                 };
                 let text = tt.variable.trim().parse::<usize>().ok().and_then(|k| strings.get(k)).cloned().unwrap_or_default();
                 let alpha = text_alpha(o3d_mats, slot, overrides);
-                let key = scenery_text_key(tt, &text, alpha);
+                let slot_ov: Vec<&MaterialDef> = overrides.iter().filter(|o| !o.item && omsi_sim::vehicle::override_slot(o3d_mats, o) == Some(slot)).collect();
+                let key = text_material_key(scenery_text_key(tt, &text, alpha), &slot_ov);
                 if let Some(e) = gpu.text_textures.get_mut(&key) {
                     e.2 += 1;
                     let mat = e.1;
@@ -8275,7 +8269,7 @@ impl World {
                 let atlas = self.fonts.lock().get(&tt.font, &|p| omsi_texture::decode_file(p).ok().map(|i| (i.width, i.height, i.rgba)));
                 let image = helper_text_image(tt, atlas.as_deref(), &text).unwrap_or_else(|| scenery_text_image(tt, atlas, &text));
                 let tex = gpu.add_image(renderer, scene, &image, true);
-                let mat = renderer.add_material(scene, Some(tex), alpha, [1.0; 4], false);
+                let mat = text_material(renderer, scene, tex, alpha, &slot_ov);
                 let mat = gpu.material(renderer, scene, mat);
                 gpu.text_textures.insert(key.clone(), (tex, mat, 1));
                 tg.texts.push(key);
@@ -8902,6 +8896,32 @@ impl World {
                     e.dropped += n;
                     over = over.saturating_sub(before - e.bytes);
                     shrunk.push(e.id);
+                }
+            }
+            // Still over: the vehicles' pictures give way as well, the biggest first, down
+            // to 1024 pixels a side. Counted but never made smaller, the timetable's fleet
+            // filled 5 GB of textures on a graphics chip with 0.5 GB of its own until the
+            // device was lost (#1463).
+            if over > 0 && shrunk.len() < 96 {
+                let mut own: Vec<(TextureId, u64)> = self
+                    .vehicle_textures
+                    .lock()
+                    .values()
+                    .map(|(t, _)| (*t, scene.texture_bytes_of(*t)))
+                    .collect();
+                own.sort_by(|a, b| b.1.cmp(&a.1));
+                for (id, before) in own {
+                    if over == 0 || shrunk.len() >= 96 {
+                        break;
+                    }
+                    let Some((w, h, levels)) = renderer.texture_levels(scene, id) else { continue };
+                    if w.min(h) / 2 < 1024 || levels < 2 {
+                        continue;
+                    }
+                    if renderer.drop_top_levels(scene, id, 1) {
+                        over = over.saturating_sub(before.saturating_sub(scene.texture_bytes_of(id)));
+                        shrunk.push(id);
+                    }
                 }
             }
         } else {
@@ -10125,10 +10145,31 @@ fn sync_materials(
 ) {
     for v in &mut render.variants {
         let item_has_freetex = v.free.iter().any(|f| f.item_only);
+        // the light maps switched on now (several `[matl_lightmap]`s, see `MultiLight`)
+        let mask = v.lights.as_ref().map(|l| {
+            let mut mask = 0u32;
+            for (k, (_, var)) in l.maps.iter().enumerate() {
+                let x = var.trim().parse::<f32>().ok().or_else(|| vehicle.var(var)).unwrap_or(0.0);
+                // (on at 0.5, as each map's texture stage is, 0x7fe51f: a variable a script
+                // dims through 0.1 lit the map at full)
+                if x >= 0.5 {
+                    mask |= 1 << k;
+                }
+            }
+            mask
+        });
+        // A free texture under several light maps (an on-board unit's display dimmed by
+        // two of them, #1650) is made with the maps switched on: the light maps' own
+        // materials knew nothing of the free texture and put the slot's default texture
+        // over the display, and a new picture came with the last map whatever its variable.
+        let lights = &mut v.lights;
         for f in &mut v.free {
             let name = vehicle.str_var(&f.var);
             let name = name.trim().to_string();
-            let key = name.to_ascii_lowercase();
+            let key = match mask {
+                Some(m) => format!("{}#{m}", name.to_ascii_lowercase()),
+                None => name.to_ascii_lowercase(),
+            };
             if f.current.as_deref() != Some(key.as_str()) {
                 f.current = Some(key.clone());
                 let pair = match f.cache.get(&key) {
@@ -10168,10 +10209,14 @@ fn sync_materials(
                         // texture from the mesh (with its addressing): a roller blind's idle
                         // "next" band then stays out of sight in its transparent border
                         // instead of covering the display as an untextured white plane.
-                        let spec = match found {
+                        let mut spec = match found {
                             Some(tex) => v.spec.with_freetex(f.key, tex, f.diffuse, f.item_only),
                             None => v.spec.clone(),
                         };
+                        if let (Some(m), Some(l)) = (mask, lights.as_mut()) {
+                            let tex = if m == 0 { None } else { l.composite(renderer, scene, m) };
+                            spec.set_lightmap(tex);
+                        }
                         let p = spec.build(renderer, scene, v.base_tex);
                         f.cache.insert(key, p);
                         p
@@ -10185,24 +10230,16 @@ fn sync_materials(
                 }
             }
         }
-        if let Some(l) = &mut v.lights {
-            let mut mask = 0u32;
-            for (k, (_, var)) in l.maps.iter().enumerate() {
-                let x = var.trim().parse::<f32>().ok().or_else(|| vehicle.var(var)).unwrap_or(0.0);
-                // (on at 0.5, as each map's texture stage is, 0x7fe51f: a variable a script
-                // dims through 0.1 lit the map at full)
-                if x >= 0.5 {
-                    mask |= 1 << k;
-                }
-            }
-            if mask != l.current {
+        if let (Some(l), Some(mask)) = (&mut v.lights, mask) {
+            // (with a free texture, the free texture's materials above carry the maps)
+            if mask != l.current && v.free.is_empty() {
                 l.current = mask;
-                let pair = if mask == 0 {
-                    l.plain
-                } else if let Some(p) = l.cache.get(&mask) {
+                let pair = if let Some(p) = l.cache.get(&mask) {
                     *p
                 } else {
-                    let tex = l.composite(renderer, scene, mask);
+                    // none on: no light map at all (the set's own materials have the last
+                    // map, lit whatever its variable said)
+                    let tex = if mask == 0 { None } else { l.composite(renderer, scene, mask) };
                     let mut spec = v.spec.clone();
                     spec.set_lightmap(tex);
                     let p = spec.build(renderer, scene, v.base_tex);
@@ -10675,6 +10712,26 @@ fn text_alpha(materials: &[omsi_o3d::Material], slot: usize, overrides: &[Materi
 
 /// Placement is part of the picture: otherwise a centred sign can lend its cached
 /// texture to a left-aligned one showing the same words.
+/// A text texture's material, addressed as its slot is: `[matl_texadress_border]` (and
+/// clamp, mirror) on the slot carry over to the text drawn into it. Made with the plain
+/// wrap, Road-Hog123's bus stop flags - a second mesh whose UVs run past the text texture
+/// into its border - showed the stop name repeated across the whole flag (#1645).
+fn text_material(renderer: &Renderer, scene: &mut Scene, tex: TextureId, alpha: AlphaMode, slot_ov: &[&MaterialDef]) -> MaterialId {
+    let extra = material_extra(slot_ov, None, None, [0.0; 4]);
+    let plain = MaterialExtra::default();
+    let border_only = MaterialExtra { border: extra.border, ..plain.clone() };
+    renderer.address_next.set(tex_addressing(slot_ov.iter().copied()));
+    // (lit like the rest of the object: Omsi.exe only swaps the slot's texture, a sign
+    // does not shine at night)
+    renderer.add_material_extra(scene, Some(tex), alpha, [1.0; 4], false, None, None, None, None, [0.0; 3], border_only)
+}
+
+/// The key of a text texture material: the text's own key and how its slot addresses it.
+fn text_material_key(base: String, slot_ov: &[&MaterialDef]) -> String {
+    let border = material_extra(slot_ov, None, None, [0.0; 4]).border;
+    format!("{base}|{:?}|{border:?}", tex_addressing(slot_ov.iter().copied()))
+}
+
 fn scenery_text_key(tt: &omsi_model::TextTexture, text: &str, alpha: AlphaMode) -> String {
     format!(
         "{}|{}|{}x{}|{}|{:?}|{:?}|{}|{}",
@@ -10715,39 +10772,57 @@ fn scenery_text_image(
 /// centred, and narrowed to the texture's width. None when the font draws every letter:
 /// that text keeps OMSI's own look.
 fn helper_text_image(tt: &omsi_model::TextTexture, atlas: Option<&omsi_content::font::FontAtlas>, text: &str) -> Option<Image> {
-    let drawable = |c: char| c.is_whitespace() || atlas.is_some_and(|a| a.font.glyph(c).is_some());
+    let drawable = |c: char| c == '@' || c.is_whitespace() || atlas.is_some_and(|a| a.font.glyph(c).is_some());
     if text.trim().is_empty() || text.chars().all(drawable) {
         return None;
     }
     static FONTS: std::sync::OnceLock<omsi_ui::Fonts> = std::sync::OnceLock::new();
     let fonts = FONTS.get_or_init(omsi_ui::Fonts::new);
     let (w, h) = (tt.width.max(1) as u32, tt.height.max(1) as u32);
+    // `@` starts a new line, as in OMSI's own text textures (#1553, #1482): drawn as a
+    // letter, a Polish stop's "622@Sosnowiec@Urząd@Miasta" stood in one line with its
+    // at signs, and a Chinese one was squeezed into a sliver. (A text starting with `@`
+    // keeps its empty first line.)
+    let text = text.trim_end();
+    let lines: Vec<&str> = text.split('@').map(str::trim).collect();
+    let n = lines.len().max(1) as f32;
     // (the .oft's line height holds its capitals and the gap below them; Roboto's capitals
     // are 0.7 of its size, so nearly the line height gives letters of the same height)
     let line = atlas.map(|a| a.font.height.max(8) as f32).unwrap_or(h as f32 * 0.2);
-    let px = (line * 0.95).min(h as f32);
-    let bmp = fonts.render(text.trim(), px, omsi_ui::Weight::Medium);
-    // too long for the texture: narrowed to fit (columns sampled), the height kept
-    let scale = (w as f32 / bmp.w as f32).min(1.0);
-    let out_w = ((bmp.w as f32 * scale).floor() as u32).max(1);
-    let x0 = (w - out_w.min(w)) / 2;
-    let y0 = (h as i32 - bmp.h as i32) / 2;
+    // the lines share the texture's height when they would not fit at the font's own
+    let pitch = line.min(h as f32 / n);
+    let px = pitch * 0.95;
+    let top = (h as f32 - pitch * n) * 0.5;
     let rgb = if tt.full_color { [255u8; 3] } else { [tt.color[0] as u8, tt.color[1] as u8, tt.color[2] as u8] };
     let mut rgba = vec![0u8; (w * h * 4) as usize];
-    for y in 0..bmp.h as i32 {
-        let dy = y0 + y;
-        if dy < 0 || dy >= h as i32 {
+    for (k, l) in lines.iter().enumerate() {
+        if l.is_empty() {
             continue;
         }
-        for x in 0..out_w.min(w) {
-            let sx = ((x as f32 + 0.5) / scale) as u32;
-            let a = bmp.alpha[(y as u32 * bmp.w + sx.min(bmp.w - 1)) as usize];
-            if a == 0 {
+        let bmp = fonts.render(l, px, omsi_ui::Weight::Medium);
+        if bmp.w == 0 || bmp.h == 0 {
+            continue;
+        }
+        // too long for the texture: narrowed to fit (columns sampled), the height kept
+        let scale = (w as f32 / bmp.w as f32).min(1.0);
+        let out_w = ((bmp.w as f32 * scale).floor() as u32).max(1);
+        let x0 = (w - out_w.min(w)) / 2;
+        let y0 = (top + pitch * k as f32 + (pitch - bmp.h as f32) * 0.5).round() as i32;
+        for y in 0..bmp.h as i32 {
+            let dy = y0 + y;
+            if dy < 0 || dy >= h as i32 {
                 continue;
             }
-            let i = ((dy as u32 * w + x0 + x) * 4) as usize;
-            rgba[i..i + 3].copy_from_slice(&rgb);
-            rgba[i + 3] = a;
+            for x in 0..out_w.min(w) {
+                let sx = ((x as f32 + 0.5) / scale) as u32;
+                let a = bmp.alpha[(y as u32 * bmp.w + sx.min(bmp.w - 1)) as usize];
+                if a == 0 {
+                    continue;
+                }
+                let i = ((dy as u32 * w + x0 + x) * 4) as usize;
+                rgba[i..i + 3].copy_from_slice(&rgb);
+                rgba[i + 3] = rgba[i + 3].max(a);
+            }
         }
     }
     Some(Image { width: w, height: h, rgba, has_alpha: true })
@@ -12872,7 +12947,8 @@ impl World {
                             maps,
                             plain: (base, item),
                             cache: HashMap::new(),
-                            current: 0,
+                            // (none yet: the first frame makes the materials of what is on)
+                            current: u32::MAX,
                             shared: self.vehicle_textures.clone(),
                             held: Vec::new(),
                         })
@@ -13229,6 +13305,21 @@ pub(crate) fn resolve_scenery_freetex_name<'a>(
 
 #[cfg(test)]
 mod tests {
+    /// A route helper's text in letters its font lacks breaks its lines at `@` as OMSI's
+    /// own text textures do (#1553): two bands of letters, one above the other, no `@`.
+    #[test]
+    fn helper_text_breaks_lines_at_the_at_sign() {
+        let tt = omsi_model::TextTexture { width: 256, height: 64, color: [255.0; 3], ..Default::default() };
+        let rows = |text: &str| -> Vec<bool> {
+            let img = helper_text_image(&tt, None, text).expect("drawn with the interface font");
+            (0..64).map(|y| (0..256).any(|x| img.rgba[(y * 256 + x) * 4 + 3] > 0)).collect()
+        };
+        let bands = |r: &[bool]| r.windows(2).filter(|w| !w[0] && w[1]).count() + usize::from(r[0]);
+        assert_eq!(bands(&rows("Urząd")), 1);
+        assert_eq!(bands(&rows("622@Urząd")), 2);
+        assert_eq!(bands(&rows("622@Sosnowiec@Urząd")), 3);
+    }
+
     use super::*;
 
     #[test]

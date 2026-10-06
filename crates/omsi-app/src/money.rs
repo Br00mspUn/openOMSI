@@ -14,8 +14,9 @@ pub struct Money {
     pub currency: Option<Currency>,
     dir: PathBuf,
     meshes: HashMap<usize, (MeshId, Vec<MaterialId>)>,
-    /// (instance, place in the bus frame, coin index, is change)
-    placed: Vec<(usize, Mat4, usize, bool)>,
+    /// (instance, place in the bus frame - or in its parent mesh's -, coin index, is
+    /// change, the `[mesh_ident]` of the mesh it lies on)
+    placed: Vec<(usize, Mat4, usize, bool, Option<String>)>,
     hidden: Vec<usize>,
     rng: u64,
 }
@@ -164,12 +165,16 @@ impl Money {
     /// point's height, somewhere in the variation rectangle and turned at random about the
     /// vertical. Nothing is stacked: the coins had been raised 3 mm per coin already lying
     /// there, so a driver clicking change built an endless tower on the tray.
-    pub fn place(&mut self, world: &World, renderer: &Renderer, scene: &mut Scene, coins: &[usize], point: Vec3, var: [f32; 2], change: bool) {
+    /// A point of `[ticket_sale_money_point_2]` / `[ticket_sale_change_point_2]` names the
+    /// mesh (`parent`, its `[mesh_ident]`) the money lies on: it moves with that mesh - the
+    /// change tray in a cash desk swinging with the driver's door (#1468).
+    #[allow(clippy::too_many_arguments)]
+    pub fn place(&mut self, world: &World, renderer: &Renderer, scene: &mut Scene, coins: &[usize], point: Vec3, var: [f32; 2], change: bool, parent: Option<&str>) {
         for coin in coins {
             let Some((id, mats)) = self.mesh(world, renderer, scene, *coin) else { continue };
             let local = Self::coin_place(point, var, [self.rand_f(), self.rand_f(), self.rand_f()]);
             let inst = renderer.add_instance(scene, id, DVec3::ZERO, Mat4::IDENTITY, mats);
-            self.placed.push((inst, local, *coin, change));
+            self.placed.push((inst, local, *coin, change, parent.map(str::to_string)));
         }
     }
 
@@ -197,8 +202,18 @@ impl Money {
             renderer.set_params(scene, inst, &[], false, &[]);
         }
         let rot = bus.body_rotation();
-        for (inst, local, _, _) in &self.placed {
-            renderer.set_transform(scene, *inst, bus.position, rot * *local);
+        let mesh_of = |name: &str| -> Mat4 {
+            let defs = &bus.ty.model.meshes;
+            bus.ty
+                .meshes
+                .iter()
+                .rposition(|m| defs.get(m.def_index).and_then(|d| d.mesh_ident.as_deref()).is_some_and(|n| n.trim().eq_ignore_ascii_case(name.trim())))
+                .and_then(|i| bus.mesh_transforms.get(i).copied())
+                .unwrap_or(Mat4::IDENTITY)
+        };
+        for (inst, local, _, _, parent) in &self.placed {
+            let on = parent.as_deref().map(mesh_of).unwrap_or(Mat4::IDENTITY);
+            renderer.set_transform(scene, *inst, bus.position, rot * on * *local);
         }
     }
 }

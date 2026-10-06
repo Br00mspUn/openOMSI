@@ -322,8 +322,10 @@ Who gets on the player's bus: on a duty (a line and tour, or a trip) with a dest
 the display, the people waiting for a stop the trip calls at later - also where the bus's
 depot file (`.hof`) names the terminus otherwise than the map's timetable does - and those
 whose line record lists the terminus shown; everybody gets off at the trip's last stop. In
-free drive, or with no destination set (or a "not in service" one), nobody waiting gets on;
-the riders aboard still get off at their stops.
+free drive the bus takes whom its destination display takes, as a timetable bus: those
+whose line record lists the terminus shown, and those without one. With no destination set
+(or a "not in service" one) nobody waiting gets on; the riders aboard still get off at their
+stops.
 `exact_fare=0` makes them overpay so that change is due. Rain and snow stay outside the
 player's bus (its `[boundingbox]`), and heavy rain darkens the day enough for the saloon
 lights to matter.

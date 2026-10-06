@@ -683,7 +683,11 @@ fn place_on(att: &SplineAttachment, spline: &MapSpline, origin: DVec2, index: Op
     // past the end stands at the end
     let far = if backwards { spline.prev_id } else { spline.next_id };
     let chain_ends = index.map(|ix| !ix.splines.contains_key(&far)).unwrap_or(far == 0);
-    let end = len + if chain_ends { CHAIN_END_TOLERANCE } else { 1e-6 };
+    // (only an object on its own - a buffer stop - stands at the end from a little past it:
+    // a row's next post due 0.75 m past a dead end was put at the end, in the carriageway
+    // of Thüringer Wald's road to Haselbach, #1693)
+    let single = interval <= 0.0 || range < interval;
+    let end = len + if chain_ends && single { CHAIN_END_TOLERANCE } else { 1e-6 };
     let mut out = Vec::new();
     loop {
         if interval > 0.0 && j as f64 * interval > range + 1e-6 {
@@ -1649,6 +1653,22 @@ mod tests {
         ring.splines.insert(2, IndexedSpline { length: 20.0, map_chain_offset: None, prev: 1, next: 3 });
         ring.splines.insert(3, IndexedSpline { length: 30.0, map_chain_offset: None, prev: 2, next: 1 });
         assert_eq!(chain_offset(&ring, 1), 50.0);
+    }
+
+    /// A row's post due 0.75 m past a dead end is not put at the end (Thüringer Wald's
+    /// fence post in the carriageway, #1693); a single object a little past it still is.
+    #[test]
+    fn a_row_stops_at_a_dead_end_a_single_object_stands_there() {
+        let mut ix = MapIndex::default();
+        ix.splines.insert(5, IndexedSpline { length: 12.0, map_chain_offset: Some(91.01), prev: 0, next: 0 });
+        let end = MapSpline { map_chain_offset: Some(91.01), ..spline(5, 0, 0, 12.0) };
+        // posts every 3 m from 100.76 m of the chain over 7 m: 100.76 (9.75 m along) fits,
+        // 103.76 is 0.75 m past the chain's end at 103.01
+        let posts = row_objects(&row(3.0, 7.0, 100.7586, None), &end, DVec2::ZERO, Some(&ix));
+        assert_eq!(posts.len(), 1, "{:?}", posts.iter().map(|o| o.pose.pos.y).collect::<Vec<_>>());
+        let stop = row_objects(&row(10.0, 0.0, 103.5, None), &end, DVec2::ZERO, Some(&ix));
+        assert_eq!(stop.len(), 1);
+        assert!((stop[0].pose.pos.y - 12.0).abs() < 1e-6, "{:?}", stop[0].pose.pos);
     }
 
     #[test]
