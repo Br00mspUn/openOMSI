@@ -5285,8 +5285,18 @@ impl Traffic {
         for c in self.lights.iter_mut() {
             c.request.iter_mut().for_each(|r| *r = false);
         }
+        // How far ahead a vehicle asks for a light or a crossing: as far as the farthest
+        // `[approachdist]` of the map's lights says (OMSI takes them up to 1000 m), at least
+        // the 160 m it always was. Held to 160, a railway crossing set to ring 300 m before
+        // the train never rang (#1421).
+        let reach = self
+            .lights
+            .iter()
+            .flat_map(|c| c.approach.iter().flatten().copied())
+            .fold(160.0f32, f32::max)
+            .min(1200.0);
         for c in &self.cars {
-            for (l, d) in self.way_lanes(&c.state, 160.0) {
+            for (l, d) in self.way_lanes(&c.state, reach) {
                 if let Some((ci, li)) = self.net.lanes[l].traffic_light {
                     if let Some(ctl) = self.lights.get_mut(ci) {
                         let gap = d - c.state.front;
@@ -5328,7 +5338,7 @@ impl Traffic {
             }
         }
         for (pos, heading) in askers {
-            for (l, d) in self.lanes_ahead_of(pos, heading, 160.0) {
+            for (l, d) in self.lanes_ahead_of(pos, heading, reach) {
                 if let Some((ci, li)) = self.net.lanes[l].traffic_light {
                     if let Some(ctl) = self.lights.get_mut(ci) {
                         if d <= ctl.approach_dist(li) {
@@ -6893,7 +6903,7 @@ impl Traffic {
         let mut out = vec![(lane, 0.0f32)];
         let mut open = vec![(lane, self.net.lanes[lane].length() - s)];
         while let Some((l, to_end)) = open.pop() {
-            if to_end > reach || out.len() > 64 {
+            if to_end > reach || out.len() > 256 {
                 continue;
             }
             let end_heading = self.net.lanes[l].headings.last().copied().unwrap_or(0.0);

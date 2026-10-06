@@ -185,6 +185,8 @@ pub(crate) fn run_offscreen(
         h.time_of_day = parse_time(&args.time);
         h.stop_targets = schedule.as_ref().map(|s| s.stop_targets());
         h.stop_names = schedule.as_ref().map(|s| s.stop_names());
+        // (the trips due at the stops soon, as in the window: #1415)
+        h.due_dests = schedule.as_ref().map(|s| s.due_destinations(parse_time(&args.time)));
         h.populate(&world, &renderer, &mut scene, center);
         if let Some(p) = player.as_ref() {
             if args.riders > 0 {

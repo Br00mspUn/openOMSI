@@ -3707,6 +3707,17 @@ impl TrailerPart {
         self.position = position;
     }
 
+    /// `set_pose` for a part another game drives (LAN), which sends where the part is and
+    /// its heading but not how it leans: tilted so that its front coupling meets the leading
+    /// part's at `coupling` (`coupling_point`). Drawn level, an articulated bus's rear
+    /// section climbing a slope sank into the road in the other players' games (#1702).
+    pub fn set_remote_pose(&mut self, position: DVec3, heading: f64, coupling: DVec3) {
+        let ahead = self.coupling_front.y.abs().max(0.5) as f64;
+        let rise = coupling.z - (position.z + self.coupling_front.z as f64);
+        self.pitch = (rise.atan2(ahead).to_degrees() as f32).clamp(-20.0, 20.0);
+        self.set_pose(position, heading);
+    }
+
     /// Forget where this part was: the next step puts it straight behind the leading part
     /// (after the vehicle was moved somewhere else).
     pub fn realign(&mut self) {

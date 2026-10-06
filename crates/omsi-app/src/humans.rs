@@ -1614,6 +1614,12 @@ pub struct Humans {
     /// wants one of them and boards only a bus showing one of its termini; at a stop no trip
     /// goes on from, anybody takes the first bus (0x61c33c).
     pub stop_targets: Option<HashMap<i64, Vec<(String, HashSet<String>)>>>,
+    /// Per bus stop, the destinations of the trips due there soon (`Schedule::
+    /// due_destinations`, made anew every game minute): the people turning up draw theirs
+    /// from these alone. None: from all of the stop's (no timetable).
+    pub due_dests: Option<HashMap<i64, HashSet<String>>>,
+    /// Game time `due_dests` was made at.
+    pub due_at: f64,
     /// The timetable's name of each stop object (`Schedule::stop_names`), the names the
     /// targets above are made of.
     pub stop_names: Option<HashMap<i64, String>>,
@@ -1856,6 +1862,8 @@ impl Humans {
             avatar_only: false,
             driver_away: false,
             stop_targets: None,
+            due_dests: None,
+            due_at: f64::NEG_INFINITY,
             stop_names: None,
             duty: None,
             stamped: Vec::new(),
@@ -2643,7 +2651,8 @@ impl Humans {
                 let mean = (s.enter_max + s.enter_min) / 2.0;
                 // (0x61bf94: with a timetable, times the share of the trips due there - at a
                 // stop no trip leaves from, nobody)
-                let served = if self.stop_targets.is_some() && s.lines.is_empty() { 0.0 } else { 1.0 };
+                let none_due = self.due_dests.as_ref().is_some_and(|d| d.get(&id).is_none_or(|set| set.is_empty()));
+                let served = if self.stop_targets.is_some() && (s.lines.is_empty() || none_due) { 0.0 } else { 1.0 };
                 let w = (self.density.max(0.0) * mean * s.factor * served).round().max(0.0) as usize;
                 forced.unwrap_or(w).min(s.spots.len())
             };
@@ -2678,7 +2687,23 @@ impl Humans {
         let mut r = self.rand_f() as f32;
         let mut dest: Option<String> = None;
         let Some(stop) = self.stops.get(&id) else { return (None, None) };
-        for (n, w) in &stop.dests {
+        // (of the trips due here soon, `due_dests`; their weights made a whole again)
+        let due = self.due_dests.as_ref().map(|d| d.get(&id));
+        let dests: Vec<(&String, f32)> = match due {
+            Some(set) => {
+                let kept: Vec<(&String, f32)> = stop.dests.iter().filter(|(n, _)| set.is_some_and(|s| s.contains(n.trim()))).map(|(n, w)| (n, *w)).collect();
+                let total: f32 = kept.iter().map(|k| k.1).sum();
+                if total <= 0.0 {
+                    return (None, None);
+                }
+                // (the share that drew no destination stays the stop's own: those people go
+                // nowhere by bus, as before)
+                let all: f32 = stop.dests.iter().map(|d| d.1).sum();
+                kept.into_iter().map(|(n, w)| (n, w / total * all)).collect()
+            }
+            None => stop.dests.iter().map(|(n, w)| (n, *w)).collect(),
+        };
+        for (n, w) in dests {
             if r <= 0.0 {
                 break;
             }

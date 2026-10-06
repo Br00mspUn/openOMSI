@@ -325,7 +325,9 @@ impl App {
                 // plain Left/Right are OMSI's view_interiorcam_minus/plus, except when a wheel
                 // steers: then the arrows glance (held, the head turns) and only Ctrl+Left/Right
                 // switch the interior camera, below. (Where the arrows drive, `ours` skips this.)
+                // (unless the settings ask for the cameras on them all the same, #1345)
                 let plain_arrow = matches!(code, KeyCode::ArrowLeft | KeyCode::ArrowRight) && !ctrl
+                    && !self.settings.arrows_switch_cams
                     && self.controllers.as_ref().is_some_and(|c| c.wheel_steering());
                 // (the keys that fly the camera are the camera's, unmodified: S, OMSI's
                 // view_toggle_viewpoint, threw the free camera back to the driver's view,
@@ -418,8 +420,11 @@ impl App {
                         self.set_info_bar(!self.info_bar);
                         return;
                     }
-                    // OMSI's `view_set_schedule` (Insert: 210 / 1, the key's state every frame)
-                    KeyCode::Insert if !shift_now && !ctrl => {
+                    // OMSI's `view_set_schedule` (Insert: 210 / 1, the key's state every frame),
+                    // only where keyboard.cfg has no entry for it: an entry is the player's
+                    // binding, handled above, and one with scan code 0 is unbound - Insert opened
+                    // the timetable all the same (#1245)
+                    KeyCode::Insert if !shift_now && !ctrl && !self.game_keys.iter().any(|b| b.action.eq_ignore_ascii_case("view_set_schedule")) => {
                         self.timetable = !self.timetable;
                         return;
                     }
@@ -2934,8 +2939,7 @@ impl App {
             }
             // the route ends here: free drive, as the list of lines has it
             "endduty" => {
-                self.duty = None;
-                self.service_msg = Some(("Free drive: no duty".into(), 4.0));
+                crate::game_lists::end_duty(self);
                 self.close_game_menu();
             }
             "tobus" => {

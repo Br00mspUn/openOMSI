@@ -328,6 +328,10 @@ pub struct ScriptedObject {
     /// `[htmltexture]` pages shown on the object: (script texture index, texture). The
     /// pages themselves are `inst.html_textures`.
     pub htmls: Vec<(usize, TextureId)>,
+    /// Per instance, its slots faded by `[alphascale]` variables (`LampSlots::alpha`; empty
+    /// when none is), and the alphas last given.
+    pub alpha_slots: Vec<LampSlots>,
+    pub alpha_last: Vec<Vec<f32>>,
 }
 
 /// Where a ray lands on a page (`[htmltexture]`) of a scenery object: see
@@ -5131,6 +5135,8 @@ impl World {
                         texts: Vec::new(),
                         arrivals: false,
                         htmls: Vec::new(),
+                        alpha_slots: Vec::new(),
+                        alpha_last: Vec::new(),
                     });
                 }
                 // An editor-only object still lays its paths out: OMSI's invisible
@@ -7866,6 +7872,35 @@ impl World {
                                 }
                             }
                         }
+                        // `[alphascale]` on the object's own slots (#1299: only the traffic
+                        // lights' were read, a bus stop sign faded by its script stood there
+                        // whole): as its script's {init} leaves the variables, and then
+                        // every frame for a script that changes them
+                        let alpha_slots: Vec<LampSlots> = if lamp.is_none() {
+                            all_instances
+                                .iter()
+                                .take(mesh_instances)
+                                .enumerate()
+                                .map(|(mi, &id)| {
+                                    let count = scene.instances.get(id).map(|i| i.materials.len()).unwrap_or(0);
+                                    let mut l = ot.meshes.get(mi).map(|(_, o3d_mats, overrides)| LampSlots::of_mesh(o3d_mats, overrides, count)).unwrap_or_default();
+                                    l.light.clear();
+                                    l
+                                })
+                                .collect()
+                        } else {
+                            Vec::new()
+                        };
+                        let faded = alpha_slots.iter().any(|l| !l.alpha.is_empty());
+                        let mut alpha_last = Vec::new();
+                        if faded {
+                            for (l, &id) in alpha_slots.iter().zip(&all_instances) {
+                                let (a, _) = l.values(&|v| v.trim().parse::<f32>().ok().or_else(|| inst.var(v)));
+                                let visible = scene.instances[id].visible;
+                                renderer.set_params(scene, id, &a, visible, &[]);
+                                alpha_last.push(a);
+                            }
+                        }
                         if inst.is_dynamic()
                             || !object_variants.is_empty()
                             || ot.sco.sound.is_some()
@@ -7898,6 +7933,8 @@ impl World {
                                 texts: script_texts,
                                 arrivals,
                                 htmls: html_pages,
+                                alpha_slots: if faded { alpha_slots } else { Vec::new() },
+                                alpha_last,
                             });
                         }
                     }
@@ -9851,11 +9888,25 @@ impl World {
                     .collect();
                 texture_updates.push((o.ty.clone(), selection, o.instances.clone(), switches));
             }
-            for ((inst, xf), &visible) in o.instances.iter().zip(&o.inst.mesh_transforms).zip(&o.inst.mesh_visible) {
+            for (k, ((inst, xf), &visible)) in o.instances.iter().zip(&o.inst.mesh_transforms).zip(&o.inst.mesh_visible).enumerate() {
                 renderer.set_transform(scene, *inst, o.pos, o.xf * *xf);
+                // (the slots its `[alphascale]` variables fade, see `ScriptedObject::alpha_slots`)
+                let alpha = o.alpha_slots.get(k).filter(|l| !l.alpha.is_empty()).map(|l| l.values(&|v| v.trim().parse::<f32>().ok().or_else(|| o.inst.var(v))).0);
                 let p = &mut scene.instances[*inst];
-                if p.visible != visible {
-                    renderer.set_params(scene, *inst, &[], visible, &[]);
+                match alpha {
+                    Some(a) => {
+                        if p.visible != visible || o.alpha_last.get(k) != Some(&a) {
+                            renderer.set_params(scene, *inst, &a, visible, &[]);
+                            if let Some(last) = o.alpha_last.get_mut(k) {
+                                *last = a;
+                            }
+                        }
+                    }
+                    None => {
+                        if p.visible != visible {
+                            renderer.set_params(scene, *inst, &[], visible, &[]);
+                        }
+                    }
                 }
             }
             updated += 1;
@@ -10790,7 +10841,14 @@ fn helper_text_image(tt: &omsi_model::TextTexture, atlas: Option<&omsi_content::
     // are 0.7 of its size, so nearly the line height gives letters of the same height)
     let line = atlas.map(|a| a.font.height.max(8) as f32).unwrap_or(h as f32 * 0.2);
     // the lines share the texture's height when they would not fit at the font's own
-    let pitch = line.min(h as f32 / n);
+    let mut pitch = line.min(h as f32 / n);
+    // A line too long for the texture is made smaller first, letters and all, down to two
+    // thirds of the height, and only what is still too wide is narrowed: narrowed alone, a
+    // long Polish street name came out in thin sticks nobody could read (#1696, #1365).
+    let widest = lines.iter().filter(|l| !l.is_empty()).map(|l| fonts.render(l, pitch * 0.95, omsi_ui::Weight::Medium).w).max().unwrap_or(0);
+    if widest > w {
+        pitch *= (w as f32 / widest as f32).max(2.0 / 3.0);
+    }
     let px = pitch * 0.95;
     let top = (h as f32 - pitch * n) * 0.5;
     let rgb = if tt.full_color { [255u8; 3] } else { [tt.color[0] as u8, tt.color[1] as u8, tt.color[2] as u8] };
@@ -13307,6 +13365,17 @@ pub(crate) fn resolve_scenery_freetex_name<'a>(
 mod tests {
     /// A route helper's text in letters its font lacks breaks its lines at `@` as OMSI's
     /// own text textures do (#1553): two bands of letters, one above the other, no `@`.
+    #[test]
+    fn a_long_helper_text_is_made_smaller_before_it_is_narrowed() {
+        let tt = omsi_model::TextTexture { width: 64, height: 128, color: [255.0; 3], ..Default::default() };
+        let ink_rows = |text: &str| -> usize {
+            let img = helper_text_image(&tt, None, text).expect("drawn with the interface font");
+            (0..128).filter(|&y| (0..64).any(|x| img.rgba[(y * 64 + x) * 4 + 3] > 0)).count()
+        };
+        // (#1696: the long name keeps letters of a readable shape: smaller, not only thinner)
+        assert!(ink_rows("Łąka Łąka Łąka Łąka Łąka") < ink_rows("Łąka"));
+    }
+
     #[test]
     fn helper_text_breaks_lines_at_the_at_sign() {
         let tt = omsi_model::TextTexture { width: 256, height: 64, color: [255.0; 3], ..Default::default() };

@@ -266,6 +266,9 @@ fn entry_window(slots: &[Slot], first: usize, entry: usize, index: &[usize], len
     Some((at.saturating_sub(2), (at + 3).min(len)))
 }
 
+/// How long before a trip is due at a stop the people for it turn up there (s).
+pub const PAX_SPAWN_AHEAD: f64 = 15.0 * 60.0;
+
 /// How far from a route a bus stop may stand when the route is only a part of the trip (a
 /// stop of the missing part would otherwise be put on the nearest point of this one).
 const STOP_REACH: f64 = 25.0;
@@ -1805,6 +1808,52 @@ impl Schedule {
     /// go on to from there, each with the termini of the trips that do. A passenger waiting
     /// at the stop wants one of these targets and boards a bus whose terminus is among its
     /// termini (0x61c33c); the names compare exactly.
+    /// Per bus stop, the destinations of the trips due there within the next
+    /// [`PAX_SPAWN_AHEAD`] (today's departures, the stations they stop at after it): what
+    /// the people turning up there now draw their destination from. Omsi.exe spawns
+    /// people for a trip up to a quarter of an hour before it is due at their stop (pionsix's
+    /// tests, #1436); the destinations of every trip of the map, whatever its hour or day,
+    /// had people waiting at 2 a.m. for the six o'clock bus and at a school's stop for hours
+    /// before its run (#1415). Which buses they then take is still the stop's line records
+    /// (`stop_targets`), from every trip.
+    pub fn due_destinations(&self, day_time: f64) -> HashMap<i64, HashSet<String>> {
+        let names = self.stop_names();
+        let name_of = |id: i64| names.get(&id).cloned().unwrap_or_else(|| id.to_string());
+        let tod = day_time - self.day_base;
+        let longest = self.times.iter().flatten().map(|t| t.duration).fold(0.0, f64::max);
+        let from = self.departures.partition_point(|d| d.time < tod - longest - 60.0);
+        let mut out: HashMap<i64, HashSet<String>> = HashMap::new();
+        for i in from..self.departures.len() {
+            let d = &self.departures[i];
+            if d.time > tod + PAX_SPAWN_AHEAD {
+                break;
+            }
+            if !self.runs(i) {
+                continue;
+            }
+            let tt = self.times_of(i);
+            let stations = trip_stations(&self.data.trips[d.trip]);
+            for (k, sid) in stations.iter().enumerate() {
+                let due = d.time + tt.stations.get(k).map(|s| s.0).unwrap_or(0.0);
+                if !(tod - 60.0..=tod + PAX_SPAWN_AHEAD).contains(&due) || !tt.stops.get(k).copied().unwrap_or(true) {
+                    continue;
+                }
+                let here = name_of(*sid);
+                let set = out.entry(*sid).or_default();
+                for (j, to) in stations.iter().enumerate().skip(k + 1) {
+                    if !tt.stops.get(j).copied().unwrap_or(true) {
+                        continue;
+                    }
+                    let to = name_of(*to);
+                    if to != here {
+                        set.insert(to);
+                    }
+                }
+            }
+        }
+        out
+    }
+
     pub fn stop_targets(&self) -> HashMap<i64, Vec<(String, HashSet<String>)>> {
         let names = self.stop_names();
         let name_of = |id: i64| names.get(&id).cloned().unwrap_or_else(|| id.to_string());

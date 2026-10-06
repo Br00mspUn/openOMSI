@@ -917,10 +917,14 @@ impl ApplicationHandler for App {
                     // to snow and every tile came back with the winter textures - there is
                     // no ground under it: it is held where it is rather than falling through
                     // the world and being put back somewhere in the sky)
+                    // (the tile's wheel surfaces - its roads, bridges and yards - not its
+                    // terrain alone: the terrain comes first while the tile is placed, and a
+                    // parked bus taken over after a restart fell through its yard onto the
+                    // ground below before the surfaces came, as Omsi.exe holds it, #1279)
                     let ground_here = self.world.as_ref().is_none_or(|w| {
                         let at = p.vehicle.position;
                         let k = ((at.x / omsi_map::tile_size()).floor() as i32, (at.y / omsi_map::tile_size()).floor() as i32);
-                        w.terrains.read().contains_key(&k) || w.surfaces.read().contains_key(&k)
+                        w.surfaces.read().contains_key(&k)
                     });
                     if !self.paused && ground_here {
                         p.tick(
@@ -950,6 +954,10 @@ impl ApplicationHandler for App {
                         // into the springs above. Nothing of it while a headset or a real
                         // head tracker moves the head - that head is not a still one)
                         let idle = if vr_on || (self.settings.head_tracking && self.headtrack.is_some()) { 0.0 } else { self.settings.head_idle };
+                        // (at a standstill, as the setting says: it fades out over the first
+                        // few km/h as the bus pulls away and comes back when it stands - it
+                        // swayed on the road as well, #1325)
+                        let idle = idle * crate::head_idle::standstill(p.vehicle.physics.velocity_kmh().abs());
                         // (a switch under the cursor is a hand reaching for it, and a view that
                         // goes on sliding under the pointer is a view that misses what it was
                         // reaching for. Held, not reset: the camera stays where it is, which is
@@ -1026,6 +1034,19 @@ impl ApplicationHandler for App {
                         let key = crate::input_script::look_key_of(&self.view, Some(p.cam_choice));
                         crate::input_script::swap_view_look(&mut self.look, &mut self.view_looks, &mut self.look_view, &key);
                         if let Some(cam) = self.camera.as_ref() {
+                            // (the seat kept for this bus, when one is: see `bus_seats`)
+                            let bus = crate::game_lists::seat_key(p);
+                            if bus != self.seat_bus {
+                                if let Some((seat, pitch)) = crate::settings::bus_seats::of(&bus) {
+                                    self.settings.seat = seat;
+                                    self.settings.seat_pitch_deg = pitch;
+                                } else {
+                                    let saved = crate::settings::Settings::load();
+                                    self.settings.seat = saved.seat;
+                                    self.settings.seat_pitch_deg = saved.seat_pitch_deg;
+                                }
+                                self.seat_bus = bus;
+                            }
                             p.seat = glam::Vec3::from_array(self.settings.seat);
                             // head tracking: the head's turn on top of the look, its movement
                             // on top of the seat (opentrack: x left, y up, z back, in cm; the
@@ -1325,6 +1346,13 @@ impl ApplicationHandler for App {
                         .map(|p| p.vehicle.position)
                         .or(self.camera.as_ref().map(|c| c.position))
                         .unwrap_or(DVec3::ZERO);
+                    // (the trips due at the stops soon: once a game minute, #1415)
+                    if let (Some(s), Some(t)) = (self.schedule.as_ref(), self.traffic.as_ref()) {
+                        if (t.day_time - h.due_at).abs() >= 60.0 {
+                            h.due_dests = Some(s.due_destinations(t.day_time));
+                            h.due_at = t.day_time;
+                        }
+                    }
                     if h.stop_targets.is_none() {
                         h.stop_targets = self.schedule.as_ref().map(|s| s.stop_targets());
                         h.stop_names = self.schedule.as_ref().map(|s| s.stop_names());
@@ -1704,7 +1732,7 @@ impl ApplicationHandler for App {
                     self.look.0 += step * 1.5 * (self.pad_look[1] as i32 - self.pad_look[0] as i32) as f32;
                     self.look.1 = (self.look.1 + step * 0.7 * (self.pad_look[2] as i32 - self.pad_look[3] as i32) as f32).clamp(-85.0, 85.0);
                     // with a wheel steering, the arrow keys look around as in OMSI
-                    if !ctrl_alt && self.controllers.as_ref().is_some_and(|c| c.wheel_steering()) && !self.keys.contains(&KeyCode::ControlLeft) && !self.keys.contains(&KeyCode::ControlRight) {
+                    if !ctrl_alt && !self.settings.arrows_switch_cams && self.controllers.as_ref().is_some_and(|c| c.wheel_steering()) && !self.keys.contains(&KeyCode::ControlLeft) && !self.keys.contains(&KeyCode::ControlRight) {
                         // a glance: held, the head turns (in the driver's seat to 140 degrees
                         // at most, or no further than the mouse had it); let go, it comes back
                         // to the road - held, it went round and round, and the other key never
