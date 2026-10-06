@@ -348,8 +348,8 @@ pub(crate) struct Devices {
     #[cfg(target_os = "macos")]
     hid: Option<crate::mac_hid::MacHid>,
     #[cfg(target_os = "macos")]
-    hid_axes: Vec<(String, Vec<(u32, f32)>)>,
-    #[cfg(target_os = "linux")]
+    hid_axes: Vec<crate::mac_hid::HidAxes>,
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     hats: Vec<(String, [i8; 8])>,
 }
 
@@ -389,16 +389,23 @@ impl Devices {
             hid: crate::mac_hid::MacHid::new(),
             #[cfg(target_os = "macos")]
             hid_axes: Vec::new(),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             hats: Vec::new(),
         }
     }
 
-    /// macOS: the HID device of this name has the axes of a wheel or pedals (a slider, a
-    /// dial, or the simulation page's steering, accelerator, brake, clutch).
+    /// macOS: the HID device that is this gilrs pad (see `same_hid_device`).
     #[cfg(target_os = "macos")]
-    pub(crate) fn hid_wheel(&self, name: &str) -> bool {
-        self.hid_axes.iter().any(|(n, axes)| names_match(n, name) && axes.iter().any(|(c, _)| matches!(*c, 0x10036 | 0x10037) || (*c >> 16) == 2))
+    fn hid_of(&self, pad: &gilrs::Gamepad<'_>) -> Option<&crate::mac_hid::HidAxes> {
+        let id = pad.vendor_id().zip(pad.product_id());
+        self.hid_axes.iter().find(|h| same_hid_device(&h.name, h.id, [pad.name(), pad.os_name()], id))
+    }
+
+    /// macOS: the pad's HID device has the axes of a wheel or pedals (a slider, a dial, or
+    /// the simulation page's steering, accelerator, brake, clutch).
+    #[cfg(target_os = "macos")]
+    pub(crate) fn hid_wheel(&self, pad: &gilrs::Gamepad<'_>) -> bool {
+        self.hid_of(pad).is_some_and(|h| h.axes.iter().any(|(c, _)| matches!(*c, 0x10036 | 0x10037) || (*c >> 16) == 2))
     }
 
     #[cfg(all(target_os = "linux", target_pointer_width = "64"))]
@@ -496,9 +503,11 @@ impl Devices {
                             out.push((pad.name().to_string(), n, matches!(ev.event, EventType::ButtonPressed(..))));
                         }
                     }
-                    #[cfg(target_os = "linux")]
-                    EventType::AxisChanged(_, value, code) if code.into_u32() >> 16 == 3 && (0x10..0x18).contains(&(code.into_u32() & 0xFFFF)) => {
-                        let axis = (code.into_u32() & 0xFFFF) as usize - 0x10;
+                    // (the hat switches: a wheel rim's, a gamepad's D-pad - on macOS gilrs
+                    // turns every hat into two axes and, its filters off, never into buttons)
+                    #[cfg(any(target_os = "linux", target_os = "macos"))]
+                    EventType::AxisChanged(axis_name, value, code) if hat_axis(code.into_u32(), value, cfg!(target_os = "macos") && axis_name == Axis::DPadY).is_some() => {
+                        let Some((axis, value)) = hat_axis(code.into_u32(), value, cfg!(target_os = "macos") && axis_name == Axis::DPadY) else { continue };
                         let name = pad.name().to_string();
                         let k = match self.hats.iter().position(|(n, _)| *n == name) {
                             Some(k) => k,
@@ -590,7 +599,7 @@ impl Devices {
                 // pedals, whatever SDL's list calls it - the HORI Truck Control System was
                 // taken as a gamepad: its left stick steered, with a gamepad's dead zone)
                 #[cfg(target_os = "macos")]
-                if self.hid_wheel(pad.name()) {
+                if self.hid_wheel(&pad) {
                     gamepad = false;
                 }
                 let id = pad.vendor_id().zip(pad.product_id());
@@ -604,12 +613,12 @@ impl Devices {
                 #[allow(unused_mut)]
                 let mut axes: Vec<(u32, f32)> = pad.state().axes().map(|(c, d)| (c.into_u32(), d.value())).collect();
                 // (macOS: the device's own axis elements where it is found among them - two
-                // of one usage stay two)
+                // of one usage stay two, and a gamepad's analog triggers are axes: gilrs makes
+                // them buttons from its SDL mapping, and the DualSense's L2/R2 - Rx, Ry - were
+                // missing from "PS5 Controller" and listed on a second device of the same pad)
                 #[cfg(target_os = "macos")]
-                if !gamepad {
-                    if let Some((_, a)) = self.hid_axes.iter().find(|(n, _)| names_match(n, pad.name())) {
-                        axes = a.clone();
-                    }
+                if let Some(h) = self.hid_of(&pad) {
+                    axes = h.axes.clone();
                 }
                 #[cfg(target_os = "linux")]
                 let buttons = declared_button_count(pad.name());
@@ -626,11 +635,14 @@ impl Devices {
             }
         }
         // (and a wheel gilrs does not list at all: one whose only axes are the simulation
-        // page's steering and pedals)
+        // page's steering and pedals - not a device gilrs lists under another name: a
+        // DualSense was "PS5 Controller" with its buttons and "DualSense Wireless Controller"
+        // with its axes and no buttons, and two devices were one pad)
         #[cfg(target_os = "macos")]
-        for (name, axes) in &self.hid_axes {
-            if !v.iter().any(|c| names_match(&c.name, name)) {
-                v.push(Connected { name: name.clone(), hardware_id: None, axes: di_slots(axes), gamepad: false, ff: false, ff_capable: false, buttons: 0 });
+        for h in &self.hid_axes {
+            let listed = self.gilrs.as_ref().is_some_and(|g| g.gamepads().any(|(_, pad)| same_hid_device(&h.name, h.id, [pad.name(), pad.os_name()], pad.vendor_id().zip(pad.product_id()))));
+            if !listed && !v.iter().any(|c| names_match(&c.name, &h.name)) {
+                v.push(Connected { name: h.name.clone(), hardware_id: h.id, axes: di_slots(&h.axes), gamepad: false, ff: false, ff_capable: false, buttons: 0 });
             }
         }
         // (an Xbox-type controller: gilrs lists it too, as a generic "Controller" with no
@@ -681,6 +693,36 @@ fn next_event_caught<T>(mut next: impl FnMut() -> Option<T>) -> Option<T> {
             }
         }
     }
+}
+
+/// macOS: a HID device and a gilrs pad are one device when they have the same (vendor,
+/// product), or the same name - gilrs's (an SDL mapping's, "PS5 Controller") or the
+/// system's (`pad_names`: both).
+#[cfg(any(target_os = "macos", test))]
+fn same_hid_device(hid_name: &str, hid_id: Option<(u16, u16)>, pad_names: [&str; 2], pad_id: Option<(u16, u16)>) -> bool {
+    (hid_id.is_some() && hid_id == pad_id) || pad_names.iter().any(|n| names_match(hid_name, n))
+}
+
+/// A hat switch's axis as gilrs reports it: its number (hat * 2, + 1 for up/down) and its
+/// value, right and down positive. Linux: evdev's ABS_HAT0X..ABS_HAT3Y. macOS: gilrs makes
+/// a hat two axes, 0x39 and 0x3A of the generic desktop page, and turns the up/down one
+/// round when an SDL mapping names it the D-pad's (`mapped_y`).
+#[cfg(any(target_os = "linux", target_os = "macos", test))]
+fn hat_axis(code: u32, value: f32, mapped_y: bool) -> Option<(usize, f32)> {
+    // (the two kinds of code cannot meet: gilrs's axes on Linux are all of evdev's EV_ABS, 3)
+    match (code >> 16, code & 0xFFFF) {
+        (1, 0x39) => Some((0, value)),
+        (1, 0x3A) => Some((1, if mapped_y { -value } else { value })),
+        (3, lo @ 0x10..=0x17) => Some(((lo - 0x10) as usize, value)),
+        _ => None,
+    }
+}
+
+/// macOS: the code of an axis (the axes `mac_hid` reads, and a hat), which gilrs hands on
+/// as a button when an SDL mapping makes it one - a gamepad's analog trigger.
+#[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+fn mac_axis_code(code: u32) -> bool {
+    matches!((code >> 16, code & 0xFFFF), (1, 0x30..=0x3A) | (2, 0xBA | 0xBB | 0xC4 | 0xC5 | 0xC6 | 0xC8))
 }
 
 fn use_gilrs_buttons(direct_input: bool, system_gamepad: bool) -> bool {
@@ -1261,7 +1303,7 @@ impl Controllers {
                     continue;
                 }
                 #[cfg(target_os = "macos")]
-                if self.devices.hid_wheel(pad.name()) {
+                if self.devices.hid_wheel(&pad) {
                     continue;
                 }
                 if (di && !xinput) || off.iter().any(|d| names_match(d, pad.name())) {
@@ -1692,7 +1734,9 @@ fn calibrated_steering_reversed(cfg: Option<&DeviceCfg>) -> bool {
 /// joystick's buttons, BTN_GAMEPAD.. for a pad's), the button index on Windows. It used to be
 /// the place among the buttons pressed so far - the first button ever pressed was "button 1"
 /// whichever it was. None on Windows for a code that is no button (gilrs turns the analog
-/// triggers, axis codes, into button events too: they are pedals, not numbered buttons).
+/// triggers, axis codes, into button events too: they are pedals, not numbered buttons), and
+/// on macOS for an axis' code (a DualSense's L2 and R2 came in as buttons 1 and 2, the
+/// numbers of its square and cross: their place among the codes; they are axes).
 pub(crate) fn button_number(pad: &gilrs::Gamepad, code: gilrs::ev::Code) -> Option<usize> {
     #[cfg(target_os = "linux")]
     if let Some(n) = declared_button_index(pad.name(), code.into_u32()) {
@@ -1700,6 +1744,9 @@ pub(crate) fn button_number(pad: &gilrs::Gamepad, code: gilrs::ev::Code) -> Opti
     }
     if cfg!(windows) {
         return code_button(code.into_u32());
+    }
+    if cfg!(target_os = "macos") && mac_axis_code(code.into_u32()) {
+        return None;
     }
     Some(code_button(code.into_u32()).unwrap_or_else(|| {
         let mut codes: Vec<u32> = pad.state().buttons().map(|(c, _)| c.into_u32()).collect();
@@ -1928,6 +1975,42 @@ mod tests {
         assert!(is_claimed_by_di("Logitech G29 Driving Force Racing Wheel", true));
         assert!(is_claimed_by_di("HORI Racing Wheel APEX", false));
         assert!(is_claimed_by_di("G920 Driving Force Racing Wheel for Xbox One", true));
+    }
+
+    #[test]
+    fn a_dualsense_on_macos_is_one_device() {
+        let pad = ["PS5 Controller", "DualSense Wireless Controller"];
+        let id = Some((0x054c, 0x0ce6));
+        // the HID device under the system's name, or with the same ids, is gilrs's pad
+        assert!(super::same_hid_device("DualSense Wireless Controller", None, pad, id));
+        assert!(super::same_hid_device("Wireless Controller", id, ["PS5 Controller", "PS5 Controller"], id));
+        assert!(!super::same_hid_device("HORI Truck Control System", Some((0x0f0d, 0x01b7)), pad, id));
+        assert!(!super::same_hid_device("Thrustmaster T.16000M", None, pad, None));
+    }
+
+    #[test]
+    fn analog_triggers_are_no_buttons_on_macos() {
+        // L2 and R2 (Rx, Ry), sliders, the simulation page's pedals and the hat
+        for code in [0x10033, 0x10034, 0x10036, 0x10039, 0x200C4, 0x200C5] {
+            assert!(super::mac_axis_code(code), "{code:#x}");
+        }
+        // the button page, and a generic desktop D-pad button
+        for code in [0x90001, 0x9000e, 0x10090] {
+            assert!(!super::mac_axis_code(code), "{code:#x}");
+        }
+    }
+
+    #[test]
+    fn a_hat_switch_is_read_with_up_negative() {
+        // macOS: the hat's two axes; an SDL mapping's D-pad Y comes turned round
+        assert_eq!(super::hat_axis(0x10039, 1.0, false), Some((0, 1.0)));
+        assert_eq!(super::hat_axis(0x1003A, 1.0, true), Some((1, -1.0)));
+        assert_eq!(super::hat_axis(0x1003A, 1.0, false), Some((1, 1.0)));
+        // Linux: ABS_HAT0X .. ABS_HAT3Y
+        assert_eq!(super::hat_axis(0x30010, -1.0, false), Some((0, -1.0)));
+        assert_eq!(super::hat_axis(0x30017, 1.0, false), Some((7, 1.0)));
+        assert_eq!(super::hat_axis(0x30018, 1.0, false), None);
+        assert_eq!(super::hat_axis(0x10030, 1.0, false), None);
     }
 
     #[test]
@@ -2777,7 +2860,7 @@ mod hot_reload_tests {
             hid: None,
             #[cfg(target_os = "macos")]
             hid_axes: Vec::new(),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             hats: Vec::new(),
         }
     }
