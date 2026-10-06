@@ -8929,10 +8929,14 @@ const OMSI_TILE_DIST: i32 = 1;
 fn stand_in_area(ot: &ObjectType, xf: &Mat4, pos: DVec3, tile: (i32, i32)) -> Option<[f64; 4]> {
     let ts = tile_size();
     let loaded = (2 * OMSI_TILE_DIST + 1) as f64 * ts;
-    let wide = ot.meshes.iter().any(|(m, _, _)| {
-        let b = mesh_bounds(m, xf, pos);
-        (b[2] - b[0]).max(b[3] - b[1]) > 2.0 * loaded
-    });
+    // The footprint belongs to the whole object, regardless of how the exporter
+    // splits it into meshes. Separate parts can each fit below the cutoff while
+    // their combined extent is a distant scenery backdrop.
+    let bounds = ot.meshes.iter()
+        .filter(|(m, _, _)| !m.positions.is_empty())
+        .map(|(m, _, _)| mesh_bounds(m, xf, pos))
+        .reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]);
+    let wide = bounds.is_some_and(|b| (b[2] - b[0]).max(b[3] - b[1]) > 2.0 * loaded);
     if !wide {
         return None;
     }
