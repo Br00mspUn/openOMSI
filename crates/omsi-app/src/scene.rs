@@ -13221,9 +13221,10 @@ pub(crate) fn resolve_scenery_freetex_name<'a>(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn far_offset_forest_backdrops_keep_their_owner_tiles_visibility() {
-        use super::*;
         let rectangle = |x: f32, half_width: f32| MeshData {
             positions: vec![
                 glam::Vec3::new(x, -half_width, -80.0),
@@ -13248,8 +13249,6 @@ mod tests {
         // Keep the existing whole-city stand-in rule, even for a centred model.
         assert!(stand_in_mesh(&rectangle(0.0, 2000.0), &Mat4::IDENTITY, DVec3::ZERO, loaded));
     }
-
-    use super::*;
 
     #[test]
     fn a_mirror_keeps_the_glass_that_uses_most_of_the_picture() {
