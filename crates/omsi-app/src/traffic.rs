@@ -7094,6 +7094,25 @@ impl Traffic {
                     }
                 }
             }
+            if !lamp.texts.is_empty() {
+                if let Some(script) = lamp.script.as_ref() {
+                    let mut s = script.lock();
+                    let _ = s.take_refresh_strings();
+                    for (tex, st) in lamp.texts.iter_mut() {
+                        let text = s.str_var(st.def.variable.trim()).to_string();
+                        if st.update(&text) {
+                            if let Some(rgba) = st.pending.take() {
+                                let (w, h) = (st.def.width.max(1) as u32, st.def.height.max(1) as u32);
+                                renderer.update_texture_mips(
+                                    scene,
+                                    *tex,
+                                    &omsi_texture::Image { width: w, height: h, rgba, has_alpha: true },
+                                );
+                            }
+                        }
+                    }
+                }
+            }
             if !lamp.animated {
                 use std::hash::{Hash, Hasher};
                 let mut h = std::collections::hash_map::DefaultHasher::new();
