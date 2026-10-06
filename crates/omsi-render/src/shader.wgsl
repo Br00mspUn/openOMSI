@@ -322,6 +322,11 @@ struct PointLight {
 // per cell CELL_CAP light indices, 0xffffffff = empty
 @group(0) @binding(4) var<storage, read> grid: array<u32>;
 const CELL_CAP: u32 = 32u;
+// The cutout of `[matl_alpha] 1`: Omsi.exe sets ALPHAREF 0x80 with ALPHAFUNC GREATER, so a
+// texel of alpha 128 is thrown away. Painters' window layers (a bus's glass unwrapped on its
+// own texture to draw on) mark the clear glass with exactly 128: cut below one half, those
+// texels stayed and every window was the layer's black.
+const ALPHA_REF: f32 = 128.5 / 255.0;
 
 @group(1) @binding(0) var t_diffuse: texture_2d<f32>;
 @group(1) @binding(1) var s_diffuse: sampler;
@@ -865,7 +870,7 @@ fn fs_shadow_test(in: FsIn) {
         let tm = sample_transmap(tex_address(in.uv - in.params.zw));
         a = select(1.0, tm.a, material.params.w > 0.5);
     }
-    if (a < 0.5) {
+    if (a < ALPHA_REF) {
         discard;
     }
 }
@@ -1708,11 +1713,11 @@ fn shade_vanilla(in: FsIn, puddle_weight: ptr<function, f32>, eye: vec3<f32>) ->
     if (ALPHA_TEST && mode > 0.5 && mode < 1.5) {
         if (ALPHA_TO_COVERAGE) {
             let aa = max(fwidth(tex.a) * 0.5, 1.0 / 255.0);
-            if (tex.a < 0.5 - aa) {
+            if (tex.a < ALPHA_REF - aa) {
                 discard;
             }
-            tex.a = smoothstep(0.5 - aa, 0.5 + aa, tex.a);
-        } else if (tex.a < 0.5) {
+            tex.a = smoothstep(ALPHA_REF - aa, ALPHA_REF + aa, tex.a);
+        } else if (tex.a < ALPHA_REF) {
             discard;
         }
     }
