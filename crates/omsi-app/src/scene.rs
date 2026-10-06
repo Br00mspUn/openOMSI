@@ -12916,7 +12916,7 @@ fn object_lanes(
         if length <= 0.01 {
             continue;
         }
-        let dz = v.get(7).copied().unwrap_or(0.0) as f64;
+        let (grad_start, grad_end) = (v[6] as f64, v[7] as f64);
         let kind = LaneKind::from_code(p.kind);
         let turn = match v.get(11).map(|t| *t as i32) {
             Some(2) => 1,
@@ -12957,7 +12957,7 @@ fn object_lanes(
         // who goes first where this path meets another (`Network::must_yield`)
         let priority = rule_of("priority");
         let mut push = |reverse: bool| {
-            let mut l = LaneBuilder::arc(start, path_heading, length, radius, dz, kind, p.width);
+            let mut l = LaneBuilder::arc_with_gradients(start, path_heading, length, radius, grad_start, grad_end, kind, p.width);
             if reverse {
                 let pts: Vec<DVec3> = l.points.iter().rev().copied().collect();
                 l = LaneBuilder::polyline(pts, kind, p.width);
@@ -13772,6 +13772,10 @@ mod tests {
     }
 
 }
+
+#[cfg(test)]
+#[path = "scene/object_path_tests.rs"]
+mod object_path_tests;
 
 #[cfg(test)]
 #[path = "scene/terrain_mapping_tests.rs"]
