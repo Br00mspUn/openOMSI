@@ -3073,9 +3073,12 @@ impl Humans {
                     .get(i.round() as usize)
                     .filter(|t| !t.all_exit)
                     .map(|t| t.texture_id.trim().to_string()),
+                // (a bus whose scripts keep no destination index: on a duty, its trip's
+                // terminus - not for one showing an `[addterminus_allexit]` sign, which
+                // empties the bus whatever the duty)
+                (None, _) => self.duty.as_ref().map(|(trip, _, _)| trip.terminus.clone()),
                 _ => None,
-            }
-            .or_else(|| self.duty.as_ref().map(|(trip, _, _)| trip.terminus.clone()));
+            };
             // On a duty the people its trip takes where they are going get on; in free drive nobody.
             let takes = match &self.duty {
                 Some((trip, next, done)) => Takes::Duty { trip: trip.clone(), next: *next, done: *done },
@@ -6423,9 +6426,6 @@ mod tests {
         assert_eq!(v.var("fold_seat_down"), Some(0.0), "up again once they have got up");
     }
 
-    /// #720: `PAX_Entry<n>_Busy` / `PAX_Exit<n>_Busy` tell a door script that somebody stands
-    /// in that doorway - on the threshold or in the opening, not in the queue outside a shut
-    /// door, the aisle or the deck above - and go with the frame like the requests.
     /// A timetable bus boarding at a stop the passengers' stops do not have (#1593): its
     /// riders get off at its timetable's stop instead of waiting at a shut door for good.
     #[test]
@@ -6467,6 +6467,9 @@ mod tests {
         assert_eq!(reg[&BusId::Ai(5)].next, None, "no stop near and none served: nowhere to get off");
     }
 
+    /// #720: `PAX_Entry<n>_Busy` / `PAX_Exit<n>_Busy` tell a door script that somebody stands
+    /// in that doorway - on the threshold or in the opening, not in the queue outside a shut
+    /// door, the aisle or the deck above - and go with the frame like the requests.
     #[test]
     fn a_doorway_is_busy_while_somebody_stands_in_it() {
         let dir = std::env::temp_dir().join(format!("omsi-doorway-busy-{}", std::process::id()));

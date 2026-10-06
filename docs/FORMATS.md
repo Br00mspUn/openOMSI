@@ -357,7 +357,9 @@ whole spline at that offset; lanes of consecutive splines meet at the ends.
 
 12 lines (`path_2`: 14): start x, y, z in the object frame (x right, y forward, z up),
 heading (degrees, clockwise, relative to the object), radius (0 straight, > 0 right turn),
-length, 0, height change, kind (0 street, 1 sidewalk, 2 rail), width, direction (0/1/2 as
+length, gradient at the start and at the end (rise per metre: the height runs as their
+integral along the path - checked on the stock objects, where 50 of 53 linked paths meet
+the next one's start height that way, #1617), kind (0 street, 1 sidewalk, 2 rail), width, direction (0/1/2 as
 above), turn indicator (0 none, 2 left, 3 right; used for the AI blinkers); `path_2` adds two
 zero fields. Verified on `Einm_Spandauer_Koelner_1990.sco`: the arc `(1.5,-7.75) h0 r6.248
 l4.635` ends exactly at the start of the next path `(3.142,-3.529) h42.5`.
