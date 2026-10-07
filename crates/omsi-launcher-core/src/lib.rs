@@ -1632,17 +1632,87 @@ pub fn create_profile(name: &str, sex: &str) -> Result<Profile> {
     get_profile(name)
 }
 
-/// Delete a driver's personnel file from the content folder. A driver who exists only in
-/// the original installation is left there: the original is never written.
+/// Remove only the history belonging to this driver. Unreadable or malformed records
+/// have no trustworthy owner and are kept, as are records belonging to other drivers.
+fn delete_profile_sessions(dir: &Path, name: &str) -> Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
+    for entry in entries {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let Some(session) = std::fs::read_to_string(entry.path())
+            .ok()
+            .and_then(|text| serde_json::from_str::<Session>(&text).ok())
+        else {
+            continue;
+        };
+        if session.driver.eq_ignore_ascii_case(name) {
+            std::fs::remove_file(entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+/// Delete the personnel file and its run history. A driver who exists only in the
+/// original installation is left there: the original is never written.
 pub fn delete_profile(name: &str) -> Result<()> {
+    let name = name.trim();
+    if name.is_empty() || name.contains(['/', '\\', ':']) {
+        return Err(anyhow!("the name must be a plain file name"));
+    }
     let root = root()?;
-    let file = driver_write_path(&root, name.trim());
+    let file = driver_write_path(&root, name);
     if file.exists() {
         std::fs::remove_file(&file)?;
     } else if root.join("Drivers").join(format!("{}.odr", name.trim())).exists() {
         return Err(anyhow!("'{}' belongs to the original OMSI 2 installation, which is not changed", name.trim()));
     }
-    Ok(())
+    delete_profile_sessions(&data_dir().join("sessions"), name)
+}
+
+#[cfg(test)]
+mod profile_cleanup_tests {
+    use super::*;
+
+    #[test]
+    fn deleting_one_driver_keeps_other_and_unowned_runs() {
+        let dir = std::env::temp_dir().join(format!("omsi_profile_cleanup_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |file: &str, driver: &str| {
+            let session = Session {
+                driver: driver.into(),
+                ..Default::default()
+            };
+            std::fs::write(dir.join(file), serde_json::to_vec(&session).unwrap()).unwrap();
+        };
+        write("mine.json", "Isaac");
+        write("mine-case.json", "ISAAC");
+        write("other.json", "Isaac S.");
+        std::fs::write(dir.join("unknown.json"), "{broken").unwrap();
+        std::fs::create_dir_all(dir.join("folder.json")).unwrap();
+        delete_profile_sessions(&dir, "isaac").unwrap();
+        assert!(!dir.join("mine.json").exists());
+        assert!(!dir.join("mine-case.json").exists());
+        assert!(dir.join("other.json").exists());
+        assert!(dir.join("unknown.json").exists());
+        assert!(dir.join("folder.json").is_dir());
+        // Repeating deletion, and a profile with no history directory, are harmless.
+        delete_profile_sessions(&dir, "Isaac").unwrap();
+        delete_profile_sessions(&dir.join("absent"), "Isaac").unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_delete_request_needs_a_plain_profile_name() {
+        for name in ["", " ", "../other", "a\\b", "C:other"] {
+            assert!(delete_profile(name).is_err());
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------

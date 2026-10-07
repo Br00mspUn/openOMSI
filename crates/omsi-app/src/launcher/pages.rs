@@ -121,6 +121,9 @@ pub fn profile(l: &mut Launcher, area: Rect) {
             let name = l.state.config.profile.clone();
             match core::delete_profile(&name) {
                 Ok(()) => {
+                    l.state.profile = None;
+                    l.state.config.profile.clear();
+                    let _ = core::save_config(&l.state.config);
                     l.state.set_status(format!("Personnel file of {name} deleted."), false);
                     l.state.load_profiles();
                 }
