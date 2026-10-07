@@ -4226,22 +4226,7 @@ impl Traffic {
     /// went on green and then stopped as it came round the corner, at the light of the
     /// cross traffic on the path its turn joins - a stop line in mid-junction nobody sees.
     fn light_at_entry(&self, way: &[(usize, f32)], k: usize) -> Option<(usize, usize)> {
-        let l = way[k].0;
-        let light = self.net.lanes[l].traffic_light?;
-        let object = |x: usize| {
-            let lane = &self.net.lanes[x];
-            lane.key.filter(|_| lane.source == 2).map(|key| (key.tile, key.id))
-        };
-        let here = object(l)?;
-        for &(p, _) in way[..k].iter().rev() {
-            if object(p) != Some(here) {
-                break;
-            }
-            if self.net.lanes[p].traffic_light.is_some() {
-                return None;
-            }
-        }
-        Some(light)
+        entry_light(&self.net, way, k)
     }
 
     fn way_lanes(&self, st: &AiState, within: f32) -> Vec<(usize, f32)> {
@@ -8046,5 +8031,80 @@ mod way_user_tests {
         assert!(merging_lead(&net, &me, &[user(vec![(0, -30.0), (2, 20.0)], 0.0, 9.0)]).is_none());
         // a bus whose way does not go on into the lane the car takes: nothing to do with it
         assert!(merging_lead(&net, &me, &[user(vec![(0, -30.0)], 12.0, 0.0)]).is_none());
+    }
+}
+
+/// A declared entry signal remains authoritative without scenery-object identity.
+fn entry_light(net: &Network, way: &[(usize, f32)], k: usize) -> Option<(usize, usize)> {
+    let l = way[k].0;
+    let light = net.lanes[l].traffic_light?;
+    let object = |x: usize| {
+        let lane = &net.lanes[x];
+        lane.key
+            .filter(|_| lane.source == 2)
+            .map(|key| (key.tile, key.id))
+    };
+    let Some(here) = object(l) else {
+        return Some(light);
+    };
+    for &(p, _) in way[..k].iter().rev() {
+        if object(p) != Some(here) {
+            break;
+        }
+        if net.lanes[p].traffic_light.is_some() {
+            return None;
+        }
+    }
+    Some(light)
+}
+
+#[cfg(test)]
+mod signal_entry_tests {
+    use super::*;
+    use omsi_sim::traffic::{LaneBuilder, LaneKey};
+
+    fn lane(id: Option<i64>, light: Option<(usize, usize)>) -> omsi_sim::traffic::Lane {
+        let mut lane = LaneBuilder::arc(DVec3::ZERO, 0.0, 20.0, 0.0, 0.0, LaneKind::Street, 3.0);
+        lane.source = 2;
+        lane.key = id.map(|id| LaneKey {
+            tile: (0, 0),
+            id,
+            path: 0,
+        });
+        lane.traffic_light = light;
+        lane
+    }
+
+    #[test]
+    fn a_signal_does_not_require_scenery_identity() {
+        let mut net = Network {
+            lanes: vec![lane(None, None), lane(None, Some((0, 1)))],
+            ..Default::default()
+        };
+        let way = [(0, -5.0), (1, 15.0)];
+        assert_eq!(entry_light(&net, &way, 1), Some((0, 1)));
+        net.lanes[1].source = 1;
+        net.lanes[1].key = Some(LaneKey {
+            tile: (0, 0),
+            id: 10,
+            path: 0,
+        });
+        assert_eq!(entry_light(&net, &way, 1), Some((0, 1)));
+    }
+
+    #[test]
+    fn junction_interior_deduplication_keeps_the_next_junction_signal() {
+        let net = Network {
+            lanes: vec![
+                lane(Some(10), Some((0, 0))),
+                lane(Some(10), Some((0, 1))),
+                lane(Some(11), Some((1, 0))),
+            ],
+            ..Default::default()
+        };
+        let way = [(0, -5.0), (1, 15.0), (2, 35.0)];
+        assert_eq!(entry_light(&net, &way, 0), Some((0, 0)));
+        assert_eq!(entry_light(&net, &way, 1), None);
+        assert_eq!(entry_light(&net, &way, 2), Some((1, 0)));
     }
 }
