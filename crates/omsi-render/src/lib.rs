@@ -2756,7 +2756,9 @@ impl Renderer {
         let remembered = fallback_load(&name);
         let mut attempts: Vec<(u32, bool)> = match remembered {
             Some((m, b)) => vec![(m.min(options.msaa).max(1), b), (1, true)],
-            None if cfg!(any(target_os = "android", target_os = "ios")) => vec![(options.msaa, false), (1, true)],
+            // (a phone starts with the basic set: the full one failed on Adreno and the
+            // second build after it took long enough for Android to close the app)
+            None if cfg!(any(target_os = "android", target_os = "ios")) => vec![(options.msaa, true), (1, true)],
             None => vec![(options.msaa, false), (1, false), (1, true)],
         };
         attempts.dedup();
@@ -12200,6 +12202,7 @@ fn scene_shader_text(gl: bool) -> String {
     .join("\n");
     // Enhanced+: the enhanced pass writes the reflections' surfaces as well (`GBUF_FORMAT`)
     let src = if rt_gbuf() { src.replace("//RT ", "") } else { src };
+    let src = if basic_pipelines() { lean_scene(src) } else { src };
     if !gl {
         return src;
     }
@@ -12213,6 +12216,22 @@ fn scene_shader_text(gl: bool) -> String {
         .replace("textureSample(t_trans, s_tile, uv)", &clamped("t_trans"))
         .replace("textureSample(t_night, s_tile, uv)", &clamped("t_night"));
     debug_assert!(!out.contains("s_tile, uv)"));
+    out
+}
+
+/// The scene shader without the parts 0.2.0 added to every pixel's lighting that a phone's
+/// shader compiler gives up on (`basic_pipelines`): the street lamps' shadow maps read in
+/// the loop over the lamps, and the sun's soft shadow taken a second and a third time for
+/// the moon and a debug view. Adreno 740/830 (Galaxy S23-S25) failed the scene pipelines
+/// with these inlined into the enhanced fragment shader, and every frame stopped on an
+/// invalid 'omsi' pipeline (#1633, #1663, #1708).
+fn lean_scene(src: String) -> String {
+    let out = src
+        .replace("irr = irr * lamp_shadow_at(li, p, n, thin);", "")
+        .replace("ms = sun_shadow_soft(in.world, n, thin);", "ms = 1.0;")
+        .replace("let sm = sun_shadow_soft(in.world, n, thin);", "let sm = 1.0;");
+    debug_assert_eq!(out.matches("sun_shadow_soft(in.world").count(), 1);
+    debug_assert!(!out.contains("* lamp_shadow_at("));
     out
 }
 
@@ -12347,6 +12366,13 @@ fn corona_shader_source() -> String {
         include_str!("lamp_air.wgsl"),
     ]
     .join("\n");
+    // (the basic set lights rain by the sky alone: the loop over the lamps is one more
+    // thing a phone's compiler can fail on, see `lean_scene`)
+    let src = if basic_pipelines() {
+        src.replace("let l = precip_light(in.wpos.xyz, to_eye, in.wpos.w > 1.5);", "let l = sh_irradiance(vec3<f32>(0.0, 0.0, 1.0)) / PI;")
+    } else {
+        src
+    };
     // (without storage buffers the precipitation has no lamps to be lit by)
     if array_path() == ArrayPath::NoStorage {
         let src = src
