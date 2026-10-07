@@ -1732,6 +1732,14 @@ fn map_human_types(root: &Path, list: &[String]) -> Vec<Arc<HumanType>> {
     picked
 }
 
+// A malformed/imported population setting must not request millions of rendered agents.
+// Ordinary OMSI budgets (including the default 200) remain unchanged below this ceiling.
+const MAX_LOCAL_PEOPLE: usize = 4096;
+
+fn bounded_people_limit(configured: usize) -> usize {
+    configured.clamp(1, MAX_LOCAL_PEOPLE)
+}
+
 impl Humans {
     /// LAN uses the room id as the shared source of randomness.  This keeps the
     /// initial pedestrian selection and their generated identities identical on
@@ -1795,6 +1803,11 @@ impl Humans {
                     t.def.path.file_name().unwrap_or_default().to_string_lossy()
                 );
             }
+        }
+        let configured_people = crate::settings::Settings::load().ai_max_humans as usize;
+        let people_limit = bounded_people_limit(configured_people);
+        if people_limit != configured_people {
+            log::warn!("human pool limit {configured_people} adjusted to {people_limit} for safe spawning");
         }
         Humans {
             types,
@@ -1868,7 +1881,7 @@ impl Humans {
             duty: None,
             stamped: Vec::new(),
             pedestrians: 14,
-            max_people: crate::settings::Settings::load().ai_max_humans.max(1) as usize,
+            max_people: people_limit,
             stroll_timer: 0.0,
             exact_fare: true,
             boarding: "auto".into(),
@@ -2049,7 +2062,7 @@ impl Humans {
     /// Room in the pool for one more person; when it is full somebody walking the street out
     /// of sight is taken for it, as Omsi.exe takes a task-8 person for a stop (0x61bd44).
     fn pool_room(&mut self) -> bool {
-        if self.pool_used() < self.max_people {
+        if self.pool_used() < bounded_people_limit(self.max_people) {
             return true;
         }
         let free = (0..self.people.len()).find(|&i| {
@@ -2061,7 +2074,7 @@ impl Humans {
                 self.release(i);
                 let p = self.people.swap_remove(i);
                 self.retire(&p);
-                true
+                self.pool_used() < bounded_people_limit(self.max_people)
             }
             None => false,
         }
@@ -2204,6 +2217,12 @@ impl Humans {
         heading: f64,
         state: State,
     ) -> Option<usize> {
+        // All local creation paths share the pool, including test riders and crossing
+        // pedestrians. Avatars and host mirrors use spawn_as directly and keep their
+        // existing ownership; never evict somebody aboard a bus to make room.
+        if !self.pool_room() {
+            return None;
+        }
         self.spawn_as(world, renderer, scene, position, heading, state, None)
     }
 
@@ -6599,4 +6618,105 @@ fn wrap_heading(h: f64) -> f64 {
 /// The angle between two headings (degrees, 0..180).
 fn angle_between(a: f64, b: f64) -> f64 {
     ((b - a + 540.0).rem_euclid(360.0) - 180.0).abs()
+}
+
+#[cfg(test)]
+mod population_limit_tests {
+    use super::*;
+
+    #[test]
+    fn imported_millions_cannot_become_a_local_population_budget() {
+        assert_eq!(bounded_people_limit(200), 200);
+        assert_eq!(bounded_people_limit(1), 1);
+        assert_eq!(bounded_people_limit(0), 1);
+        assert_eq!(bounded_people_limit(MAX_LOCAL_PEOPLE), MAX_LOCAL_PEOPLE);
+        assert_eq!(bounded_people_limit(2_000_000), MAX_LOCAL_PEOPLE);
+        assert_eq!(bounded_people_limit(usize::MAX), MAX_LOCAL_PEOPLE);
+    }
+
+    #[test]
+    fn the_pool_counts_local_people_and_never_recycles_riders_or_avatars() {
+        let dir = std::env::temp_dir().join(format!("omsi-pool-limit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("person.hum"), "[model]\nmodel.cfg\n").unwrap();
+        std::fs::write(dir.join("model.cfg"), "").unwrap();
+        let ty = Arc::new(HumanType::load(&dir.join("person.hum")).unwrap());
+        std::fs::remove_dir_all(&dir).unwrap();
+        let person = |id, remote, puppet, standing| Person {
+            id,
+            ty: ty.clone(),
+            variant: 0,
+            meshes: Vec::new(),
+            position: DVec3::Y * 1000.0,
+            heading: 0.0,
+            lheading: 0.0,
+            place: Place::Ground,
+            vel: DVec2::ZERO,
+            pace: 1.1,
+            activity: Activity::Stand,
+            anim: OmsiAnim::default(),
+            state: if standing {
+                State::Standing
+            } else {
+                State::Pax(Box::new(Pax::new(1.1, 0.5)))
+            },
+            t_state: 0.0,
+            skins: Vec::new(),
+            skin_bones: None,
+            pose_changed: false,
+            interior: 0.0,
+            lit: 0.0,
+            tilt: Mat4::IDENTITY,
+            age: 40.0,
+            stuck: 0.0,
+            ghost: 0.0,
+            car_wait: 0.0,
+            detour: 0.0,
+            detour_side: 0.0,
+            why: "",
+            skinned: false,
+            since_posed: 0,
+            posed_at: (DVec3::ZERO, 0.0),
+            ankles: [Vec3::ZERO; 2],
+            puppet,
+            remote,
+        };
+        let mut h = Humans::new(Path::new("/nonexistent"));
+        h.max_people = 2;
+        h.people = vec![
+            person(1, false, None, false),
+            person(2, false, None, false),
+            person(3, true, None, true),
+            person(
+                4,
+                false,
+                Some(Puppet {
+                    mode: PuppetMode::Avatar,
+                }),
+                true,
+            ),
+        ];
+        assert_eq!(h.pool_used(), 2);
+        assert!(!h.pool_room());
+        assert_eq!(
+            h.people.len(),
+            4,
+            "avatars, mirrors and existing passengers survive"
+        );
+        h.people.push(person(5, false, None, true));
+        assert!(
+            !h.pool_room(),
+            "recycling one walker cannot grant a spawn when still over budget"
+        );
+        assert_eq!(h.pool_used(), 2);
+        assert!(h.people.iter().all(|p| p.id != 5));
+        h.people.retain(|p| p.id != 2);
+        h.people.push(person(6, false, None, true));
+        assert!(
+            h.pool_room(),
+            "an offscreen walker may make room at the exact limit"
+        );
+        assert_eq!(h.pool_used(), 1);
+        assert!(h.people.iter().any(|p| p.id == 1));
+    }
 }
