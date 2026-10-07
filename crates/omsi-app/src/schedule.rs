@@ -71,8 +71,8 @@ struct RunningTrip {
     /// already or has passed.
     stations: Vec<(i64, f64)>,
     served: Vec<bool>,
-    /// Per station: the step of the trip's track it lies on (`station_entries`).
-    entries: Vec<Option<usize>>,
+    /// Authored track entry of each type-1 station, retained while tiles stream in.
+    station_steps: Vec<Option<usize>>,
 }
 
 /// When a trip's bus is at each of its stations, as OMSI's timetable has it: the profile
@@ -238,32 +238,56 @@ fn trip_stations(trip: &omsi_timetable::Trip) -> Vec<i64> {
         .collect()
 }
 
-/// The track entry each station of a type-1 trip lies on (its `[station]` record's second
-/// line), None for a trip of station links. A return trip's stop beside the way out (NCC's
-/// hospital: M2 on entry 68, M3 on entry 583) was put on the nearest point of the route and
-/// served on the way out, the bus waiting there an hour for its time (#1592).
-fn station_entries(trip: &omsi_timetable::Trip) -> Vec<Option<usize>> {
-    if !trip.stations.is_empty() {
-        return vec![None; trip.stations.len()];
+/// A type-1 station names its entry in the trip's .ttr, not just a nearby pole.
+/// In Recife, paired boarding/alighting boxes sit on opposite sides of the same
+/// path; a platform-side search across the whole route can move one to another visit.
+fn trip_station_steps(
+    trip: &omsi_timetable::Trip,
+    track: bool,
+    steps: usize,
+) -> Vec<Option<usize>> {
+    if !track || !trip.stations.is_empty() {
+        return vec![None; trip_stations(trip).len()];
     }
     trip.stations_legacy
         .iter()
-        .filter(|s| s.first().and_then(|id| id.trim().parse::<i64>().ok()).is_some())
-        .map(|s| s.get(1).and_then(|e| e.trim().parse::<usize>().ok()))
+        .filter(|s| s.first().is_some_and(|id| id.trim().parse::<i64>().is_ok()))
+        .map(|s| {
+            s.get(1)
+                .and_then(|i| i.trim().parse::<usize>().ok())
+                .filter(|&i| i < steps)
+        })
         .collect()
 }
 
-/// The lanes of `section` (after `bridge_gaps`, `index`) round step `entry` of the trip, when
-/// the steps `first..` gave its lanes (`slots`): where the stop on that entry is looked for.
-/// None when that step is not in the section (not loaded yet).
-fn entry_window(slots: &[Slot], first: usize, entry: usize, index: &[usize], len: usize) -> Option<(usize, usize)> {
-    let k = entry.checked_sub(first)?;
-    if !matches!(slots.get(k), Some(Slot::Lane(_))) {
-        return None;
-    }
-    let pos = slots[..k].iter().filter(|s| matches!(s, Slot::Lane(_))).count();
-    let at = *index.get(pos)?;
-    Some((at.saturating_sub(2), (at + 3).min(len)))
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum StopRoute {
+    Nearest,
+    Track(usize),
+    Outside,
+}
+
+/// Map the authored entry into a streamed section after absent paths and inserted
+/// connectors. A station beyond this section waits for its own path to load.
+fn station_route(step: Option<usize>, first: usize, slots: &[Slot], index: &[usize]) -> StopRoute {
+    let Some(step) = step else {
+        return StopRoute::Nearest;
+    };
+    let Some(at) = step
+        .checked_sub(first)
+        .filter(|&i| matches!(slots.get(i), Some(Slot::Lane(_))))
+    else {
+        return StopRoute::Outside;
+    };
+    let ordinal = slots[..at]
+        .iter()
+        .filter(|s| matches!(s, Slot::Lane(_)))
+        .count();
+    index
+        .get(ordinal)
+        .copied()
+        .map(StopRoute::Track)
+        .unwrap_or(StopRoute::Outside)
 }
 
 /// How long before a trip is due at a stop the people for it turn up there (s).
@@ -340,21 +364,25 @@ fn bay_offset(lat: f32) -> f32 {
 
 /// Where a timetable bus stands across its lane at a stop, as Omsi.exe puts it
 /// (0x7dac5e..0x7dae81): its kerb-side flank 0.3 m past the `[busstop]` box's centre -
-/// `lat` less half its `[boundingbox]` width plus 0.3 on the right (the other way round
+/// `lat` less its `[boundingbox]` lateral centre and half width plus 0.3 on the right (the other way round
 /// where traffic keeps left), from the box's offset `lat` off the path (right positive);
 /// a railway vehicle keeps to its track. OMSI clamps it only to the room beside other
 /// vehicles, not to a kerb: the bus pulls into the bay whether or not a path leads there
 /// (#241). (openOMSI kept it on its path before - a map whose box stood behind the
 /// pavement had its buses on the pavement - but OMSI does the same there.)
-fn bay_for(lat: f32, ty: &omsi_sim::VehicleType, rail: bool, left_hand: bool) -> f32 {
+fn bay_for(lat: f32, ty: &omsi_sim::VehicleType, rail: bool, left_hand: bool, side: f32) -> f32 {
     if rail || !lat.is_finite() {
         return 0.0;
     }
-    let hw = ty.def.bounding_box.map(|b| b[0] * 0.5).unwrap_or(1.25);
-    if left_hand {
-        lat + hw - 0.3
+    let bb = ty.def.bounding_box.unwrap_or([2.5, 0.0, 0.0, 0.0, 0.0, 0.0]);
+    let (hw, centre) = (bb[0] * 0.5, bb[3]);
+    // Platform side is independent of traffic hand. With boarding on both sides,
+    // align the flank facing this stop's box rather than assuming a right-hand kerb.
+    let left = if side == 2.0 { lat < 0.0 } else { left_hand != (side == 1.0) };
+    if left {
+        lat - centre + hw - 0.3
     } else {
-        lat - hw + 0.3
+        lat - centre - hw + 0.3
     }
 }
 
@@ -362,7 +390,7 @@ fn bay_for(lat: f32, ty: &omsi_sim::VehicleType, rail: bool, left_hand: bool) ->
 /// stops moved to where its origin comes to rest (`shift_stops`).
 fn place_stops(net: &Network, route: &[usize], base: usize, stops: &mut [(usize, f32, f32, f64, i64, f32)], ty: &omsi_sim::VehicleType, rail: bool) {
     for st in stops.iter_mut() {
-        st.2 = bay_for(st.2, ty, rail, net.left_hand);
+        st.2 = bay_for(st.2, ty, rail, net.left_hand, st.5);
     }
     shift_stops(net, route, base, stops, crate::bus_service::stop_shift(ty, rail));
 }
@@ -378,8 +406,22 @@ fn project_stop(
     pos: glam::DVec3,
     reach: Option<f64>,
     from: usize,
+    side: f32,
+    on: StopRoute,
 ) -> Option<(usize, f32, f32)> {
-    net.project_stop_on_route(route, pos, reach, from)
+    match on {
+        StopRoute::Nearest => net.project_stop_on_route_side(route, pos, reach, from, side as u8),
+        StopRoute::Outside => None,
+        StopRoute::Track(ri) => {
+            let lane = *route.get(ri)?;
+            let (_, s, lat) = net.project_on_route_lateral(&[lane], pos)?;
+            let point = net.lanes[lane].at(s).0;
+            if reach.is_some_and(|r| (point - pos).truncate().length() > r) {
+                return None;
+            }
+            Some((ri, s, lat))
+        }
+    }
 }
 
 pub struct Schedule {
@@ -2124,15 +2166,15 @@ impl Schedule {
                     let Some((pos, _)) = world.object_positions.lock().get(sid).copied() else {
                         continue;
                     };
-                    // (a track's station on its own entry, see `station_entries`)
-                    let found = match run.entries.get(si).copied().flatten() {
-                        Some(e) => match entry_window(&slots[..n], run.next, e, &index, lanes.len()) {
-                            Some((lo, hi)) => project_stop(&traffic.net, &lanes[..hi], pos, Some(STOP_REACH), from.max(lo)),
-                            None => continue,
-                        },
-                        None => project_stop(&traffic.net, &lanes, pos, Some(STOP_REACH), from),
-                    };
-                    if let Some((ri, ss, lat)) = found {
+                    if let Some((ri, ss, lat)) = project_stop(
+                        &traffic.net,
+                        &lanes,
+                        pos,
+                        Some(STOP_REACH),
+                        from,
+                        world.stop_side(*sid),
+                        station_route(run.station_steps[si], run.next, &slots[..n], &index),
+                    ) {
                         from = ri;
                         stops.push((base + ri, ss, bay_offset(lat), *t_dep, *sid, world.stop_side(*sid)));
                         run.served[si] = true;
@@ -2211,7 +2253,6 @@ impl Schedule {
         // (the [station] records of a type-1 trip as well: Novi Sad's buses have no others,
         // and without them they drove past every stop)
         let stations = trip_stations(trip);
-        let entries = station_entries(trip);
         // the timetable's times at the stations (see `TripTimes`)
         let departure = self.dep_time(i);
         let tt = self.times_of(i).clone();
@@ -2222,6 +2263,7 @@ impl Schedule {
         let arrive: Vec<f64> = tt.stations.iter().map(|s| departure + s.0).collect();
         let leave: Vec<f64> = tt.stations.iter().map(|s| departure + s.1).collect();
         let (steps, track) = self.steps_of(&trip_name, &stations);
+        let station_steps = trip_station_steps(trip, track, steps.len());
         Self::add_twins(traffic, &steps);
         let slots = self.slots(world, traffic, &steps, None);
         if !slots.iter().any(|s| matches!(s, Slot::Lane(_))) && !slots.contains(&Slot::Waiting) {
@@ -2324,7 +2366,6 @@ impl Schedule {
         Self::add_connectors(traffic, &section);
         let net = &traffic.net;
         let (section, index) = bridge_gaps(net, &section);
-        let section_slots = &slots[start..end];
         let start_index = index[start_index.min(index.len() - 1)];
         let mut s = offset.min(net.lanes[section[start_index]].length() as f64) as f32;
         // stations → stop points on that part of the route
@@ -2343,25 +2384,21 @@ impl Schedule {
                 served[si] = true;
             }
             let found = world.object_positions.lock().get(sid).copied();
-            // a station of a track: on its own entry (behind the bus: passed; not loaded yet:
-            // looked for when its lanes come)
-            let window = match (track, entries.get(si).copied().flatten()) {
-                (true, Some(e)) if e < at => {
-                    served[si] = true;
-                    continue;
-                }
-                (true, Some(e)) => match entry_window(section_slots, start, e, &index, section.len()) {
-                    Some(w) => Some(w),
-                    None => continue,
-                },
-                _ => None,
-            };
-            let near = |pos: glam::DVec3| match window {
-                Some((lo, hi)) => project_stop(net, &section[..hi], pos, reach.or(Some(STOP_REACH)), from.max(lo)),
-                None => project_stop(net, &section, pos, reach, from),
-            };
+            // An authored entry behind the spawn position is already passed.
+            if station_steps[si].is_some_and(|entry| entry < at) {
+                served[si] = true;
+                continue;
+            }
             match found {
-                Some((pos, _)) => match near(pos) {
+                Some((pos, _)) => match project_stop(
+                    net,
+                    &section,
+                    pos,
+                    reach,
+                    from,
+                    world.stop_side(*sid),
+                    station_route(station_steps[si], start, &slots[start..end], &index),
+                ) {
                     Some((ri, ss, lat)) => {
                         from = ri;
                         served[si] = true;
@@ -2499,7 +2536,7 @@ impl Schedule {
                     next: end,
                     stations: stations.iter().copied().zip(leave.iter().copied()).collect(),
                     served,
-                    entries: if track { entries.clone() } else { Vec::new() },
+                    station_steps,
                 });
             }
             log::info!(
@@ -2701,7 +2738,7 @@ impl Schedule {
                     .zip(leave.iter().copied())
                     .collect(),
                 served,
-                entries: if track { entries.clone() } else { Vec::new() },
+                station_steps,
             });
         }
         if profile {
@@ -5141,6 +5178,36 @@ impl PlayerDuty {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[test]
+    fn off_centre_bounding_boxes_align_the_physical_flank_on_either_side() {
+        let mut bus = script_test_vehicle("{frame}\n{end}\n", "", "");
+        let ty = std::sync::Arc::get_mut(&mut bus.ty).unwrap();
+        ty.def.bounding_box = Some([2.5, 12.0, 3.0, 0.6, 0.0, 1.5]);
+        let right = bay_for(4.0, ty, false, false, 0.0);
+        assert!((right + 0.6 + 1.25 - 4.3).abs() < 1e-5);
+        let left = bay_for(-4.0, ty, false, false, 1.0);
+        assert!((left + 0.6 - 1.25 + 4.3).abs() < 1e-5);
+        assert_eq!(bay_for(4.0, ty, true, false, 0.0), 0.0);
+    }
+
+    #[test]
+    fn bay_alignment_follows_the_platform_side_without_moving_rail_vehicles() {
+        let bus = script_test_vehicle("{frame}\n{end}\n", "", "");
+        let ty = &bus.ty;
+        assert!((bay_for(4.0, ty, false, false, 0.0) - 3.05).abs() < 1e-5);
+        assert!((bay_for(-4.0, ty, false, false, 1.0) + 3.05).abs() < 1e-5);
+        assert!((bay_for(-4.0, ty, false, true, 0.0) + 3.05).abs() < 1e-5);
+        assert!((bay_for(4.0, ty, false, true, 1.0) - 3.05).abs() < 1e-5);
+        for hand in [false, true] {
+            assert!((bay_for(-4.0, ty, false, hand, 2.0) + 3.05).abs() < 1e-5);
+            assert!((bay_for(4.0, ty, false, hand, 2.0) - 3.05).abs() < 1e-5);
+            for side in [0.0, 1.0, 2.0] {
+                assert_eq!(bay_for(-4.0, ty, true, hand, side), 0.0);
+                assert_eq!(bay_for(f32::NAN, ty, false, hand, side), 0.0);
+            }
+        }
+    }
+
     use super::*;
 
     /// The row OMSI's AI bus is given: the first whose ident is the destination, whatever
@@ -6506,5 +6573,132 @@ pub(crate) mod tests {
         for lat in [0.0, 2.0, -4.0] {
             assert_eq!(bay_offset(lat), lat);
         }
+    }
+}
+
+#[cfg(test)]
+mod authored_station_tests {
+    use super::*;
+    use glam::DVec3;
+    use omsi_sim::traffic::{LaneBuilder, LaneKind};
+
+    #[test]
+    fn paired_boxes_keep_their_authored_visit_even_across_the_platform_side() {
+        let net = Network {
+            lanes: vec![
+                LaneBuilder::polyline(
+                    vec![DVec3::ZERO, DVec3::new(0.0, 100.0, 0.0)],
+                    LaneKind::Street,
+                    3.0,
+                ),
+                LaneBuilder::polyline(
+                    vec![DVec3::new(-6.0, 100.0, 0.0), DVec3::new(-6.0, 0.0, 0.0)],
+                    LaneKind::Street,
+                    3.0,
+                ),
+            ],
+            ..Default::default()
+        };
+        let unload = DVec3::new(1.0, 50.0, 0.0);
+        let board = DVec3::new(-1.2, 52.0, 1.0);
+        // Recife's type-1 BRT trips name one entry for both boxes, although one
+        // box stands across the nominal platform side. A geometric search selects
+        // the return visit for that box and advances the search past the boarding visit.
+        assert_eq!(
+            project_stop(
+                &net,
+                &[0, 1],
+                unload,
+                Some(25.0),
+                0,
+                1.0,
+                StopRoute::Nearest
+            )
+            .unwrap()
+            .0,
+            1
+        );
+        let first = project_stop(
+            &net,
+            &[0, 1],
+            unload,
+            Some(25.0),
+            0,
+            1.0,
+            StopRoute::Track(0),
+        )
+        .unwrap();
+        let second = project_stop(
+            &net,
+            &[0, 1],
+            board,
+            Some(25.0),
+            first.0,
+            1.0,
+            StopRoute::Track(0),
+        )
+        .unwrap();
+        assert_eq!((first.0, second.0), (0, 0));
+        assert!((first.2 - 1.0).abs() < 0.01 && (second.2 + 1.2).abs() < 0.01);
+        assert!(second.1 > first.1);
+        // A repeated lane is a later visit, even with an identical geometric position.
+        assert_eq!(
+            project_stop(&net, &[0, 1, 0], board, None, 0, 1.0, StopRoute::Track(2))
+                .unwrap()
+                .0,
+            2
+        );
+        assert!(project_stop(&net, &[0], board, None, 0, 1.0, StopRoute::Outside).is_none());
+        assert!(
+            project_stop(
+                &net,
+                &[0],
+                DVec3::new(40.0, 50.0, 0.0),
+                Some(25.0),
+                0,
+                1.0,
+                StopRoute::Track(0)
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn streamed_track_stations_account_for_absent_steps_and_connectors() {
+        let slots = [Slot::Lane(7), Slot::Absent, Slot::Lane(9), Slot::Waiting];
+        assert_eq!(
+            station_route(Some(12), 10, &slots, &[0, 3]),
+            StopRoute::Track(3)
+        );
+        assert_eq!(
+            station_route(Some(10), 10, &slots, &[0, 3]),
+            StopRoute::Track(0)
+        );
+        for step in [9, 11, 13, 14] {
+            assert_eq!(
+                station_route(Some(step), 10, &slots, &[0, 3]),
+                StopRoute::Outside
+            );
+        }
+        assert_eq!(station_route(None, 10, &slots, &[0, 3]), StopRoute::Nearest);
+    }
+
+    #[test]
+    fn only_valid_type_one_track_stations_select_authored_entries() {
+        let mut trip = omsi_timetable::Trip {
+            stations_legacy: vec![
+                vec!["42".into(), "70".into()],
+                vec!["43".into(), "bad".into()],
+                vec!["44".into(), "99".into()],
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            trip_station_steps(&trip, true, 80),
+            vec![Some(70), None, None]
+        );
+        assert_eq!(trip_station_steps(&trip, false, 80), vec![None; 3]);
+        trip.stations = vec![42, 43];
+        assert_eq!(trip_station_steps(&trip, true, 80), vec![None; 2]);
     }
 }
