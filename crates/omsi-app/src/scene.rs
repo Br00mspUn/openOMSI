@@ -7281,6 +7281,10 @@ impl World {
                         editable,
                         script: mut early_script,
                     } = o;
+                    let script_strings: &[String] = match (&lamp, strings.as_slice()) {
+                        (&Some((_, _, false)), [_, rest @ ..]) => rest,
+                        _ => strings.as_slice(),
+                    };
                     let tkey = self.type_gpu(renderer, scene, gpu, &ot, images, ground_mat);
                     if !tg.types.contains(&tkey) {
                         gpu.types.get_mut(&tkey).unwrap().users += 1;
@@ -7321,14 +7325,14 @@ impl World {
                     });
                     let mut object_script = if needs_own_script {
                         let program = ot.program.clone().or_else(|| {
-                            (has_pages || (has_freetex && !strings.is_empty())).then(|| Arc::new(omsi_script::Program::default()))
+                            (has_pages || (has_freetex && !script_strings.is_empty())).then(|| Arc::new(omsi_script::Program::default()))
                         });
                         program.map(|program| {
                             let mut inst = early_script.take().unwrap_or_else(|| omsi_sim::scenery::SceneryInstance::new(
                                 program,
                                 &ot.mesh_defs(),
                                 self.script_clock(),
-                                &strings,
+                                script_strings,
                             ));
                             if has_pages {
                                 let object_dir = ot.sco.path.parent().unwrap_or(std::path::Path::new(""));
@@ -7347,7 +7351,7 @@ impl World {
                     }) {
                         ot.program.as_ref().map(|program| {
                             let mut probe = omsi_sim::scenery::SceneryInstance::new(
-                                program.clone(), &ot.mesh_defs(), self.script_clock(), &strings,
+                                program.clone(), &ot.mesh_defs(), self.script_clock(), script_strings,
                             );
                             probe.update(0.0, &omsi_sim::scenery::SceneryVars {
                                 in_use: 1.0, ..Default::default()
@@ -7466,7 +7470,7 @@ impl World {
                                     overrides,
                                     object_script.as_ref(),
                                     freetex_probe.as_ref(),
-                                    &strings,
+                                    script_strings,
                                 ) else {
                                     continue;
                                 };
@@ -7578,7 +7582,7 @@ impl World {
                                         .trim()
                                         .parse::<usize>()
                                         .ok()
-                                        .and_then(|k| strings.get(k))
+                                        .and_then(|k| script_strings.get(k))
                                         .cloned()
                                         .unwrap_or_default();
                                     let alpha = text_alpha(o3d_mats, slot, overrides);
@@ -7806,7 +7810,7 @@ impl World {
                                 p.clone(),
                                 &ot.mesh_defs(),
                                 self.script_clock(),
-                                &strings,
+                                script_strings,
                             )))
                         });
                         let lit = vec![0.0; coronas.len()];
