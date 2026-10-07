@@ -3234,6 +3234,17 @@ impl Traffic {
         ahead: f32,
         by_lane: &HashMap<usize, Vec<(usize, f32, f32, bool)>>,
     ) -> bool {
+        // Parked scenery cars are not in `by_lane`. An otherwise empty lane must still
+        // leave room for this vehicle before it starts moving over.
+        if !parked_lane_clear(
+            self.parked.get(&lane).map(Vec::as_slice).unwrap_or(&[]),
+            s,
+            back,
+            ahead,
+            self.cars[i].half_width,
+        ) {
+            return false;
+        }
         let Some(list) = by_lane.get(&lane) else {
             return true;
         };
@@ -3252,6 +3263,15 @@ impl Traffic {
         by_lane: &HashMap<usize, Vec<(usize, f32, f32, bool)>>,
     ) -> bool {
         let me = &self.cars[i].state;
+        if !parked_lane_clear(
+            self.parked.get(&lane).map(Vec::as_slice).unwrap_or(&[]),
+            s,
+            me.rear + 1.0,
+            me.front + 2.0 + me.speed * 1.5,
+            self.cars[i].half_width,
+        ) {
+            return false;
+        }
         // the cars on the lane, and those about to come onto it from the lanes before it (a
         // bus changing lanes just after a joint cut in front of a car still on the lane
         // before, which the target lane alone did not show)
@@ -7311,6 +7331,58 @@ impl Traffic {
                 }
             }
         }
+    }
+}
+
+/// A parked car uses the same approximate body as the driving obstacle check:
+/// half length 2.3 m, half width 0.9 m, and 0.15 m lateral clearance. A car well
+/// off the target lane must not prevent a lane change on a narrow street.
+fn parked_lane_clear(
+    parked: &[(f32, f32)],
+    s: f32,
+    back: f32,
+    ahead: f32,
+    half_width: f32,
+) -> bool {
+    !parked.iter().any(|&(at, lat)| {
+        lat.abs() < half_width + 0.9 + 0.15 && at + 2.3 >= s - back && at - 2.3 <= s + ahead
+    })
+}
+
+#[cfg(test)]
+mod parked_lane_tests {
+    use super::*;
+
+    #[test]
+    fn a_parked_body_blocks_an_otherwise_empty_target_lane() {
+        assert!(parked_lane_clear(&[], 50.0, 30.0, 70.0, 0.9));
+        assert!(!parked_lane_clear(&[(55.0, 0.0)], 50.0, 30.0, 70.0, 0.9));
+        // The centre is outside the inspected strip, but the parked car's body is not.
+        assert!(!parked_lane_clear(&[(121.0, 0.0)], 50.0, 30.0, 70.0, 0.9));
+        assert!(!parked_lane_clear(&[(19.0, 0.0)], 50.0, 30.0, 70.0, 0.9));
+        assert!(parked_lane_clear(
+            &[(123.0, 0.0), (17.0, 0.0)],
+            50.0,
+            30.0,
+            70.0,
+            0.9
+        ));
+    }
+
+    #[test]
+    fn parked_clearance_accounts_for_vehicle_width_and_both_sides() {
+        for lateral in [-2.1, 2.1] {
+            // A car fits; a wider bus would overlap the parked body.
+            assert!(parked_lane_clear(&[(50.0, lateral)], 50.0, 4.0, 10.0, 0.9));
+            assert!(!parked_lane_clear(
+                &[(50.0, lateral)],
+                50.0,
+                7.0,
+                14.0,
+                1.25
+            ));
+        }
+        assert!(parked_lane_clear(&[(50.0, 2.7)], 50.0, 7.0, 14.0, 1.25));
     }
 }
 
