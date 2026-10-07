@@ -2052,7 +2052,6 @@ impl Schedule {
             self.carry_on(world, traffic);
         }
         self.fleet(world, traffic, renderer, scene, day_time);
-        self.feed_ai_hosts(traffic);
         self.tour_handover(world, traffic, renderer, scene, day_time);
         // a handful per call: spawning a bus builds its meshes, and a whole rush hour at
         // once is a frame that lasts seconds (a departure that has to wait costs little)
@@ -2074,28 +2073,6 @@ impl Schedule {
                 }
                 Placed::Drop => {}
             }
-        }
-    }
-
-    /// The timetable buses' stop and delay for their scripts (`GetTTBusstopIndex`,
-    /// `GetTTDelay`; see `feed_ai_timetable`): the stop they are due at next, the delay as of
-    /// the last stop.
-    fn feed_ai_hosts(&self, traffic: &mut Traffic) {
-        for car in traffic.cars.iter_mut().filter(|c| self.car_departure.contains_key(&c.id)) {
-            let Some(b) = car.bus.as_ref() else { continue };
-            let host = &mut car.vehicle.host;
-            if host.tt_stop_ids.is_empty() {
-                continue;
-            }
-            let from = host.tt_busstop_index.max(0) as usize;
-            if let Some(next) = b.stops.front() {
-                if let Some(k) = host.tt_stop_ids.iter().skip(from).position(|id| *id == next.id) {
-                    host.tt_busstop_index = (from + k) as i32;
-                }
-            } else {
-                host.tt_busstop_index = host.tt_stop_ids.len().saturating_sub(1) as i32;
-            }
-            host.tt_delay = b.delay as f32;
         }
     }
 
@@ -2189,6 +2166,26 @@ impl Schedule {
             }
         }
         self.running = keep;
+    }
+
+    fn ai_timetable(&self, i: usize) -> crate::bus_service::AiTimetable {
+        let trip = &self.data.trips[self.departures[i].trip];
+        let ids = trip_stations(trip);
+        let names = self.trip_stop_names(self.departures[i].trip);
+        let times = &self.times_of(i).stations;
+        let departure = self.dep_time(i);
+        crate::bus_service::AiTimetable {
+            line: self.display_line(i),
+            terminus: trip.terminus.clone(),
+            stops: ids
+                .into_iter()
+                .zip(names)
+                .zip(times)
+                .map(|((id, name), &(arr, dep))| {
+                    (id, name, (departure + arr) as f32, (departure + dep) as f32)
+                })
+                .collect(),
+        }
     }
 
     /// Put departure `i` on the road where its bus is at `day_time`: on the part of the route
@@ -2478,8 +2475,13 @@ impl Schedule {
             }
             let hof = car.vehicle.host.hof.clone();
             let names: Vec<&str> = names.iter().map(String::as_str).collect();
+            let timetable = self.ai_timetable(i);
+            timetable.install(&mut car.vehicle.host, car.bus.as_ref().and_then(|b| b.stops.front()));
+            car.vehicle.set_var("schedule_active", 1.0);
+            if let Some(b) = car.bus.as_mut() {
+                b.delay = 0.0;
+            }
             set_ai_destination(&mut car.vehicle, hof.as_deref(), &line, &terminus, &names);
-            feed_ai_timetable(&mut car.vehicle, &line, &terminus, &names, &stations, &arrive, &leave);
             if let Some(b) = car.bus.as_mut() {
                 b.route_open = end < slots.len();
                 b.terminus = terminus.clone();
@@ -2650,6 +2652,7 @@ impl Schedule {
             number.clone(),
             hof.clone(),
             Some(scheme),
+            self.ai_timetable(i),
         ) else {
             return Placed::Drop;
         };
@@ -2686,7 +2689,6 @@ impl Schedule {
             car.vehicle.state.str_vars[i as usize] = line.clone();
         }
         set_ai_destination(&mut car.vehicle, hof.as_deref(), &line, &terminus, &names);
-        feed_ai_timetable(&mut car.vehicle, &line, &terminus, &names, &stations, &arrive, &leave);
         log::info!("scheduled bus: line {line} tour {tour} trip {trip_name} {} #{:?} at {:.1} min, {} stops, at ({:.1}, {:.1}) heading {:.0}{}", ty.def.type_name, number.as_ref().map(|n| format!("{} plate {:?} paint {:?}", n.0, n.1, scheme.and_then(|i| ty.paint_schemes.get(i)).map(|p| p.name.as_str()))), day_time / 60.0, car.bus.as_ref().map(|b| b.stops.len()).unwrap_or(0), car.vehicle.position.x, car.vehicle.position.y, car.vehicle.heading, if end < slots.len() { format!(", route {} of {} steps so far", end - start, steps.len()) } else { String::new() });
         if end < slots.len() {
             self.running.push(RunningTrip {
@@ -2926,26 +2928,6 @@ fn depot_file(
     let h = found.map(Arc::new);
     cache.insert(key, h.clone());
     h
-}
-
-/// A timetable bus's own timetable for its scripts, as the player's duty gives it
-/// (`PlayerDuty::feed_host`): `schedule_active`, and the trip's stops and times behind the
-/// `GetTT*` macros. AI buses had none - `schedule_active` 0, an IBIS showing no delay and no
-/// stop list (#1580). [`Schedule::feed_ai_hosts`] keeps the stop and the delay up to date.
-fn feed_ai_timetable(v: &mut omsi_sim::VehicleInstance, line: &str, terminus: &str, names: &[&str], stations: &[i64], arrive: &[f64], leave: &[f64]) {
-    let host = &mut v.host;
-    host.schedule_active = 1.0;
-    host.tt_line = line.to_string();
-    host.tt_stops = stations
-        .iter()
-        .enumerate()
-        .map(|(k, _)| (names.get(k).map(|n| n.to_string()).unwrap_or_default(), arrive.get(k).copied().unwrap_or(0.0) as f32, leave.get(k).copied().unwrap_or(0.0) as f32))
-        .collect();
-    host.tt_stop_ids = stations.to_vec();
-    host.tt_busstop_index = 0;
-    host.tt_terminus_index = tt_terminus_index(host.hof.as_deref(), terminus);
-    host.tt_delay = 0.0;
-    v.set_var("schedule_active", 1.0);
 }
 
 /// Put an AI bus's IBIS onto the line/terminus of its trip: the depot file gives the

@@ -138,6 +138,7 @@ pub struct BusSetup {
     /// Fleet number and registration (`number`, `ident` string variables).
     pub number: Option<(String, String)>,
     pub hof: Option<Arc<omsi_vehicle::Hof>>,
+    pub timetable: crate::bus_service::AiTimetable,
 }
 
 pub struct AiCar {
@@ -2695,6 +2696,7 @@ impl Traffic {
         host.font_lib = Some(world.fonts.clone());
         if let Some(b) = &bus {
             host.hof = b.hof.clone();
+            b.timetable.install(&mut host, b.stops.first());
         }
         // random paint scheme / advert (its variables there for the scripts' {init})
         let scheme = match scheme {
@@ -3002,6 +3004,7 @@ impl Traffic {
         number: Option<(String, String)>,
         hof: Option<Arc<omsi_vehicle::Hof>>,
         scheme: Option<Option<usize>>,
+        timetable: crate::bus_service::AiTimetable,
     ) -> Option<usize> {
         let &lane = route.first()?;
         let kind = self.net.lanes.get(lane)?.kind;
@@ -3015,6 +3018,7 @@ impl Traffic {
             stops: stops.into_iter().map(crate::bus_service::Stop::from_tuple).collect(),
             number,
             hof,
+            timetable,
         };
         let center = self.viewer.map(|v| v.pos).unwrap_or_default();
         let id = self.create_car(world, renderer, scene, center, kind, lane, s, ty.clone(), seed, scheme, None, None, Some(setup));
@@ -5904,6 +5908,7 @@ impl Traffic {
                             why = ("service", at);
                         }
                     }
+                    service.feed_timetable(&mut car.vehicle, self.day_time);
                 } else if car.passing.is_none() && car.park.is_none() {
                     // round a car parked at the kerb, else in the middle of the lane
                     let target = kerb_swerve.unwrap_or(0.0);
@@ -6780,6 +6785,14 @@ impl Traffic {
             b.restart(Vec::new(), false);
         }
         car.gone = true;
+        car.vehicle.host.schedule_active = 0.0;
+        car.vehicle.host.tt_line.clear();
+        car.vehicle.host.tt_stops.clear();
+        car.vehicle.host.tt_stop_ids.clear();
+        car.vehicle.host.tt_busstop_index = -1;
+        car.vehicle.host.tt_terminus_index = -1;
+        car.vehicle.host.tt_delay = 0.0;
+        car.vehicle.set_var("schedule_active", 0.0);
     }
 
     /// Take all random AI cars off the road now, keeping timetable buses. Returns how many

@@ -1154,6 +1154,9 @@ impl VehicleInstance {
                 }
             }
         }
+        if let Some(i) = var_index.get("schedule_active") {
+            state.vars[*i as usize] = host.schedule_active;
+        }
         vm.run_init(&program, &mut state, &mut host);
         let mut animators: Vec<MeshAnimator> = ty
             .meshes
@@ -2351,6 +2354,7 @@ impl VehicleInstance {
         pinned: &[(omsi_script::VarId, f32)],
     ) {
         self.host.clock.advance(dt);
+        self.set_engine_var("schedule_active", self.host.schedule_active);
         self.physics.speed = ai.speed;
         self.physics.steer_deg = ai.steer_deg;
         let v_kmh = ai.speed * 3.6;
