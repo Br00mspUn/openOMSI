@@ -800,7 +800,12 @@ impl Humans {
                     continue;
                 }
                 reg.near.push(*id);
-                if same_way {
+                // A scheduled AI already knows its next stop. Nearby platforms must not
+                // overwrite that identity according to their object-id sort order.
+                // Keep the original geometric fallback for the player and unknown trips.
+                let matches_trip = !matches!(bn.id, BusId::Ai(_))
+                    || bn.next_stop.as_ref().is_none_or(|next| next.id == *id);
+                if same_way && matches_trip {
                     reg.next = Some(*id);
                 }
                 // a bus not in service, or at its own terminus, empties and takes nobody
@@ -2386,6 +2391,111 @@ impl Humans {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arriving_ai_uses_the_timetable_stop_not_a_neighbour() {
+        let dir = std::env::temp_dir().join(format!("omsi-ai-stop-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("test.bus"),
+            "[passengercabin]\ncabin.cfg\n[paths]\npaths.cfg\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("paths.cfg"),
+            "[pathpnt]\n1\n0\n0\n[pathpnt]\n0\n0\n0\n[pathlink]\n0\n1\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("cabin.cfg"),
+            "[entry]\n0\n[exit]\n0\n[passpos]\n0\n0\n0.9\n0.45\n0\n",
+        )
+        .unwrap();
+        let def = omsi_vehicle::Vehicle::load(&dir.join("test.bus")).unwrap();
+        let cabin =
+            Arc::new(Cabin::load_train(&[(&def, Vec3::ZERO, f32::INFINITY)]).expect("cabin"));
+        std::fs::remove_dir_all(&dir).unwrap();
+        let mut humans = Humans::new(Path::new("/nonexistent"));
+        humans.stops.insert(42, test_stop("Scheduled", ""));
+        let mut neighbour = test_stop("Neighbour", "");
+        neighbour.pos = DVec3::Y * 3.0;
+        humans.stops.insert(99, neighbour);
+        let mut bus = BusNow {
+            id: BusId::Ai(3),
+            next_stop: Some(RequestStop {
+                id: 42,
+                name: "Scheduled".into(),
+                alias: String::new(),
+                pos: DVec3::ZERO,
+            }),
+            cabin,
+            pos: DVec3::ZERO,
+            rot: Mat4::IDENTITY,
+            heading: 0.0,
+            speed: 0.0,
+            entry_open: vec![true],
+            exit_open: vec![true],
+            walk_open: None,
+            interior: 0.0,
+            air: CabinAir::default(),
+            half: DVec2::new(1.25, 6.0),
+            centre: DVec2::ZERO,
+            accel: DVec2::ZERO,
+            trailers: Vec::new(),
+            terminus: Some("Elsewhere".into()),
+            takes: Takes::Terminus,
+            places_off: Vec::new(),
+            served: None,
+        };
+        let register = |humans: &mut Humans, bus: &BusNow| {
+            humans
+                .register_buses(std::slice::from_ref(bus), 0.0)
+                .remove(&bus.id)
+                .unwrap()
+        };
+        let registered = register(&mut humans, &bus);
+        assert_eq!(
+            registered.next,
+            Some(42),
+            "a neighbouring platform cannot replace the trip stop"
+        );
+        assert_eq!(
+            registered.near,
+            [42, 99],
+            "nearby stops still participate in boarding detection"
+        );
+        bus.next_stop.as_mut().unwrap().id = 123;
+        assert_eq!(
+            register(&mut humans, &bus).next,
+            None,
+            "do not arrive at a different stop while the trip stop is absent"
+        );
+        bus.served = Some(123);
+        assert_eq!(
+            register(&mut humans, &bus).next,
+            Some(123),
+            "an unloaded timetable stop retains the upstream served-stop fallback"
+        );
+        bus.served = None;
+        bus.next_stop = None;
+        assert_eq!(
+            register(&mut humans, &bus).next,
+            Some(99),
+            "unknown routes retain the geometric fallback"
+        );
+        bus.next_stop = Some(RequestStop {
+            id: 42,
+            name: "Scheduled".into(),
+            alias: String::new(),
+            pos: DVec3::ZERO,
+        });
+        bus.id = BusId::Player;
+        assert_eq!(
+            register(&mut humans, &bus).next,
+            Some(99),
+            "preserve the player's OMSI-compatible geometric detection"
+        );
+    }
 
     /// A timetable bus waits for the people walking up to its doors from its stop and for
     /// those on their way out of it - not for the people still at the gather point, who
