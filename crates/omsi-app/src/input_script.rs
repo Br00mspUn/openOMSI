@@ -1392,7 +1392,7 @@ impl App {
             self.player.as_mut(),
             ray,
         ) {
-            self.drag_delta = (0.0, 0.0);
+            let (dx, dy) = std::mem::take(&mut self.drag_delta);
             p.occlude_controls = self.view == "outside";
             if pressed {
                 if let Some((page, u, v)) = p.html_hit(o, d) {
@@ -1411,6 +1411,12 @@ impl App {
                     p.html_pointer(page, u, v, omsi_sim::htmltex::PointerKind::Up);
                     self.dragging = false;
                     return;
+                }
+                // CursorMoved and the release can arrive between redraws. Deliver the
+                // last movement before `_off`, so a short adjustment is not lost or
+                // mistaken for a stationary click on a drag-only control.
+                if self.dragging && (dx != 0.0 || dy != 0.0) {
+                    p.drag(dx, dy);
                 }
                 if self.dragging && self.buttons_held.1 {
                     p.release_keeping();
