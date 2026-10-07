@@ -2041,8 +2041,9 @@ impl AiState {
     fn choose_after(&mut self, net: &Network, lane: usize) -> Option<usize> {
         let l = &net.lanes[lane];
         // (a car of a traffic pool - the trucks of a map that keeps them to its port roads -
-        // takes the ways its pool may go, as it was put on one; where none of them does, the
-        // ways open to cars, then any: it does not stand at the junction for ever)
+        // takes only the ways its pool may go, as it was put on one. A forbidden exit
+        // remains forbidden even if every exit is closed; normal end-of-route handling
+        // must deal with that, rather than driving into a pedestrian or restricted lane.)
         let open_to = |pooled: bool| -> Vec<usize> {
             l.next
                 .iter()
@@ -2057,10 +2058,10 @@ impl AiState {
                 })
                 .collect()
         };
-        let pooled = self.traffic_pool.is_some().then(|| open_to(true)).filter(|o| !o.is_empty());
+        let pooled = self.traffic_pool.is_some().then(|| open_to(true));
         let weighted = pooled.is_some();
         let open = pooled.unwrap_or_else(|| open_to(false));
-        let mut choices = if open.is_empty() { l.next.clone() } else { open };
+        let mut choices = open;
         // and a way that goes on rather than into the end of the network, where there is
         // the choice (the map's edge is where OMSI takes its cars away; a village like
         // Grundorf had a queue of twenty growing at the end of its one outbound road)
@@ -2729,6 +2730,39 @@ mod tests {
         assert!(!l.allows(0) && !l.allows(1));
         l.rule_bus = true;
         assert!(!l.allows(0) && l.allows(1) && l.allows(2) && !l.allows(3));
+    }
+
+    #[test]
+    fn no_legal_exit_does_not_fall_back_to_a_forbidden_lane() {
+        let mut net = junction();
+        let mut car = AiState::new(0, 0.0, 7);
+        net.lanes[1].no_cars = true;
+        assert_eq!(car.choose_after(&net, 0), None);
+        net.lanes[1].no_cars = false;
+        net.lanes[1].density = 0.0;
+        assert_eq!(car.choose_after(&net, 0), None);
+        net.lanes[1].density = 1.0;
+        car.veh_type = 3;
+        assert_eq!(car.choose_after(&net, 0), None);
+        net.lanes[1].rule_trucks = true;
+        assert_eq!(car.choose_after(&net, 0), Some(1));
+        // Explicit timetable paths retain their original OMSI semantics.
+        car.veh_type = -1;
+        car.route = vec![0, 1];
+        net.lanes[1].density = 0.0;
+        car.plan_next(&net);
+        assert_eq!(car.planned_next, Some(1));
+    }
+
+    #[test]
+    fn pool_closed_exits_cannot_fall_back_to_general_traffic() {
+        let mut net = junction();
+        let mut car = AiState::new(0, 0.0, 7);
+        car.traffic_pool = Some((2, vec![1, 1, 1].into()));
+        net.lanes[1].group_density = vec![(2, 0.0)];
+        assert_eq!(car.choose_after(&net, 0), None);
+        net.lanes[1].group_density = vec![(2, 0.5)];
+        assert_eq!(car.choose_after(&net, 0), Some(1));
     }
 
     #[test]

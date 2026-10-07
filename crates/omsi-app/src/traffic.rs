@@ -4157,17 +4157,7 @@ impl Traffic {
     /// road, #327) and to its `[ai_veh_type]` (`Lane::allows`).
     fn open_to(&self, i: usize, lane: usize) -> bool {
         let Some(l) = self.net.lanes.get(lane) else { return false };
-        if l.no_cars || l.density <= 0.0 {
-            return false;
-        }
-        let car = &self.cars[i];
-        if !l.allows(car.state.veh_type) {
-            return false;
-        }
-        match car.state.traffic_pool.as_ref() {
-            Some((pool, defaults)) if !l.group_density.is_empty() => l.pool_density(defaults, *pool) > 0.0,
-            _ => true,
-        }
+        lane_open_to(l, &self.cars[i].state)
     }
 
     /// The lanes of a car's way with their distance from its origin: the current lane (at
@@ -8191,5 +8181,51 @@ mod signal_entry_tests {
         assert_eq!(entry_light(&net, &way, 0), Some((0, 0)));
         assert_eq!(entry_light(&net, &way, 1), None);
         assert_eq!(entry_light(&net, &way, 2), Some((1, 0)));
+    }
+}
+
+/// The same vehicle/group gates used by route planning also apply to lane changes.
+fn lane_open_to(lane: &omsi_sim::traffic::Lane, state: &AiState) -> bool {
+    lane.allows(state.veh_type)
+        && match state.traffic_pool.as_ref() {
+            Some((pool, defaults)) => lane.pool_density(defaults, *pool) > 0.0,
+            None => lane.density > 0.0,
+        }
+}
+
+#[cfg(test)]
+mod lane_permission_tests {
+    use super::*;
+    use omsi_sim::traffic::LaneBuilder;
+
+    #[test]
+    fn lane_changes_follow_type_and_pool_permissions() {
+        let mut lane = LaneBuilder::arc(DVec3::ZERO, 0.0, 20.0, 0.0, 0.0, LaneKind::Street, 3.0);
+        let mut state = AiState::new(0, 0.0, 1);
+        lane.no_cars = true;
+        lane.rule_bus = true;
+        assert!(!lane_open_to(&lane, &state));
+        state.veh_type = 1;
+        assert!(
+            lane_open_to(&lane, &state),
+            "taxis may use an explicitly open bus lane"
+        );
+        state.veh_type = 2;
+        assert!(lane_open_to(&lane, &state));
+        state.traffic_pool = Some((2, vec![1, 1, 1].into()));
+        lane.group_density = vec![(2, 0.0)];
+        assert!(!lane_open_to(&lane, &state));
+        lane.group_density = vec![(2, 0.5)];
+        lane.density = 0.0;
+        assert!(
+            lane_open_to(&lane, &state),
+            "the specific pool rule matches route-planning semantics"
+        );
+        lane.group_density.clear();
+        state.traffic_pool = Some((2, vec![1, 1, 0].into()));
+        assert!(
+            !lane_open_to(&lane, &state),
+            "disabled default groups remain closed without a path override"
+        );
     }
 }
