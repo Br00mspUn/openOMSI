@@ -809,7 +809,9 @@ impl Ui {
         // --- the information bar, along the top in the middle: in as many rows as the room
         // it has needs
         self.info_rect = None;
-        if let Some(info) = f.info.as_ref() {
+        // (not under the pause menu's rail, from under which it stood out)
+        let rail = f.menu.is_some() && f.menu_kind == MenuKind::Game && f.menu_head.is_none() && !f.vr;
+        if let Some(info) = f.info.as_ref().filter(|_| !rail) {
             let px = (15.0 * s) as u32;
             let pad = 10.0 * s;
             let [x0, x1, y] = f.info_room.unwrap_or([12.0 * s, f.width - 12.0 * s, 8.0 * s]);
@@ -1918,13 +1920,16 @@ impl Ui {
         let dim = self.text.plate(r, scene, 6);
         scene.overlays.push((dim, [0.0, 0.0, f.width, f.height]));
         let keys = !crate::platform::touch_controls();
-        let rail_w = (264.0 * s).min(f.width * 0.86).round();
+        // (a phone draws to its edges, round the camera's hole in the screen: on the rail's
+        // side in one of the two landscape turns - its contents keep clear of it)
+        let cut = if crate::platform::MOBILE || omsi_cfg::env::var_os("OMSI_MOBILE").is_some() { 18.0 * s } else { 0.0 };
+        let rail_w = (264.0 * s + cut).min(f.width * 0.86).round();
         // the rail: flat, a hairline at its edge, a soft shadow over the picture
         self.text.shadow(r, scene, [-40.0 * s, -40.0 * s, rail_w, f.height + 40.0 * s], 0.0, 30.0 * s, 0.0, 120);
         self.text.rounded(r, scene, [0.0, 0.0, rail_w, f.height], 0.0, RAIL);
         self.text.rounded(r, scene, [rail_w - 1.0, 0.0, rail_w, f.height], 0.0, EDGE);
         // the game's name and version, as at the top of the launcher's rail
-        let bx = 24.0 * s;
+        let bx = 24.0 * s + cut;
         let name_w = self.put(r, scene, "openOMSI", (20.0 * s) as u32 | BOLD, WHITE, bx, 34.0 * s);
         self.put(r, scene, crate::startup::VERSION, (12.0 * s) as u32, MUTED, bx, 54.0 * s);
         // what state the game is in, a small amber tag beside the name
@@ -1952,7 +1957,7 @@ impl Ui {
         self.menu_rows = rows;
         self.menu_row_h = pitch;
         let scrolls = n > rows;
-        let x0 = 12.0 * s;
+        let x0 = 12.0 * s + cut;
         let x1 = rail_w - if scrolls { 20.0 * s } else { 12.0 * s };
         if scrolls {
             let track = [rail_w - 10.0 * s, top, rail_w - 6.0 * s, top + pitch * rows as f32 - 4.0 * s];

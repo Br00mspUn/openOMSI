@@ -2233,6 +2233,9 @@ impl ApplicationHandler for App {
                                 .hud_viewport((s.config.width, s.config.height))
                         })
                         .unwrap_or([0.0, 0.0, 1.0, 1.0]);
+                    // (not under the open game menu: the pause menu's rail covers the left
+                    // edge, and the navigator's panel stood out from under it)
+                    let nav_hidden = !vr_active && self.game_menu.is_some();
                     if let (Some(nav), Some(p), Some(_)) = (
                         self.navigator.as_mut(),
                         self.player.as_ref(),
@@ -2244,6 +2247,9 @@ impl ApplicationHandler for App {
                         if vr_active {
                             nav.enabled = vr_nav_display.is_some_and(|d| d.placement.enabled);
                             nav.opacity = vr_nav_display.map(|d| d.placement.opacity).unwrap_or(0.95);
+                        }
+                        if nav_hidden {
+                            nav.enabled = false;
                         }
                         if let Some(w) = self.world.as_ref() {
                             nav.start_map(w.clone());
