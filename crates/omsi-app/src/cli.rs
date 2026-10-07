@@ -183,6 +183,9 @@ pub(crate) struct Args {
     pub(crate) situation_vars: Vec<(String, f32)>,
     #[arg(skip)]
     pub(crate) situation_strvars: Vec<(String, String)>,
+    /// The saved bus odometer, applied after spawning so initialization cannot replace it.
+    #[arg(skip)]
+    pub(crate) situation_odometer_km: Option<f64>,
     /// Saved ordinal in the current timetable trip; absent in older situations.
     #[arg(skip)]
     pub(crate) situation_next_stop: Option<usize>,
@@ -292,6 +295,7 @@ pub(crate) fn parse_triggers(args: &Args) -> Vec<(String, f32)> {
 impl Args {
     pub(crate) fn is_resuming(&self) -> bool {
         self.situation.is_some()
+            || self.situation_odometer_km.is_some()
             || !self.situation_vars.is_empty()
             || !self.situation_strvars.is_empty()
     }
@@ -307,4 +311,5 @@ pub(crate) struct SituationOther {
     pub paint: Option<String>,
     pub vars: Vec<(String, f32)>,
     pub strvars: Vec<(String, String)>,
+    pub odometer_km: Option<f64>,
 }

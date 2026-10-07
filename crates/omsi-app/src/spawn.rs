@@ -483,6 +483,9 @@ pub(crate) fn spawn_player(
         let (numeric, textual) = p
             .vehicle
             .restore_script_state(&args.situation_vars, &args.situation_strvars);
+        if let Some(km) = args.situation_odometer_km {
+            p.vehicle.set_odometer_km(km);
+        }
         log::info!(
             "situation: {numeric} of {} variables and {textual} of {} strings restored",
             args.situation_vars.len(),

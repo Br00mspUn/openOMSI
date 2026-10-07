@@ -1930,6 +1930,21 @@ impl VehicleInstance {
         self.rigid = Some(rb);
     }
 
+    /// The bus's total mileage, as Omsi.exe 0x64207E writes it into a situation:
+    /// the starting reading plus the kilometres driven since it was loaded.
+    pub fn odometer_km(&self) -> f64 {
+        self.host.km_base + self.driven_km
+    }
+
+    /// Continue a saved reading without giving the bus another random service history.
+    /// Omsi.exe clears driven km at 0x643DBB and restores the total into the starting
+    /// reading at 0x643DF3; subtract our already driven distance to keep the same total
+    /// even when the caller has ticked the vehicle before restoring its situation.
+    pub fn set_odometer_km(&mut self, km: f64) {
+        self.host.km_base = km - self.driven_km;
+        self.km_started = true;
+    }
+
     /// Where variable `name` sits among the script's variables (`State::vars`).
     pub fn var_slot(&self, name: &str) -> Option<usize> {
         omsi_script::compile::with_lower(name, |k| self.var_index.get(k).map(|&i| i as usize))
@@ -2083,7 +2098,7 @@ impl VehicleInstance {
         // `[kmcounter_init] year km`: in service since that year, so many kilometres a year -
         // the odometer starts at what that comes to on the day driven (it stood at 0 on
         // every bus that has one, #305), a little different from bus to bus of the kind.
-        // Omsi.exe 0x7d18e8: Random(100)/10 + 8 + max(0, years) * km * (1 + 0.2 *
+        // Omsi.exe 0x7D1E42: Random(100)/10 + 8 + max(0, years) * km * (1 + 0.2 *
         // (Random(100) - 50) / 50), and 1980 / 60000 km a year without the keyword
         // (TRoadVehicle.LoadFromFile's defaults).
         if !self.km_started {
@@ -2097,7 +2112,7 @@ impl VehicleInstance {
             }
         }
         // (the sum is split, not the parts: 0.7 km + 0.5 km is 1 km 200 m, not 0 km 1200 m)
-        let total = self.host.km_base + self.driven_km;
+        let total = self.odometer_km();
         self.set_engine_var("kmcounter_km", total.trunc() as f32);
         self.set_engine_var("kmcounter_m", (total.fract() * 1000.0) as f32);
         self.set_engine_var("humans_count", self.host.humans_count);
@@ -5419,6 +5434,30 @@ mod tests {
             .map(|(p, r)| (*p - *r).length())
             .fold(0.0f32, f32::max);
         assert!(worst < 1e-3, "straight bellows off by {worst}");
+    }
+
+    #[test]
+    fn restored_odometer_survives_engine_updates_and_continues_driving() {
+        for driven in [0.0, 2.75] {
+            let mut v = VehicleInstance::new(coupling_test_type(None), VehicleHost::new(Default::default()));
+            v.driven_km = driven;
+            v.set_odometer_km(75556.639);
+            assert_eq!(v.odometer_km(), 75556.639);
+            v.update_engine_vars(0.02);
+            assert_eq!(v.odometer_km(), 75556.639);
+            assert_eq!(v.var("kmcounter_km"), Some(75556.0));
+            assert!((v.var("kmcounter_m").unwrap() - 639.0).abs() < 0.001);
+            v.driven_km += 0.5;
+            v.update_engine_vars(0.02);
+            assert!((v.odometer_km() - 75557.139).abs() < 1e-8);
+            assert_eq!(v.var("kmcounter_km"), Some(75557.0));
+            assert!((v.var("kmcounter_m").unwrap() - 139.0).abs() < 0.001);
+        }
+        // A restored zero is deliberate, rather than the sentinel for a random start.
+        let mut v = VehicleInstance::new(coupling_test_type(None), VehicleHost::new(Default::default()));
+        v.set_odometer_km(0.0);
+        v.update_engine_vars(0.02);
+        assert_eq!(v.odometer_km(), 0.0);
     }
 
     /// A bus without `[kmcounter_init]` starts with Omsi.exe's defaults (in service since
